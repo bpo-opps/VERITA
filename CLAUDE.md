@@ -2,7 +2,7 @@
 
 ## Instagram: fluxo de conteúdo
 
-As 9 skills do pacote `sergebulaev/instagram-skills` (MIT, commit `313ef29`) estão copiadas como skills do projeto em `.claude/skills/ig-*`, com as referências compartilhadas em `.claude/references/` e as regras de voz do pacote em `.claude/SKILL.md` (o "root `SKILL.md`" citado pelas skills). A pasta `lib/` do pacote (clientes Apify e Publora) não foi copiada: sem ela, as skills trabalham com dados colados pela pessoa.
+As 9 skills do pacote `sergebulaev/instagram-skills` (MIT, commit `313ef29`) estão copiadas como skills do projeto em `.claude/skills/ig-*`, com as referências compartilhadas em `.claude/references/` e as regras de voz do pacote em `.claude/SKILL.md` (o "root `SKILL.md`" citado pelas skills). Da pasta `lib/` do pacote, só a camada de **leitura** foi copiada para `lib/` na raiz: `ApifyClient` (hashtags e perfis, via `APIFY_TOKEN`), `parse_instagram_url` e `rank_by_comment_ratio` (nosso, aplica a regra de ranqueamento abaixo). O cliente de publicação (Publora), os geradores de imagem e `publish()` **não** foram copiados: nada neste repositório posta no Instagram. Dependências: `pip install -r requirements.txt`. Sem `APIFY_TOKEN` (ou sem acesso de rede a `api.apify.com`), peça à pessoa para colar os dados e rode a mesma análise.
 
 ### Ordem obrigatória
 
@@ -28,6 +28,7 @@ Ordene os posts retornados por **comentários ÷ curtidas**, não por alcance ne
 - Alcance mede distribuição; comentário mede quem parou.
 - Mostre a razão (ex.: `0,042`) ao lado de cada post e use-a como critério principal ao extrair o padrão vencedor.
 - Ignore posts com poucas curtidas absolutas (amostra pequena distorce a razão) e diga quando fizer isso.
+- Use `lib.rank_by_comment_ratio(posts)` (corte padrão: 50 curtidas) e informe quantos posts ficaram de fora.
 
 ### O que o pacote não faz, e a aprovação antes de publicar
 
