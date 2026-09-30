@@ -2,7 +2,7 @@
 
 ## Instagram: fluxo de conteúdo
 
-O plugin `instagram-skills` (marketplace `sergebulaev/instagram-skills`) está habilitado em `.claude/settings.json`.
+As 9 skills do pacote `sergebulaev/instagram-skills` (MIT, commit `313ef29`) estão copiadas como skills do projeto em `.claude/skills/ig-*`, com as referências compartilhadas em `.claude/references/` e as regras de voz do pacote em `.claude/SKILL.md` (o "root `SKILL.md`" citado pelas skills). A pasta `lib/` do pacote (clientes Apify e Publora) não foi copiada: sem ela, as skills trabalham com dados colados pela pessoa.
 
 ### Ordem obrigatória
 
