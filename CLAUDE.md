@@ -28,3 +28,14 @@ Ordene os posts retornados por **comentários ÷ curtidas**, não por alcance ne
 - Alcance mede distribuição; comentário mede quem parou.
 - Mostre a razão (ex.: `0,042`) ao lado de cada post e use-a como critério principal ao extrair o padrão vencedor.
 - Ignore posts com poucas curtidas absolutas (amostra pequena distorce a razão) e diga quando fizer isso.
+
+### O que o pacote não faz, e a aprovação antes de publicar
+
+- **A imagem e o vídeo são seus.** As skills entregam legenda, hook, hashtags e o plano de slides ou de tomadas. Não gere, busque nem invente arquivos de mídia. Se faltar mídia, peça à pessoa e pare. Instagram não aceita post só de texto.
+- **A publicação passa por uma ferramenta externa de agendamento** (Publora, via `PUBLORA_API_KEY`) ou é feita manualmente pela pessoa.
+- **Nada vai ao ar sem aprovação explícita.** Esse fluxo fica sempre ligado:
+  1. No máximo, crie o **rascunho** (`/create-post` sem `scheduledTime`) e suba a mídia fornecida.
+  2. Mostre o que será publicado: texto final, mídia na ordem, conta de destino e data/hora com fuso.
+  3. Só execute o agendamento (`/update-post` com `status="scheduled"`, `publish_media_post` ou `publish()`) depois de um "sim" da pessoa para **aquele** post. Uma aprovação não vale para outros posts nem para uma versão editada.
+  - Nunca chame `publish_media_post` ou `publish()` sem `scheduled_time`: sem ele o post sai quase na hora.
+  - Nunca crie rotina, gatilho ou automação que publique sem aprovação a cada post.
