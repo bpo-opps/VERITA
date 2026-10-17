@@ -40,3 +40,13 @@ Ordene os posts retornados por **comentários ÷ curtidas**, não por alcance ne
   3. Só execute o agendamento (`/update-post` com `status="scheduled"`, `publish_media_post` ou `publish()`) depois de um "sim" da pessoa para **aquele** post. Uma aprovação não vale para outros posts nem para uma versão editada.
   - Nunca chame `publish_media_post` ou `publish()` sem `scheduled_time`: sem ele o post sai quase na hora.
   - Nunca crie rotina, gatilho ou automação que publique sem aprovação a cada post.
+
+## Replica: recriar um app
+
+As 11 skills do pacote `Jakeschincariol/replica-skill` (MIT, commit `77c9436`, licença em `.claude/REPLICA-SKILL-LICENSE`) estão copiadas como skills do projeto em `.claude/skills/replica-*`, cada uma com seus modelos e scripts (Python só com biblioteca padrão, sem acesso à rede). Os arquivos de trabalho de cada clone ficam em `replica/` na raiz do projeto em que se trabalha.
+
+Ordem: `replica-recon` → `replica-architect` → `replica-design` → `replica-build` → `replica-backend` → `replica-test` → `replica-diff` → `replica-entrepreneur` → `replica-brand` → `replica-launch` → `replica-deploy`. Cada skill lê o que a anterior escreveu; qualquer uma pode rodar sozinha.
+
+- Os caminhos `../replica-*/script.py` citados nas skills, a partir da raiz, são `.claude/skills/replica-*/script.py` (ex.: `python3 .claude/skills/replica-diff/parity.py replica/features.csv`).
+- Valem as regras do pacote: só fontes públicas e a conta da própria pessoa, nada de código, assets, textos ou APIs privadas do original, nada de avaliação inventada, troca de marca (`sweep.py` limpo) antes de lançar.
+- Nada vai ao ar sem um "sim" explícito da pessoa. Claude não cria contas, não compra domínio e não digita senha, cartão ou chave de produção.
