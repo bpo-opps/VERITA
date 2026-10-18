@@ -320,6 +320,14 @@
     if (db.users.some(u => u.email === email)) fail(409, 'Já existe um usuário com esse email');
     const id = nextId(); db.users.push({ id, name, email, role, client_id, active: 1, password }); return { id };
   });
+  route('POST', '/api/users/:id/password', ({ user, body, id }) => {
+    requireAdmin(user);
+    const u = db.users.find(x => x.id === id); if (!u) fail(404, 'Usuário não encontrado');
+    if (id === user.id) fail(400, 'Para a sua própria senha, use Configurações');
+    const password = str(body.password, 'senha', { max: 200 });
+    if (password.length < 8) fail(400, 'A senha precisa ter pelo menos 8 caracteres');
+    u.password = password; return { ok: true };
+  });
   route('PATCH', '/api/users/:id', ({ user, body, id }) => {
     requireAdmin(user);
     const u = db.users.find(x => x.id === id); if (!u) fail(404, 'Usuário não encontrado');

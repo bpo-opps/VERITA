@@ -278,4 +278,18 @@ function seedDemo(db) {
     .run(orgId, JSON.stringify(['Conciliar bancos', 'Conferir notas fiscais', 'Lançar provisões', 'Enviar relatório ao cliente']));
 }
 
-module.exports = { open, tx, createOrg, createUser, seedDemo, sampleLogo, OPPS_SYMBOL };
+// Cópia do banco do dia (VACUUM INTO gera um arquivo consistente com o sistema rodando).
+// Uma por dia, guarda as últimas `keep`. Devolve o caminho criado, ou null se a de hoje já existe.
+function backup(db, dir, { keep = 14, day = new Date().toLocaleDateString('sv-SE') } = {}) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `tarefas-${day}.db`);
+  if (fs.existsSync(file)) return null;
+  db.exec(`vacuum into '${file.replace(/'/g, "''")}'`);
+  const old = fs.readdirSync(dir).filter(f => /^tarefas-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -keep);
+  for (const f of old) fs.unlinkSync(path.join(dir, f));
+  return file;
+}
+
+module.exports = { open, tx, backup, createOrg, createUser, seedDemo, sampleLogo, OPPS_SYMBOL };

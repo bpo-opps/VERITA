@@ -1351,9 +1351,15 @@ async function viewTeam() {
       h('tbody', {}, state.users.map(u => h('tr', {},
         h('td', {}, u.name), h('td', {}, u.email), h('td', {}, roleLabel(u.role) + (u.client_name ? ` · ${u.client_name}` : '')),
         h('td', {}, u.active ? 'Ativo' : 'Desativado'),
-        h('td', { class: 'actions' }, isAdmin() && u.id !== state.me.id ? h('button', { class: 'btn small', onclick: guard(async () => {
-          await api('PATCH', `/api/users/${u.id}`, { active: !u.active }); route();
-        }) }, u.active ? 'Desativar' : 'Reativar') : null)))))),
+        h('td', { class: 'actions' }, isAdmin() && u.id !== state.me.id ? [
+          u.active ? h('button', { class: 'btn small', onclick: guard(async () => {
+            const pw = await askText(`Nova senha temporária para ${u.name} (mínimo 8 caracteres). Passe para a pessoa e peça que troque em Configurações.`);
+            if (!pw) return;
+            await api('POST', `/api/users/${u.id}/password`, { password: pw }); toast(`Senha de ${u.name} redefinida`, 5000);
+          }) }, 'Nova senha') : null,
+          h('button', { class: 'btn small', onclick: guard(async () => {
+            await api('PATCH', `/api/users/${u.id}`, { active: !u.active }); route();
+          }) }, u.active ? 'Desativar' : 'Reativar')] : null)))))),
   ]);
 }
 

@@ -5,7 +5,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { open, createOrg, createUser, seedDemo, OPPS_SYMBOL } = require('./db');
+const { open, createOrg, createUser, seedDemo, backup, OPPS_SYMBOL } = require('./db');
 const { createHandler } = require('./app');
 const { createNotifier } = require('./notify');
 const meetings = require('./meetings');
@@ -32,6 +32,13 @@ if (!db.prepare('select 1 from orgs').get()) {
     console.log(`Administrador criado: ${email}` + (process.env.ADMIN_PASSWORD ? '' : `, senha temporária: ${password} (troque no primeiro acesso)`));
   }
 }
+
+// Backup: uma cópia do banco por dia em BACKUP_DIR (padrão: data/backups ao lado do banco), guardando 14 dias.
+// Copie essa pasta para fora do servidor de vez em quando (ou aponte BACKUP_DIR para um disco separado).
+const backupDir = process.env.BACKUP_DIR || path.join(path.dirname(file), 'backups');
+const runBackup = () => { try { const f = backup(db, backupDir); if (f) console.log(`Backup: ${f}`); } catch (e) { console.error('Backup falhou:', e.message); } };
+runBackup();
+setInterval(runBackup, 60 * 60e3).unref();
 
 // Avisos. Na demonstração os e-mails são fictícios (@demo.local), então nada é enviado:
 // os avisos ficam registrados na tela Avisos como "não enviado".

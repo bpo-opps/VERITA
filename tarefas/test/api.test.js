@@ -425,3 +425,27 @@ test('usuário desativado perde a sessão', async () => {
   await admin('PATCH', `/api/users/${b.id}`, { active: false });
   assert.equal((await cliB('GET', '/api/tasks')).status, 401);
 });
+
+test('produção: backup diário, senha temporária pelo administrador e verificação de saúde', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { open: openDb, backup } = require('../db');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bk-'));
+  const src = openDb(path.join(dir, 'x.db'));
+  src.prepare("insert into orgs (name) values ('Org')").run();
+  for (let d = 1; d <= 16; d++) backup(src, path.join(dir, 'b'), { day: `2026-10-${String(d).padStart(2, '0')}` });
+  assert.equal(backup(src, path.join(dir, 'b'), { day: '2026-10-16' }), null, 'uma por dia');
+  const files = fs.readdirSync(path.join(dir, 'b')).sort();
+  assert.equal(files.length, 14);
+  assert.equal(files[0], 'tarefas-2026-10-03.db');
+  assert.equal(openDb(path.join(dir, 'b', files[13])).prepare('select name from orgs').get().name, 'Org');
+
+  const admin = await login('admin@t.local');
+  const member = await login('membro@t.local');
+  const cli = ids.db.prepare("select id from users where email = 'a@t.local'").get().id;
+  assert.equal((await member('POST', `/api/users/${cli}/password`, { password: 'nova-senha-1' })).status, 403);
+  assert.equal((await admin('POST', `/api/users/${cli}/password`, { password: 'curta' })).status, 400);
+  assert.equal((await admin('POST', `/api/users/${cli}/password`, { password: 'nova-senha-1' })).status, 200);
+  const r = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'a@t.local', password: 'nova-senha-1' }) });
+  assert.equal(r.status, 200, 'entra com a senha temporária');
+  assert.equal((await fetch(base + '/api/health')).status, 200);
+});

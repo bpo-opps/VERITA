@@ -590,6 +590,20 @@ route('PATCH', '/api/users/:id', ({ db, user, body, params }) => {
   return { ok: true };
 });
 
+// Senha esquecida: o administrador define uma senha temporária e a pessoa troca em Configurações.
+route('POST', '/api/users/:id/password', ({ db, user, body, params }) => {
+  requireAdmin(user);
+  if (!db.prepare('select 1 from users where id = ? and org_id = ?').get(params.id, user.org_id)) fail(404, 'Usuário não encontrado');
+  if (params.id === user.id) fail(400, 'Para a sua própria senha, use Configurações');
+  const password = str(body.password, 'senha', { max: 200 });
+  if (password.length < 8) fail(400, 'A senha precisa ter pelo menos 8 caracteres');
+  db.prepare('update users set pass_hash = ? where id = ?').run(auth.hashPassword(password), params.id);
+  db.prepare('delete from sessions where user_id = ?').run(params.id);
+  return { ok: true };
+});
+
+route('GET', '/api/health', ({ db }) => { db.prepare('select 1').get(); return { ok: true }; }, { public: true });
+
 route('GET', '/api/tasks', ({ db, user, query }) => taskList(db, user, query));
 
 route('GET', '/api/alerts', ({ db, user }) =>
@@ -867,6 +881,14 @@ function readBody(req, max = MAX_BODY) {
   });
 }
 
+// Atrás do proxy da hospedagem (TRUST_PROXY=1), o endereço de quem acessa vem no X-Forwarded-For;
+// sem isso, todo mundo teria o endereço do proxy e o limite de tentativas de login valeria para todos juntos.
+// Usa o último endereço da lista: é o que o proxy viu, e não dá para ser forjado por quem acessa.
+function clientIp(req) {
+  const xff = process.env.TRUST_PROXY === '1' && req.headers['x-forwarded-for'];
+  return xff ? String(xff).split(',').pop().trim() : req.socket.remoteAddress;
+}
+
 function cookieToken(req) {
   const m = /(?:^|;\s*)sid=([a-f0-9]{64})/.exec(req.headers.cookie || '');
   return m ? m[1] : null;
@@ -933,7 +955,7 @@ function createHandler(db, opts = {}) {
       const user = auth.userFromToken(db, token);
       if (!r.public && !user) fail(401, 'Faça login');
 
-      const out = await r.handler({ db, user, body, params, query: Object.fromEntries(url.searchParams), token, ip: req.socket.remoteAddress });
+      const out = await r.handler({ db, user, body, params, query: Object.fromEntries(url.searchParams), token, ip: clientIp(req) });
       if (out && out[REPLY]) {
         const cookie = out.cookie && process.env.COOKIE_SECURE === '1' ? out.cookie + '; Secure' : out.cookie;
         send(res, out.code, out.body, cookie ? { 'Set-Cookie': cookie } : {});

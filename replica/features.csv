@@ -13,10 +13,10 @@ Modelos de tarefa (tarefas personalizadas),tarefas,should,yes,yes,"""tarefas per
 Minhas tarefas por prazo,tarefas,should,unknown,yes,hipótese
 Checklist dentro da tarefa,tarefas,should,unknown,yes,hipótese
 Anexos na tarefa,tarefas,should,unknown,no,hipótese
-Aviso por email de prazo e de ajuste,notificações,should,unknown,no,hipótese
+Aviso por email de prazo e de ajuste,notificações,should,unknown,yes,"clone: e-mail (Google) e WhatsApp: tarefa criada, prazo, atraso e resumo de segunda 8h; ajuste ainda sem aviso"
 Contagem de ajustes por cliente,relatórios,could,unknown,yes,hipótese
-Filtros por responsável cliente e prazo,tarefas,could,unknown,partial,"clone: cliente, responsável e busca; prazo só em Minhas tarefas"
-Marca própria (logo e cores da consultoria),white label,could,yes,partial,"""100% white label"" na página Don; clone: nome e cor, sem logo"
+Filtros por responsável cliente e prazo,tarefas,could,unknown,yes,"clone: tipo, empresa, responsável, prazo, repetição e busca"
+Marca própria (logo e cores da consultoria),white label,could,yes,yes,"clone: nome, logo e cor da organização; logos por cliente"
 Criação de conteúdo,conteúdo,could,yes,skip,fora do escopo escolhido
 Agendamento de posts,conteúdo,could,yes,skip,fora do escopo escolhido
 Visualização do feed,conteúdo,could,yes,skip,fora do escopo escolhido
