@@ -191,6 +191,8 @@ function taskList(db, user, q) {
   if (q.due === 'month') { where.push('substr(t.due_date, 1, 7) = ?'); args.push(now.slice(0, 7)); }
   if (q.due === 'none') where.push('t.due_date is null');
   if (q.q) { where.push('t.title like ?'); args.push(`%${String(q.q).slice(0, 100)}%`); }
+  if (q.recurring === '1') where.push("t.recurrence != 'none'");
+  if (q.recurring === '0') where.push("t.recurrence = 'none'");
   return db.prepare(
     `select t.*, c.name as client_name from tasks t left join clients c on c.id = t.client_id
       where ${where.join(' and ')} order by t.position, t.id`
@@ -373,9 +375,15 @@ route('POST', '/api/tasks', ({ db, user, body }) => {
 
 route('GET', '/api/tasks/:id', ({ db, user, params }) => taskDetail(db, user, params.id));
 
+// O cliente atualiza só o andamento: situação (sem concluir nem cancelar), início e % de execução.
+const CLIENT_FIELDS = ['status', 'start_date', 'progress'];
+
 route('PATCH', '/api/tasks/:id', ({ db, user, body, params }) => {
-  requireStaff(user);
   const t = loadTask(db, user, params.id);
+  if (user.role === 'client') {
+    if (!Object.keys(body).every(k => CLIENT_FIELDS.includes(k))) fail(403, 'Você pode alterar a situação, a data de início e o % de execução');
+    if (t.status === 'done' || t.status === 'cancelled') fail(409, 'Esta tarefa já foi encerrada');
+  }
   tx(db, () => {
     const set = (col, val) => db.prepare(`update tasks set ${col} = ? where id = ?`).run(val, t.id);
     if ('title' in body) set('title', str(body.title, 'título', { max: 200 }));
@@ -415,6 +423,9 @@ route('PATCH', '/api/tasks/:id', ({ db, user, body, params }) => {
       const status = oneOf(body.status, 'situação', ['todo', 'doing', 'review']);
       db.prepare('update tasks set status = ?, completed_on = null, cancelled_on = null, cancel_reason = null where id = ?').run(status, t.id);
       if (status !== 'todo' && !('start_date' in body)) db.prepare('update tasks set start_date = coalesce(start_date, ?) where id = ?').run(S.today(), t.id);
+    } else if (body.start_date) {
+      // Informar o início de uma tarefa a fazer já a coloca em andamento.
+      db.prepare("update tasks set status = 'doing' where id = ? and status = 'todo'").run(t.id);
     }
     touch(db, t.id);
   });
@@ -470,8 +481,10 @@ function loadChecklistItem(db, user, itemId) {
 }
 
 route('PATCH', '/api/checklist/:id', ({ db, user, body, params }) => {
-  requireStaff(user);
+  // O cliente marca o que já fez; editar o texto é só da equipe.
+  if (user.role === 'client' && Object.keys(body).some(k => k !== 'done')) fail(403, 'Você pode marcar os itens, não editar o texto');
   const { item, task } = loadChecklistItem(db, user, params.id);
+  if (user.role === 'client' && (task.status === 'done' || task.status === 'cancelled')) fail(409, 'Esta tarefa já foi encerrada');
   if ('done' in body) db.prepare('update checklist_items set done = ? where id = ?').run(body.done ? 1 : 0, item.id);
   if ('text' in body) db.prepare('update checklist_items set text = ? where id = ?').run(str(body.text, 'item', { max: 300 }), item.id);
   touch(db, task.id);

@@ -280,6 +280,22 @@ td .tag.internal { margin-left: 6px; }
 .cl-builder li .grow { flex: 1; overflow-wrap: anywhere; }
 .tag { white-space: nowrap; }
 .board { gap: 8px; }
+.drawer { display: flex; flex-direction: column; padding-bottom: 0; }
+.drawer-body { flex: 1 0 auto; padding-bottom: 16px; }
+.drawer-foot { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--surface); border-top: 1px solid var(--border);
+  margin: 0 -20px; padding: 12px 20px; padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+.title-input { font-size: 18px; font-weight: 700; flex: 1; }
+.drawer-head .grow { flex: 1; margin: 0; }
+.status-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+.status-row .grow { flex: 1; min-width: 160px; }
+.status-row .full { flex-basis: 100%; margin: 0; }
+.main-fields { display: flex; flex-direction: column; gap: 4px; }
+.main-fields .field { margin-bottom: 8px; }
+.main-fields p { margin: 0; }
+.pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ck-text { font-weight: 400; margin: 0; flex: 1; overflow-wrap: anywhere; }
+.waiting-box { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.waiting-box .link { color: var(--accent); }
 
 #demo-bar { background: #15181d; color: #ffffff; padding-block: 8px; padding-left: var(--gutter-l); padding-right: var(--gutter-r); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
 #demo-bar strong { margin-right: 4px; }
@@ -613,6 +629,8 @@ td .tag.internal { margin-left: 6px; }
     if (q.due === 'month') ts = ts.filter(t => t.due_date && t.due_date.slice(0, 7) === today.slice(0, 7));
     if (q.due === 'none') ts = ts.filter(t => !t.due_date);
     if (q.q) ts = ts.filter(t => t.title.toLowerCase().includes(String(q.q).toLowerCase()));
+    if (q.recurring === '1') ts = ts.filter(t => t.recurrence !== 'none');
+    if (q.recurring === '0') ts = ts.filter(t => t.recurrence === 'none');
     return ts.sort((a, b) => a.position - b.position || a.id - b.id).map(t => decorate(user, t));
   }
 
@@ -718,9 +736,13 @@ td .tag.internal { margin-left: 6px; }
     return { id };
   });
   route('GET', '/api/tasks/:id', ({ user, id }) => detail(user, id));
+  const CLIENT_FIELDS = ['status', 'start_date', 'progress'];
   route('PATCH', '/api/tasks/:id', ({ user, body, id }) => {
-    requireStaff(user);
     const t = loadTask(user, id);
+    if (user.role === 'client') {
+      if (!Object.keys(body).every(k => CLIENT_FIELDS.includes(k))) fail(403, 'Você pode alterar a situação, a data de início e o % de execução');
+      if (t.status === 'done' || t.status === 'cancelled') fail(409, 'Esta tarefa já foi encerrada');
+    }
     const copy = { ...t };
     try {
       if ('title' in body) t.title = str(body.title, 'título', { max: 200 });
@@ -750,7 +772,7 @@ td .tag.internal { margin-left: 6px; }
         t.status = oneOf(body.status, 'situação', ['todo', 'doing', 'review']);
         Object.assign(t, { completed_on: null, cancelled_on: null, cancel_reason: null });
         if (t.status !== 'todo' && !('start_date' in body)) t.start_date = t.start_date || S.today();
-      }
+      } else if (body.start_date && t.status === 'todo') t.status = 'doing';
     } catch (err) { Object.assign(t, copy); throw err; }
     touch(t);
     return detail(user, id);
@@ -784,7 +806,10 @@ td .tag.internal { margin-left: 6px; }
   });
   const checklistItem = (user, iid) => { const i = db.checklist.find(x => x.id === iid); if (!i) fail(404, 'Item não encontrado'); loadTask(user, i.task_id); return i; };
   route('PATCH', '/api/checklist/:id', ({ user, body, id }) => {
-    requireStaff(user); const i = checklistItem(user, id);
+    if (user.role === 'client' && Object.keys(body).some(k => k !== 'done')) fail(403, 'Você pode marcar os itens, não editar o texto');
+    const i = checklistItem(user, id);
+    const task = db.tasks.find(x => x.id === i.task_id);
+    if (user.role === 'client' && (task.status === 'done' || task.status === 'cancelled')) fail(409, 'Esta tarefa já foi encerrada');
     if ('done' in body) i.done = body.done ? 1 : 0;
     if ('text' in body) i.text = str(body.text, 'item', { max: 300 });
     return detail(user, i.task_id);
@@ -896,7 +921,7 @@ const S = window.Shared;
 // ---------- utilidades ----------
 const state = {
   me: null, org: null, clients: [], users: [], templates: [], alertCount: 0,
-  view: { layout: 'kanban', kind: '', client: '', assignee: '', due: '', q: '', group: 'column', archived: false, month: '' },
+  view: { layout: 'kanban', kind: '', client: '', assignee: '', due: '', rec: '', q: '', group: 'column', archived: false, month: '' },
 };
 const VIEW_KEY = 'tarefas-visao';
 try { Object.assign(state.view, JSON.parse(localStorage.getItem(VIEW_KEY)) || {}, { q: '', archived: false }); } catch { /* sem armazenamento */ }
@@ -1037,7 +1062,7 @@ function shell(content) {
   const nav = isStaff()
     ? [['#/tarefas', 'Tarefas'], ['#/alertas', 'Alertas'], ['#/clientes', 'Clientes'], ['#/modelos', 'Modelos'],
       ['#/relatorio', 'Relatório'], ['#/equipe', 'Pessoas'], ['#/config', 'Configurações']]
-    : [['#/portal', 'Minhas entregas'], ['#/alertas', 'Alertas'], ['#/config', 'Minha conta']];
+    : [['#/tarefas', 'Minhas entregas'], ['#/alertas', 'Alertas'], ['#/config', 'Minha conta']];
   const current = location.hash.split('?')[0] || nav[0][0];
   app().replaceChildren(
     h('header', { class: 'top' },
@@ -1067,16 +1092,16 @@ async function boot() {
 
 const ROUTES = {
   '#/tarefas': viewTasks, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
-  '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings, '#/portal': viewPortal,
+  '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings,
 };
 
 async function route() {
   if (!state.me) return;
   const key = location.hash.split('?')[0];
-  const fallback = isStaff() ? '#/tarefas' : '#/portal';
-  const clientPages = ['#/portal', '#/alertas', '#/config'];
+  const fallback = '#/tarefas';
+  const clientPages = ['#/tarefas', '#/alertas', '#/config'];
   const view = ROUTES[key];
-  if (!view || (isStaff() && key === '#/portal') || (!isStaff() && !clientPages.includes(key))) { location.hash = fallback; return; }
+  if (!view || (!isStaff() && !clientPages.includes(key))) { location.hash = fallback; return; }
   try { await refreshAlerts(); } catch { /* segue sem o contador */ }
   guard(view)();
 }
@@ -1128,7 +1153,7 @@ function taskCard(t, { draggable = false, showStatus = false } = {}) {
 // ---------- tarefas: filtros e visões ----------
 function taskQuery() {
   const v = state.view;
-  const q = { kind: v.kind, client_id: v.client, due: v.due, q: v.q, archived: v.archived ? '1' : '' };
+  const q = { kind: v.kind, client_id: v.client, due: v.due, recurring: v.rec, q: v.q, archived: v.archived ? '1' : '' };
   if (v.assignee === 'me') q.mine = '1'; else q.assignee = v.assignee;
   return new URLSearchParams(Object.entries(q).filter(([, x]) => x));
 }
@@ -1147,24 +1172,33 @@ function tasksToolbar() {
   return h('div', { class: 'toolbar' },
     h('div', { class: 'seg', role: 'group', 'aria-label': 'Visualização' },
       layouts.map(([k, l]) => h('button', { type: 'button', class: 'seg-btn', 'aria-pressed': String(v.layout === k), onclick: () => set('layout', k) }, l))),
-    select('f-kind', 'Tipo', v.kind, [['', 'Internas e externas'], ['external', 'Externas'], ['internal', 'Internas']], x => set('kind', x)),
-    select('f-client', 'Empresa', v.client, [['', 'Todas as empresas'], ['org', `${state.org.name} (própria)`], ...state.clients.map(c => [c.id, c.name])], x => set('client', x)),
-    select('f-who', 'Responsável', v.assignee, [['', 'Todos os responsáveis'], ['me', 'Só as minhas'], ...staff.map(u => [u.id, u.name])], x => set('assignee', x)),
+    isStaff() ? [
+      select('f-kind', 'Tipo', v.kind, [['', 'Internas e externas'], ['external', 'Externas'], ['internal', 'Internas']], x => set('kind', x)),
+      select('f-client', 'Empresa', v.client, [['', 'Todas as empresas'], ['org', `${state.org.name} (própria)`], ...state.clients.map(c => [c.id, c.name])], x => set('client', x)),
+      select('f-who', 'Responsável', v.assignee, [['', 'Todos os responsáveis'], ['me', 'Só as minhas'], ...staff.map(u => [u.id, u.name])], x => set('assignee', x)),
+    ] : null,
     select('f-due', 'Prazo', v.due, [['', 'Qualquer prazo'], ['overdue', 'Atrasadas'], ['today', 'Vencem hoje'], ['week', 'Próximos 7 dias'], ['month', 'Este mês'], ['none', 'Sem prazo']], x => set('due', x)),
-    v.layout === 'list' ? select('f-group', 'Agrupar por', v.group, [['column', 'Agrupar por situação'], ['client', 'Agrupar por empresa'], ['assignee', 'Agrupar por responsável'], ['due', 'Agrupar por prazo'], ['kind', 'Agrupar por tipo']], x => set('group', x)) : null,
+    select('f-rec', 'Repetição', v.rec, [['', 'Recorrentes e únicas'], ['1', 'Só recorrentes'], ['0', 'Só únicas']], x => set('rec', x)),
+    v.layout === 'list' ? select('f-group', 'Agrupar por', v.group, [['column', 'Agrupar por situação'], ...(isStaff() ? [['client', 'Agrupar por empresa'], ['assignee', 'Agrupar por responsável']] : []), ['due', 'Agrupar por prazo'], ...(isStaff() ? [['kind', 'Agrupar por tipo']] : [])], x => set('group', x)) : null,
     h('label', { class: 'sr-only', for: 'f-q' }, 'Buscar'),
     h('input', { id: 'f-q', type: 'search', placeholder: 'Buscar tarefa', value: v.q, onchange: e => { v.q = e.target.value; route(); } }),
-    h('label', { class: 'check inline', for: 'f-arch' }, h('input', { type: 'checkbox', id: 'f-arch', checked: v.archived, onchange: e => { v.archived = e.target.checked; route(); } }), 'Ver arquivadas'),
+    isStaff() ? h('label', { class: 'check inline', for: 'f-arch' }, h('input', { type: 'checkbox', id: 'f-arch', checked: v.archived, onchange: e => { v.archived = e.target.checked; route(); } }), 'Ver arquivadas') : null,
     h('span', { class: 'spacer' }),
-    h('button', { class: 'btn primary', onclick: () => newTaskModal() }, '+ Nova tarefa'));
+    isStaff() ? h('button', { class: 'btn primary', onclick: () => newTaskModal() }, '+ Nova tarefa') : null);
 }
 
 async function viewTasks() {
-  document.title = 'Tarefas';
+  document.title = isStaff() ? 'Tarefas' : 'Minhas entregas';
+  if (!isStaff()) Object.assign(state.view, { kind: '', client: '', assignee: '', archived: false });
   const tasks = await api('GET', '/api/tasks?' + taskQuery());
   const v = state.view;
   const body = v.layout === 'list' ? listView(tasks) : v.layout === 'calendar' ? calendarView(tasks) : kanbanView(tasks);
-  shell([tasksToolbar(), v.archived ? h('p', { class: 'muted' }, 'Mostrando só as tarefas arquivadas.') : null, body]);
+  const waiting = isStaff() ? [] : tasks.filter(t => t.status === 'review');
+  shell([
+    !isStaff() ? h('h1', { style: 'margin-bottom:12px' }, 'Minhas entregas') : null,
+    waiting.length ? h('div', { class: 'card-box waiting-box' }, h('strong', {}, `${waiting.length} entrega${waiting.length > 1 ? 's' : ''} esperando sua revisão: `),
+      waiting.map((t, i) => [i ? ', ' : '', h('button', { class: 'link', type: 'button', onclick: () => openTask(t.id) }, t.title)])) : null,
+    tasksToolbar(), v.archived ? h('p', { class: 'muted' }, 'Mostrando só as tarefas arquivadas.') : null, body]);
 }
 
 function kanbanView(tasks) {
@@ -1174,7 +1208,7 @@ function kanbanView(tasks) {
     const col = h('section', { class: `col col-${c.key}`, 'aria-label': c.name, 'data-col': c.key },
       h('div', { class: 'col-head' }, h('span', {}, c.name), h('span', { class: 'count' }, list.length)),
       c.key === 'overdue' ? h('p', { class: 'col-note' }, 'Entra sozinha quando o prazo passa') : null,
-      list.length ? list.map(t => taskCard(t, { draggable: !state.view.archived })) : h('p', { class: 'empty' }, 'Nada aqui'));
+      list.length ? list.map(t => taskCard(t, { draggable: !state.view.archived && (isStaff() || !['done', 'cancelled'].includes(t.status)) })) : h('p', { class: 'empty' }, 'Nada aqui'));
     wireDrop(col, c.key, tasks);
     board.append(col);
   }
@@ -1199,6 +1233,7 @@ function wireDrop(col, key, tasks) {
     const task = tasks.find(t => t.id === taskId);
     if (!task || task.column === key) return;
     if (key === 'overdue') { toast('A coluna Atrasada é automática: a tarefa entra nela quando o prazo passa.'); return; }
+    if (!isStaff() && !['todo', 'doing', 'review'].includes(key)) { toast('Para concluir, deixe a tarefa em Em revisão e aprove a entrega.'); return; }
     if (key === 'done_on_time' || key === 'done_late') { completeDialog(task); return; }
     if (key === 'cancelled') { cancelDialog(task); return; }
     const inCol = tasks.filter(t => t.column === key && t.id !== taskId);
@@ -1209,7 +1244,7 @@ function wireDrop(col, key, tasks) {
       const prev = inCol[i - 1];
       position = prev ? (prev.position + inCol[i].position) / 2 : inCol[i].position - 1;
     } else position = inCol.length ? inCol[inCol.length - 1].position + 1 : 1;
-    const nt = await api('PATCH', `/api/tasks/${taskId}`, { status: key, position });
+    const nt = await api('PATCH', `/api/tasks/${taskId}`, isStaff() ? { status: key, position } : { status: key });
     if (nt.column === 'overdue') toast(`Mudou para ${S.STATUS_LABEL[key]}, mas continua em Atrasada porque o prazo já passou.`);
     route();
   }));
@@ -1534,125 +1569,230 @@ function newTaskModal() {
 }
 
 // ---------- detalhe da tarefa ----------
+// As alterações ficam num rascunho até clicar em Salvar. Sair com alterações pendentes pede confirmação.
+// Comentários, ajustes, concluir, cancelar e arquivar são ações com botão próprio.
 let drawerClose = null;
+let drawerOverlay = null;
 async function openTask(id) {
-  const t = await api('GET', `/api/tasks/${id}`).catch(e => { toast(e.message); return null; });
+  let t = await api('GET', `/api/tasks/${id}`).catch(e => { toast(e.message); return null; });
   if (!t) return;
-  if (drawerClose) drawerClose(false);
-  let dirty = false;
+  if (drawerClose && document.body.contains(drawerOverlay) && !(await drawerClose(false))) return;
+  const staff = isStaff();
+  let changedOnServer = false;
+  let draft = {};
+  let ck = { done: new Map(), added: [], removed: new Set() };
+  const dirty = () => Object.keys(draft).length > 0 || ck.done.size > 0 || ck.added.length > 0 || ck.removed.size > 0;
+  const val = k => (k in draft ? draft[k] : t[k]);
+  const saved = k => (k === 'assignee_ids' ? t.assignees.map(a => a.id).sort((a, b) => a - b) : t[k]);
+  const set = (k, v, repaint = false) => {
+    const cmp = Array.isArray(v) ? [...v].sort((a, b) => a - b) : v;
+    if (JSON.stringify(cmp) === JSON.stringify(saved(k))) delete draft[k]; else draft[k] = v;
+    // Informar o início de uma tarefa a fazer já a coloca em andamento.
+    if (k === 'start_date' && v && t.status === 'todo' && !('status' in draft)) draft.status = 'doing';
+    if (k === 'start_date' && !v && draft.status === 'doing' && t.status === 'todo') delete draft.status;
+    repaint ? paint() : markDirty();
+  };
+  const terminal = ['done', 'cancelled'].includes(t.status);
+  const canEditProgress = () => staff || !terminal;
+
   const overlay = h('div', { class: 'overlay', onclick: e => { if (e.target === overlay) close(); } });
-  const esc = e => { if (e.key === 'Escape') close(); };
-  function close(refresh = true) {
+  drawerOverlay = overlay;
+  const esc = e => { if (e.key === 'Escape' && !document.querySelector('.overlay.center')) close(); };
+  async function close(refresh = true) {
+    if (dirty() && !(await ask('Sair sem salvar? As alterações feitas neste card serão perdidas.', { ok: 'Sair sem salvar', danger: true }))) return false;
     overlay.remove(); document.removeEventListener('keydown', esc); drawerClose = null;
-    if (refresh && dirty) route();
+    if (refresh && changedOnServer) route();
+    return true;
   }
   drawerClose = close;
   document.addEventListener('keydown', esc);
-  const drawer = h('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': t.title });
+  const body = h('div', { class: 'drawer-body' });
+  const saveBtn = h('button', { class: 'btn primary', type: 'button', onclick: () => save() }, 'Salvar');
+  const dirtyNote = h('span', { class: 'muted small', role: 'status' });
+  const drawer = h('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': t.title },
+    body,
+    h('div', { class: 'drawer-foot' }, saveBtn, h('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Sair'), dirtyNote));
   overlay.append(drawer);
   document.body.append(overlay);
 
-  const apply = nt => { dirty = true; Object.assign(t, nt); paint(); };
-  const save = guard(async patch => apply(await api('PATCH', `/api/tasks/${t.id}`, patch)));
-  const act = guard(async (method, path, body) => apply(await api(method, path, body)));
+  function markDirty() {
+    saveBtn.disabled = !dirty();
+    dirtyNote.textContent = dirty() ? 'Alterações não salvas' : '';
+  }
+
+  async function save() {
+    if (!dirty()) return true;
+    saveBtn.disabled = true;
+    try {
+      if (Object.keys(draft).length) await api('PATCH', `/api/tasks/${t.id}`, draft);
+      for (const [itemId, done] of ck.done) if (!ck.removed.has(itemId)) await api('PATCH', `/api/checklist/${itemId}`, { done });
+      for (const itemId of ck.removed) await api('DELETE', `/api/checklist/${itemId}`);
+      for (const text of ck.added) await api('POST', `/api/tasks/${t.id}/checklist`, { text });
+      draft = {}; ck = { done: new Map(), added: [], removed: new Set() };
+      changedOnServer = true;
+      t = await api('GET', `/api/tasks/${t.id}`);
+      paint(); toast('Salvo');
+      return true;
+    } catch (e) {
+      // Recarrega o que já foi gravado; o rascunho continua para corrigir e salvar de novo.
+      toast(e.message);
+      try { t = await api('GET', `/api/tasks/${t.id}`); } catch { /* segue com o que tinha */ }
+      paint();
+      return false;
+    }
+  }
+  // Ações que mudam a tarefa no servidor: salvam o rascunho antes.
+  const act = guard(async (method, path, payload) => {
+    if (dirty() && !(await save())) return;
+    t = await api(method, path, payload); changedOnServer = true; paint();
+  });
+  const withSaved = fn => async () => { if (!dirty() || await save()) fn(); };
+  const afterDialog = nt => { t = nt; changedOnServer = true; paint(); };
+
+  // Checklist efetivo (o que está salvo, com as marcações e itens do rascunho).
+  function checklistNow() {
+    return t.checklist.filter(i => !ck.removed.has(i.id)).map(i => ({ ...i, done: ck.done.has(i.id) ? (ck.done.get(i.id) ? 1 : 0) : i.done }))
+      .concat(ck.added.map((text, n) => ({ id: `new-${n}`, text, done: 0, isNew: true })));
+  }
+  function progressNow() {
+    const list = checklistNow();
+    if (val('status') === 'done') return 100;
+    if (list.length) return Math.round((list.filter(i => i.done).length / list.length) * 100);
+    return Number(val('progress')) || 0;
+  }
+
+  function field(label, control, forId, extra) {
+    return h('div', { class: 'field' }, forId ? h('label', { for: forId }, label) : h('span', { class: 'label' }, label), control, extra);
+  }
 
   function paint() {
-    const staff = isStaff();
     const scroll = drawer.scrollTop;
-    drawer.replaceChildren(...[
+    const status = val('status');
+    body.replaceChildren(...[
       h('div', { class: 'drawer-head' }, taskLogo(t, 'md'),
-        staff ? h('input', { 'aria-label': 'Título', value: t.title, maxlength: 200, onchange: e => save({ title: e.target.value }) })
-          : h('h1', { style: 'flex:1' }, t.title),
-        h('button', { class: 'btn ghost', 'aria-label': 'Fechar', onclick: () => close() }, '✕')),
-      h('p', { class: 'meta' }, h('span', { class: `pill col-${t.column}` }, colName(t.column)),
-        h('span', {}, where(t)), internalTag(t),
+        staff ? h('input', { id: 'd-title', 'aria-label': 'Nome da tarefa', class: 'title-input', value: val('title'), maxlength: 200, oninput: e => set('title', e.target.value) })
+          : h('h1', { class: 'grow' }, t.title)),
+      h('p', { class: 'meta' }, h('span', { class: `pill col-${t.column}` }, colName(t.column)), internalTag(t),
         t.alert ? h('span', { class: 'tag ' + (t.alert.kind === 'overdue' ? 'late' : 'warn') }, '⏰ ' + S.alertText(t.alert)) : null,
+        t.recurrence !== 'none' ? h('span', { class: 'tag' }, '↻ ' + S.RECURRENCE[t.recurrence]) : null,
         t.archived_at ? h('span', { class: 'tag' }, 'Arquivada') : null),
 
       !staff && t.status === 'review' ? clientDecision() : null,
-      statusSection(staff),
-      staff ? kindClientFields('d', t.kind, t.client_id, t.client_visible, v => save(v)).el : null,
-      datesSection(staff),
-      staff ? h('div', { class: 'field' }, h('span', { class: 'label' }, 'Responsáveis'),
-        (() => { const g = assigneeChecks(t.assignees.map(a => a.id));
-          g.addEventListener('change', () => save({ assignee_ids: [...g.querySelectorAll('input:checked')].map(i => Number(i.value)) }));
-          return g; })())
-        : (t.assignees.length ? h('p', { class: 'muted' }, 'Responsáveis: ' + t.assignees.map(a => a.name).join(', ')) : null),
-      staff ? h('div', { class: 'field' }, h('label', { for: 'd-desc' }, 'Descrição'),
-        h('textarea', { id: 'd-desc', rows: 4, onchange: e => save({ description: e.target.value }) }, t.description))
-        : (t.description ? h('p', { style: 'white-space:pre-wrap' }, t.description) : null),
-      checklistSection(staff),
-      adjustmentsSection(staff),
-      commentsSection(staff),
+      statusRow(status),
+
+      // Principais, na ordem pedida.
+      h('div', { class: 'card-box main-fields' },
+        staff ? kindClientFields('d', val('kind'), val('client_id'), val('client_visible'), v => {
+          set('kind', v.kind); set('client_id', v.client_id); set('client_visible', v.client_visible);
+        }).el : field('Empresa', h('p', { class: 'with-logo' }, taskLogo(t), where(t))),
+        field('Data de início (quando começou)', canEditProgress()
+          ? h('input', { id: 'd-start', type: 'date', value: val('start_date') || '', onchange: e => set('start_date', e.target.value || null, true) })
+          : h('p', {}, fmtDate(t.start_date) || '–'), 'd-start',
+          t.status === 'todo' && canEditProgress() ? h('p', { class: 'muted small' }, 'Ao informar o início, a tarefa vai para Em andamento.') : null),
+        checklistField(),
+        progressField(status),
+        h('div', { class: 'grid2' },
+          field('Prazo', staff ? h('input', { id: 'd-due', type: 'date', value: val('due_date') || '', onchange: e => set('due_date', e.target.value || null) })
+            : h('p', {}, fmtDate(t.due_date) || 'Sem prazo'), 'd-due'),
+          field('Prioridade', staff ? h('select', { id: 'd-pri', onchange: e => set('priority', e.target.value) },
+            Object.entries(PRIORITY).map(([v, l]) => h('option', { value: v, selected: v === val('priority') }, l)))
+            : h('p', {}, PRIORITY[t.priority]), 'd-pri')),
+        field('Responsáveis', staff ? (() => {
+          const g = assigneeChecks(val('assignee_ids') || t.assignees.map(a => a.id));
+          g.addEventListener('change', () => set('assignee_ids', [...g.querySelectorAll('input:checked')].map(i => Number(i.value))));
+          return g;
+        })() : h('p', {}, t.assignees.map(a => a.name).join(', ') || '–'))),
+
+      // O restante.
+      h('div', { class: 'section' },
+        field('Descrição', staff ? h('textarea', { id: 'd-desc', rows: 4, oninput: e => set('description', e.target.value) }, val('description'))
+          : h('p', { class: 'pre' }, t.description || '–'), 'd-desc'),
+        staff ? alertsField() : (t.alerts.length ? field('Alertas do prazo', h('p', {}, S.ALERTS.filter(a => t.alerts.includes(a.days)).map(a => a.label).join(', '))) : null),
+        staff ? recurrenceField() : (t.recurrence !== 'none' ? field('Repetição', h('p', {}, S.RECURRENCE[t.recurrence] + (t.recurrence === 'custom' ? ` (a cada ${t.recurrence_every} dias)` : ''))) : null)),
+      adjustmentsSection(),
+      commentsSection(),
       staff ? h('div', { class: 'section row' },
         h('button', { class: 'btn', onclick: () => act('POST', `/api/tasks/${t.id}/archive`, { archived: !t.archived_at }) }, t.archived_at ? 'Desarquivar' : 'Arquivar'),
         isAdmin() ? h('button', { class: 'btn danger', onclick: guard(async () => {
           if (!(await ask('Apagar esta tarefa? Isso não pode ser desfeito. Para só tirar da frente, use Arquivar.', { ok: 'Apagar tarefa', danger: true }))) return;
-          await api('DELETE', `/api/tasks/${t.id}`); dirty = true; close(); toast('Tarefa apagada');
+          await api('DELETE', `/api/tasks/${t.id}`); changedOnServer = true; draft = {}; ck = { done: new Map(), added: [], removed: new Set() };
+          close(); toast('Tarefa apagada');
         }) }, 'Apagar') : null) : null,
     ].filter(Boolean));
     drawer.scrollTop = scroll;
+    markDirty();
   }
 
-  function statusSection(staff) {
-    const pct = t.progress;
-    const showProgress = t.status === 'doing' || t.progress_from_checklist || pct > 0;
+  function statusRow(status) {
     if (t.status === 'cancelled') {
       return h('div', { class: 'card-box cancel-box' },
         h('p', {}, h('strong', {}, `Cancelada em ${fmtDate(t.cancelled_on)}`)),
-        h('p', { class: 'reason' }, 'Motivo: ', t.cancel_reason),
-        staff ? h('button', { class: 'btn small', onclick: () => save({ status: 'todo' }) }, 'Reabrir') : null);
+        h('p', { class: 'pre' }, 'Motivo: ', t.cancel_reason),
+        staff ? h('button', { class: 'btn small', onclick: () => act('PATCH', `/api/tasks/${t.id}`, { status: 'todo' }) }, 'Reabrir') : null);
     }
     if (t.status === 'done') {
       return h('div', { class: 'card-box done-box' },
         h('p', {}, h('strong', {}, `Concluída em ${fmtDate(t.completed_on)}`), t.due_date ? ` · prazo era ${fmtDate(t.due_date)}` : ''),
         t.next_task_id ? h('p', { class: 'muted small' }, 'A próxima repetição já foi criada.') : null,
-        staff ? h('button', { class: 'btn small', onclick: () => save({ status: 'doing' }) }, 'Reabrir') : null);
+        staff ? h('button', { class: 'btn small', onclick: () => act('PATCH', `/api/tasks/${t.id}`, { status: 'doing' }) }, 'Reabrir') : null);
     }
-    const range = h('input', { id: 'd-pct', type: 'range', min: 0, max: 100, step: 5, value: pct, disabled: !staff || t.progress_from_checklist,
-      oninput: e => { num.value = e.target.value; }, onchange: e => save({ progress: Number(e.target.value) }) });
-    const num = h('input', { type: 'number', min: 0, max: 100, value: pct, 'aria-label': '% de execução', class: 'pct-input', disabled: !staff || t.progress_from_checklist,
-      onchange: e => save({ progress: Math.max(0, Math.min(100, Math.round(Number(e.target.value) || 0))) }) });
-    return h('div', {},
-      staff ? h('div', { class: 'row', style: 'margin-bottom:12px' },
-        h('div', { class: 'grow' }, h('label', { for: 'd-status' }, 'Situação'),
-          h('select', { id: 'd-status', onchange: e => save({ status: e.target.value }) },
-            ['todo', 'doing', 'review'].map(s => h('option', { value: s, selected: s === t.status }, S.STATUS_LABEL[s])))),
-        h('button', { class: 'btn primary', style: 'align-self:flex-end', onclick: () => completeDialog(t, nt => apply(nt)) }, 'Concluir…'),
-        h('button', { class: 'btn', style: 'align-self:flex-end', onclick: () => cancelDialog(t, nt => apply(nt)) }, 'Cancelar…')) : null,
-      t.column === 'overdue' && staff ? h('p', { class: 'small danger' }, 'Está em Atrasada porque o prazo passou. Ajuste o prazo ou conclua para tirar daqui.') : null,
-      showProgress ? h('div', { class: 'field' },
-        h('label', { for: 'd-pct' }, '% de execução'),
-        staff ? h('div', { class: 'row' }, h('div', { class: 'grow' }, range), num, '%') : progressBar(pct),
-        t.progress_from_checklist ? h('p', { class: 'muted small' }, 'Calculado pelo checklist: muda sozinho conforme os itens são marcados.') : null) : null);
+    return h('div', { class: 'status-row' },
+      h('div', { class: 'grow' }, h('label', { for: 'd-status' }, 'Situação'),
+        h('select', { id: 'd-status', onchange: e => set('status', e.target.value, true) },
+          ['todo', 'doing', 'review'].map(x => h('option', { value: x, selected: x === status }, S.STATUS_LABEL[x])))),
+      staff ? h('button', { class: 'btn primary', type: 'button', onclick: withSaved(() => completeDialog(t, afterDialog)) }, 'Concluir…') : null,
+      staff ? h('button', { class: 'btn', type: 'button', onclick: withSaved(() => cancelDialog(t, afterDialog)) }, 'Cancelar…') : null,
+      t.column === 'overdue' ? h('p', { class: 'small danger full' }, 'Está em Atrasada porque o prazo passou. Ajuste o prazo ou conclua para tirar daqui.') : null);
   }
 
-  function datesSection(staff) {
-    if (!staff) {
-      return h('p', {}, [t.start_date ? `Iniciada em ${fmtDate(t.start_date)}` : null, t.due_date ? `Prazo ${fmtDate(t.due_date)}` : 'Sem prazo definido']
-        .filter(Boolean).join(' · '));
-    }
-    const rec = recurrenceFields('d', t.recurrence, t.recurrence_every);
-    rec.sel.addEventListener('change', () => { if (rec.sel.value !== 'custom') save(rec.value()); });
-    rec.n.addEventListener('change', () => save(rec.value()));
-    const al = alertChecks(t.alerts);
-    al.addEventListener('change', () => save({ alerts: [...al.querySelectorAll('input:checked')].map(i => Number(i.value)) }));
-    return h('div', {},
-      h('div', { class: 'grid3' },
-        h('div', { class: 'field' }, h('label', { for: 'd-start', title: 'Preenchido sozinho quando a tarefa vai para Em andamento' }, 'Início (quando começou)'),
-          h('input', { id: 'd-start', type: 'date', value: t.start_date || '', onchange: e => save({ start_date: e.target.value || null }) })),
-        h('div', { class: 'field' }, h('label', { for: 'd-due' }, 'Prazo'),
-          h('input', { id: 'd-due', type: 'date', value: t.due_date || '', onchange: e => save({ due_date: e.target.value || null }) })),
-        h('div', { class: 'field' }, h('label', { for: 'd-pri' }, 'Prioridade'),
-          h('select', { id: 'd-pri', onchange: e => save({ priority: e.target.value }) },
-            Object.entries(PRIORITY).map(([v, l]) => h('option', { value: v, selected: v === t.priority }, l))))),
-      h('div', { class: 'field' }, h('span', { class: 'label' }, 'Alertas do prazo'), al),
-      rec.el);
+  function checklistField() {
+    const list = checklistNow();
+    if (!staff && !list.length) return null;
+    const done = list.filter(i => i.done).length;
+    const input = h('input', { 'aria-label': 'Novo item do checklist', placeholder: 'Adicionar item', maxlength: 300 });
+    const add = () => { const v = input.value.trim(); if (v) { ck.added.push(v); paint(); document.querySelector('.ck-add input')?.focus(); } };
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+    return field(`Checklist ${list.length ? `(${done}/${list.length})` : ''}`, h('div', {},
+      list.map(i => h('div', { class: 'check' },
+        h('input', { type: 'checkbox', id: `ck-${i.id}`, checked: !!i.done, disabled: i.isNew || !canEditProgress(),
+          onchange: e => { const orig = t.checklist.find(x => x.id === i.id); if (!!orig.done === e.target.checked) ck.done.delete(i.id); else ck.done.set(i.id, e.target.checked); paint(); } }),
+        h('label', { for: `ck-${i.id}`, class: (i.done ? 'done ' : '') + 'ck-text' }, i.text, i.isNew ? h('span', { class: 'muted small' }, ' (novo, salve para marcar)') : null),
+        staff ? h('button', { class: 'btn ghost small', type: 'button', 'aria-label': `Remover ${i.text}`, onclick: () => {
+          if (i.isNew) ck.added.splice(Number(String(i.id).slice(4)), 1); else ck.removed.add(i.id);
+          paint();
+        } }, '✕') : null)),
+      staff ? h('div', { class: 'row ck-add' }, h('div', { class: 'grow' }, input), h('button', { class: 'btn', type: 'button', onclick: add }, 'Adicionar')) : null));
+  }
+
+  function progressField(status) {
+    const pct = progressNow();
+    const fromChecklist = checklistNow().length > 0;
+    const editable = canEditProgress() && !fromChecklist && status === 'doing';
+    const num = h('input', { type: 'number', min: 0, max: 100, value: pct, 'aria-label': '% de execução', class: 'pct-input', disabled: !editable,
+      onchange: e => { const n = Math.max(0, Math.min(100, Math.round(Number(e.target.value) || 0))); range.value = n; set('progress', n); } });
+    const range = h('input', { id: 'd-pct', type: 'range', min: 0, max: 100, step: 5, value: pct, disabled: !editable,
+      oninput: e => { num.value = e.target.value; set('progress', Number(e.target.value)); } });
+    return field('% de execução', h('div', { class: 'row' }, h('div', { class: 'grow' }, range), num, '%'), 'd-pct',
+      h('p', { class: 'muted small' }, fromChecklist ? 'Calculado pelo checklist: muda conforme os itens são marcados.'
+        : status === 'doing' ? 'Informe quanto já foi feito.' : 'Disponível quando a tarefa está Em andamento.'));
+  }
+
+  function alertsField() {
+    const al = alertChecks(val('alerts'));
+    al.addEventListener('change', () => set('alerts', [...al.querySelectorAll('input:checked')].map(i => Number(i.value))));
+    return field('Alertas do prazo', al);
+  }
+  function recurrenceField() {
+    const rec = recurrenceFields('d', val('recurrence'), val('recurrence_every'));
+    const upd = () => { const v = rec.value(); set('recurrence', v.recurrence); set('recurrence_every', v.recurrence_every); };
+    rec.sel.addEventListener('change', upd);
+    rec.n.addEventListener('change', upd);
+    return rec.el;
   }
 
   function clientDecision() {
     const ta = h('textarea', { id: 'c-adj', placeholder: 'O que precisa mudar?' });
-    return h('div', { class: 'card-box', style: 'border-color:var(--accent)' },
+    return h('div', { class: 'card-box waiting-box' },
       h('h2', {}, 'Esta entrega está esperando sua revisão'),
       h('p', { class: 'muted' }, 'Aprove, ou diga o que ajustar e a equipe recebe na hora.'),
       h('div', { class: 'row', style: 'margin-bottom:12px' },
@@ -1662,21 +1802,7 @@ async function openTask(id) {
         h('button', { class: 'btn', onclick: () => { if (!ta.value.trim()) { ta.focus(); return; } act('POST', `/api/tasks/${t.id}/adjustments`, { body: ta.value }); } }, 'Enviar pedido de ajuste')));
   }
 
-  function checklistSection(staff) {
-    if (!staff && !t.checklist.length) return null;
-    const done = t.checklist.filter(i => i.done).length;
-    const input = h('input', { 'aria-label': 'Novo item', placeholder: 'Adicionar item', maxlength: 300 });
-    return h('div', { class: 'section' },
-      h('h2', {}, `Checklist ${t.checklist.length ? `(${done}/${t.checklist.length})` : ''}`),
-      t.checklist.map(i => h('div', { class: 'check' },
-        h('input', { type: 'checkbox', id: `ck-${i.id}`, checked: !!i.done, disabled: !staff, onchange: e => act('PATCH', `/api/checklist/${i.id}`, { done: e.target.checked }) }),
-        h('label', { for: `ck-${i.id}`, class: i.done ? 'done' : '', style: 'font-weight:400;margin:0;flex:1' }, i.text),
-        staff ? h('button', { class: 'btn ghost small', 'aria-label': `Remover ${i.text}`, onclick: () => act('DELETE', `/api/checklist/${i.id}`) }, '✕') : null)),
-      staff ? h('form', { class: 'row', style: 'margin-top:8px', onsubmit: e => { e.preventDefault(); if (input.value.trim()) act('POST', `/api/tasks/${t.id}/checklist`, { text: input.value }); } },
-        h('div', { class: 'grow' }, input), h('button', { class: 'btn', type: 'submit' }, 'Adicionar')) : null);
-  }
-
-  function adjustmentsSection(staff) {
+  function adjustmentsSection() {
     if (!staff && !t.adjustments.length) return null;
     const open = t.adjustments.filter(a => !a.resolved_at).length;
     const ta = h('textarea', { 'aria-label': 'Descreva o ajuste interno', placeholder: 'O que a revisão interna pediu?' });
@@ -1696,7 +1822,7 @@ async function openTask(id) {
           h('button', { class: 'btn', style: 'margin-top:8px', onclick: () => { if (!ta.value.trim()) { ta.focus(); return; } act('POST', `/api/tasks/${t.id}/adjustments`, { body: ta.value }); } }, 'Registrar e voltar para "Em andamento"'))) : null);
   }
 
-  function commentsSection(staff) {
+  function commentsSection() {
     const ta = h('textarea', { id: 'cm-body', placeholder: staff ? 'Escreva um comentário' : 'Escreva para a equipe' });
     const vis = h('input', { type: 'checkbox', id: 'cm-vis' });
     return h('div', { class: 'section' },
@@ -1705,46 +1831,15 @@ async function openTask(id) {
         h('div', { class: 'meta' }, h('span', { class: 'by' }, c.author || 'Cliente'), fmtDateTime(c.created_at),
           staff && t.client_visible ? h('span', { class: 'tag' + (c.visible_to_client ? ' ok' : '') }, c.visible_to_client ? 'cliente vê' : 'só equipe') : null),
         h('div', { class: 'body' }, c.body))) : h('p', { class: 'muted' }, 'Sem comentários.'),
-      h('form', { style: 'margin-top:8px', onsubmit: e => {
-        e.preventDefault(); if (!ta.value.trim()) return;
-        act('POST', `/api/tasks/${t.id}/comments`, { body: ta.value, visible_to_client: vis.checked });
-      } },
+      h('div', { style: 'margin-top:8px' },
         h('label', { for: 'cm-body', class: 'sr-only' }, 'Comentário'), ta,
         h('div', { class: 'row', style: 'margin-top:8px' },
-          h('button', { class: 'btn', type: 'submit' }, 'Comentar'),
+          h('button', { class: 'btn', type: 'button', onclick: () => { if (ta.value.trim()) act('POST', `/api/tasks/${t.id}/comments`, { body: ta.value, visible_to_client: vis.checked }); } }, 'Enviar comentário'),
           staff && t.client_visible ? h('label', { for: 'cm-vis', class: 'check inline' }, vis, 'Visível para o cliente') : null)));
   }
 
   paint();
-  drawer.querySelector('input, button')?.focus();
-}
-
-// ---------- portal do cliente ----------
-async function viewPortal() {
-  document.title = 'Minhas entregas';
-  const tasks = await api('GET', '/api/tasks');
-  const by = key => tasks.filter(t => t.column === key);
-  const done = tasks.filter(t => t.status === 'done').sort((a, b) => (b.completed_on || '').localeCompare(a.completed_on || ''));
-  const item = (t, waiting) => h('div', { class: 'portal-task' + (waiting ? ' waiting' : '') },
-    h('div', { class: 'row' }, h('strong', { class: 'grow' }, t.title),
-      h('button', { class: waiting ? 'btn primary' : 'btn', onclick: () => openTask(t.id) }, waiting ? 'Revisar' : 'Ver')),
-    t.status === 'cancelled' ? h('p', { class: 'cancel-reason' }, 'Motivo: ' + t.cancel_reason) : null,
-    !['done', 'cancelled'].includes(t.status) && (t.status === 'doing' || t.progress > 0) ? progressBar(t.progress) : null,
-    h('div', { class: 'meta', style: 'margin-top:6px' }, h('span', { class: `pill col-${t.column}` }, colName(t.column)),
-      dateRange(t) ? h('span', {}, dateRange(t)) : null,
-      t.alert ? h('span', { class: 'tag ' + (t.alert.kind === 'overdue' ? 'late' : 'warn') }, S.alertText(t.alert)) : null));
-  const section = (title, list, waiting, empty) => h('section', { class: 'portal-section' }, h('h2', {}, `${title} (${list.length})`),
-    list.length ? list.map(t => item(t, waiting)) : h('p', { class: 'muted' }, empty));
-  const me = clientById(state.me.client_id);
-  shell([
-    h('div', { class: 'row', style: 'margin-bottom:16px' }, me ? logoEl(me.name, me.logo, 'md') : null, h('h1', {}, 'Minhas entregas')),
-    section('Esperando sua revisão', by('review'), true, 'Nada esperando você agora.'),
-    section('Atrasadas', by('overdue'), false, 'Nenhuma.'),
-    section('Em andamento', by('doing'), false, 'Nenhuma tarefa em andamento.'),
-    section('A fazer', by('todo'), false, 'Nada na fila.'),
-    section('Concluídas', done.slice(0, 30), false, 'Ainda nenhuma.'),
-    by('cancelled').length ? section('Canceladas', by('cancelled'), false, '') : null,
-  ]);
+  drawer.querySelector('input:not([disabled]), select, button')?.focus();
 }
 
 // ---------- clientes ----------

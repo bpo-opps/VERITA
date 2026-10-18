@@ -241,6 +241,43 @@ test('início: vazio ao criar, preenchido ao entrar em andamento, editável', as
   assert.equal(d.body.start_date, day(5), 'não sobrescreve um início já informado');
 });
 
+test('cliente atualiza situação, início, % e checklist; o resto não', async () => {
+  const admin = await login('admin@t.local');
+  const cliA = await login('a@t.local');
+  const cliB = await login('b@t.local');
+  const t = (await admin('POST', '/api/tasks', { kind: 'external', client_id: ids.a, title: 'Do cliente', due_date: day(9), checklist: ['Enviar extratos', 'Assinar contrato'] })).body.id;
+  let d = await cliA('PATCH', `/api/tasks/${t}`, { start_date: day(-1) });
+  assert.equal(d.status, 200);
+  assert.equal(d.body.status, 'doing', 'informar início coloca em andamento');
+  assert.equal(d.body.start_date, day(-1));
+  d = await cliA('PATCH', `/api/checklist/${d.body.checklist[0].id}`, { done: true });
+  assert.equal(d.body.progress, 50);
+  assert.equal((await cliA('PATCH', `/api/checklist/${d.body.checklist[0].id}`, { text: 'outro' })).status, 403);
+  assert.equal((await cliA('PATCH', `/api/tasks/${t}`, { status: 'review' })).body.status, 'review');
+  assert.equal((await cliA('PATCH', `/api/tasks/${t}`, { title: 'x' })).status, 403);
+  assert.equal((await cliA('PATCH', `/api/tasks/${t}`, { status: 'review', due_date: day(30) })).status, 403);
+  assert.equal((await cliA('PATCH', `/api/tasks/${t}`, { status: 'done' })).status, 400);
+  assert.equal((await cliA('POST', `/api/tasks/${t}/checklist`, { text: 'novo' })).status, 403);
+  assert.equal((await cliB('PATCH', `/api/tasks/${t}`, { status: 'doing' })).status, 404, 'outro cliente não mexe');
+  const sem = (await admin('POST', '/api/tasks', { kind: 'external', client_id: ids.a, title: 'Sem checklist' })).body.id;
+  assert.equal((await cliA('PATCH', `/api/tasks/${sem}`, { status: 'doing', progress: 30 })).body.progress, 30);
+  await cliA('PATCH', `/api/tasks/${t}`, { status: 'review' });
+  await cliA('POST', `/api/tasks/${t}/approve`);
+  assert.equal((await cliA('PATCH', `/api/tasks/${t}`, { status: 'doing' })).status, 409, 'encerrada não reabre pelo cliente');
+});
+
+test('início manda para em andamento só se estava a fazer; filtro de recorrentes', async () => {
+  const admin = await login('admin@t.local');
+  const t = (await admin('POST', '/api/tasks', { kind: 'internal', title: 'Rev', recurrence: 'weekly', due_date: day(3) })).body.id;
+  await admin('PATCH', `/api/tasks/${t}`, { status: 'review' });
+  assert.equal((await admin('PATCH', `/api/tasks/${t}`, { start_date: day(-2) })).body.status, 'review', 'não volta de revisão');
+  const u = (await admin('POST', '/api/tasks', { kind: 'internal', title: 'Única' })).body.id;
+  const rec = (await admin('GET', '/api/tasks?recurring=1')).body;
+  assert.ok(rec.some(x => x.id === t) && !rec.some(x => x.id === u));
+  const single = (await admin('GET', '/api/tasks?recurring=0')).body;
+  assert.ok(single.some(x => x.id === u) && !single.some(x => x.id === t));
+});
+
 test('checklist já na criação; substitui o do modelo quando vem preenchido', async () => {
   const admin = await login('admin@t.local');
   const t = (await admin('POST', '/api/tasks', { kind: 'internal', title: 'Com checklist', checklist: ['Um', '  ', 'Dois'] })).body.id;
@@ -302,7 +339,7 @@ test('cliente B não vê nem mexe nas tarefas do cliente A', async () => {
   assert.ok((await cliB('GET', '/api/tasks?client_id=' + ids.a)).body.every(t => t.client_id === ids.b));
   assert.equal((await cliB('GET', '/api/users')).status, 403);
   assert.equal((await cliB('POST', '/api/tasks', { kind: 'external', client_id: ids.b, title: 'x' })).status, 403);
-  assert.equal((await cliB('PATCH', `/api/tasks/${body.id}`, { title: 'x' })).status, 403);
+  assert.equal((await cliB('PATCH', `/api/tasks/${body.id}`, { title: 'x' })).status, 404);
 });
 
 test('outra organização não enxerga nada desta', async () => {

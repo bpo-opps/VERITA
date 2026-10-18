@@ -26,20 +26,21 @@ A senha temporária aparece uma vez no terminal; troque em Configurações. O ba
 
 - **Administrador:** vê todas as externas e as internas que criou ou em que é responsável; gerencia pessoas, clientes, logos e a marca; pode apagar.
 - **Equipe Opps:** cria tarefas; vê todas as externas e as internas que criou ou em que é responsável.
-- **Cliente:** vê as externas da empresa dele e as internas ligadas a ele marcadas como visíveis, com % e datas; aprova entregas em revisão ou pede ajuste.
+- **Cliente:** vê as externas da empresa dele e as internas ligadas a ele marcadas como visíveis, em Kanban, Lista ou Calendário. Atualiza a situação (A fazer, Em andamento, Em revisão), a data de início, o % de execução e marca o checklist; o resto do card ele só vê. Aprova entregas em revisão ou pede ajuste.
 
 ## O que faz
 
 - **Interna ou externa.** Externa exige um cliente e aparece para ele e para a equipe toda. Interna é da consultoria e só quem criou e os responsáveis veem (uma interna do administrador sem outros responsáveis só ele vê). Ligada a um cliente, a interna pode ser marcada como "Visível para o cliente"; ligada à própria consultoria, nunca.
 - **Quadro com 7 colunas:** A fazer, Em andamento, Em revisão, Atrasada, Concluída no prazo, Concluída fora do prazo, Cancelada. Cancelar exige motivo; cancelada não gera alerta nem a próxima repetição, e pode ser reaberta. "Atrasada" é automática quando o prazo passa. Ao concluir, informa-se a data de término, e ela decide entre no prazo e fora do prazo.
-- **Datas:** prazo (ao criar), início (preenchido sozinho quando a tarefa vai para Em andamento, editável) e término (a data real, pedida ao concluir).
+- **Datas:** prazo (ao criar), início (quando a pessoa começou: preenchido sozinho ao ir para Em andamento, e informar o início de uma tarefa a fazer já a leva para Em andamento) e término (a data real, pedida ao concluir).
+- **Card com Salvar e Sair.** As alterações ficam pendentes até Salvar; Sair com alterações pendentes pede confirmação. No topo do card: nome, empresa, início, checklist, % de execução, prazo, prioridade e responsáveis; depois descrição, alertas, repetição, ajustes e comentários.
 - **% de execução:** informado à mão; se a tarefa tem checklist, segue os itens marcados.
 - **Alertas do prazo:** no dia, 1 dia antes, 3 dias antes, 1 semana antes (vários ao mesmo tempo). Aparecem nos cards, na tela Alertas e no contador do menu.
 - **Recorrência:** diária, semanal, quinzenal, mensal, bimestral, trimestral, quadrimestral, semestral, anual ou livre (a cada N dias). Ao concluir, a próxima é criada com o prazo avançado, sem início, com o checklist zerado e os mesmos responsáveis.
 - **Checklist já na criação**, item por item; escolher um modelo preenche os itens, que dá para editar antes de criar.
 - **Arquivar** tira a tarefa das telas sem apagar; "Ver arquivadas" mostra e permite desarquivar.
 - **Logos** dos clientes e da consultoria nos cards (a imagem é reduzida para 128px no navegador).
-- **Visões:** Kanban, Lista (agrupada por situação, empresa, responsável, prazo ou tipo) e Calendário (pelo prazo; no celular vira agenda). Filtros por tipo, empresa, responsável e prazo.
+- **Visões:** Kanban, Lista (agrupada por situação, empresa, responsável, prazo ou tipo) e Calendário (pelo prazo; no celular vira agenda). Filtros por tipo, empresa, responsável, prazo e recorrência (só recorrentes ou só únicas).
 - **Também:** ajustes internos e do cliente, comentários (visíveis ao cliente só quando marcados, e nunca em interna), modelos com checklist, relatório por empresa com % no prazo.
 
 ## O que ainda não faz

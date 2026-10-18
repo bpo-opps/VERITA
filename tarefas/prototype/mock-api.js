@@ -190,6 +190,8 @@
     if (q.due === 'month') ts = ts.filter(t => t.due_date && t.due_date.slice(0, 7) === today.slice(0, 7));
     if (q.due === 'none') ts = ts.filter(t => !t.due_date);
     if (q.q) ts = ts.filter(t => t.title.toLowerCase().includes(String(q.q).toLowerCase()));
+    if (q.recurring === '1') ts = ts.filter(t => t.recurrence !== 'none');
+    if (q.recurring === '0') ts = ts.filter(t => t.recurrence === 'none');
     return ts.sort((a, b) => a.position - b.position || a.id - b.id).map(t => decorate(user, t));
   }
 
@@ -295,9 +297,13 @@
     return { id };
   });
   route('GET', '/api/tasks/:id', ({ user, id }) => detail(user, id));
+  const CLIENT_FIELDS = ['status', 'start_date', 'progress'];
   route('PATCH', '/api/tasks/:id', ({ user, body, id }) => {
-    requireStaff(user);
     const t = loadTask(user, id);
+    if (user.role === 'client') {
+      if (!Object.keys(body).every(k => CLIENT_FIELDS.includes(k))) fail(403, 'Você pode alterar a situação, a data de início e o % de execução');
+      if (t.status === 'done' || t.status === 'cancelled') fail(409, 'Esta tarefa já foi encerrada');
+    }
     const copy = { ...t };
     try {
       if ('title' in body) t.title = str(body.title, 'título', { max: 200 });
@@ -327,7 +333,7 @@
         t.status = oneOf(body.status, 'situação', ['todo', 'doing', 'review']);
         Object.assign(t, { completed_on: null, cancelled_on: null, cancel_reason: null });
         if (t.status !== 'todo' && !('start_date' in body)) t.start_date = t.start_date || S.today();
-      }
+      } else if (body.start_date && t.status === 'todo') t.status = 'doing';
     } catch (err) { Object.assign(t, copy); throw err; }
     touch(t);
     return detail(user, id);
@@ -361,7 +367,10 @@
   });
   const checklistItem = (user, iid) => { const i = db.checklist.find(x => x.id === iid); if (!i) fail(404, 'Item não encontrado'); loadTask(user, i.task_id); return i; };
   route('PATCH', '/api/checklist/:id', ({ user, body, id }) => {
-    requireStaff(user); const i = checklistItem(user, id);
+    if (user.role === 'client' && Object.keys(body).some(k => k !== 'done')) fail(403, 'Você pode marcar os itens, não editar o texto');
+    const i = checklistItem(user, id);
+    const task = db.tasks.find(x => x.id === i.task_id);
+    if (user.role === 'client' && (task.status === 'done' || task.status === 'cancelled')) fail(409, 'Esta tarefa já foi encerrada');
     if ('done' in body) i.done = body.done ? 1 : 0;
     if ('text' in body) i.text = str(body.text, 'item', { max: 300 });
     return detail(user, i.task_id);

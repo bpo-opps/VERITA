@@ -277,3 +277,19 @@ td .tag.internal { margin-left: 6px; }
 .cl-builder li .grow { flex: 1; overflow-wrap: anywhere; }
 .tag { white-space: nowrap; }
 .board { gap: 8px; }
+.drawer { display: flex; flex-direction: column; padding-bottom: 0; }
+.drawer-body { flex: 1 0 auto; padding-bottom: 16px; }
+.drawer-foot { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--surface); border-top: 1px solid var(--border);
+  margin: 0 -20px; padding: 12px 20px; padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+.title-input { font-size: 18px; font-weight: 700; flex: 1; }
+.drawer-head .grow { flex: 1; margin: 0; }
+.status-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+.status-row .grow { flex: 1; min-width: 160px; }
+.status-row .full { flex-basis: 100%; margin: 0; }
+.main-fields { display: flex; flex-direction: column; gap: 4px; }
+.main-fields .field { margin-bottom: 8px; }
+.main-fields p { margin: 0; }
+.pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ck-text { font-weight: 400; margin: 0; flex: 1; overflow-wrap: anywhere; }
+.waiting-box { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.waiting-box .link { color: var(--accent); }
