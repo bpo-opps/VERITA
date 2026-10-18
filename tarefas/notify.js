@@ -16,7 +16,7 @@ const br = d => (d ? d.split('-').reverse().join('/') : 'sem prazo');
 const first = name => String(name).split(/\s+/)[0];
 
 function createNotifier(db, { env = process.env, now = () => new Date(), senders = {}, log = console } = {}) {
-  const appUrl = (env.APP_URL || '').replace(/\/$/, '');
+  const appUrl = (env.APP_URL || env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
   const emailCfg = mailer.config(env);
   const waCfg = whatsapp.config(env);
   const sendEmail = senders.email || (emailCfg ? mail => mailer.send(emailCfg, mail) : null);

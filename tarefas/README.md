@@ -134,6 +134,16 @@ No protótipo a leitura é simulada: as sugestões são de exemplo, montadas a p
 
 As regras de colunas, alertas, recorrência, % e quem vê ficam em `shared.js`, usado pelo servidor e pelo protótipo. Defina `TZ` (por exemplo `TZ=America/Sao_Paulo`) para o "hoje" do servidor ser o da consultoria.
 
+## Publicar no Render
+
+O `render.yaml` na raiz do repositório descreve o serviço: Docker (`tarefas/Dockerfile`), plano Starter com disco de 1 GB em `/app/data` (banco e backups), região Virginia e verificação em `/api/health`.
+
+1. Em render.com, entre com o GitHub e dê acesso ao repositório `bpo-opps/verita`.
+2. **New → Blueprint**, escolha o repositório. O Render lê o `render.yaml` e pede os valores em aberto: deixe em branco o que ainda não tiver (e-mail, WhatsApp, IA) e preencha depois em *Environment*.
+3. Confirme. Ao terminar, abra **Logs**: a senha temporária do administrador (`bpo@oppsconsultoria.com`) aparece uma vez. Entre e troque em Configurações.
+
+Sem `APP_URL`, os links dos e-mails usam o endereço `.onrender.com`. Para usar `tarefas.oppsconsultoria.com`: em *Settings → Custom Domains* adicione o domínio, crie no DNS o CNAME que o Render mostrar e preencha `APP_URL`.
+
 ## Segurança
 
 Senhas com scrypt, sessão em cookie HttpOnly e SameSite, verificação de origem em toda escrita, limite de tentativas de login, toda consulta filtrada por organização e, para cliente, pelo próprio cliente. Os testes em `test/api.test.js` cobrem um cliente tentando ver tarefa de outro e outra organização tentando ver esta.

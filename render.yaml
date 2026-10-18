@@ -1,0 +1,44 @@
+# Render Blueprint do Painel de Tarefas Opps.
+# No Render: New → Blueprint → escolha o repositório bpo-opps/verita. O Render lê este arquivo,
+# cria o serviço com o disco e pede os valores marcados com "sync: false" (deixe em branco o que ainda não tem).
+services:
+  - type: web
+    name: tarefas-opps
+    runtime: docker
+    dockerfilePath: ./tarefas/Dockerfile
+    dockerContext: ./tarefas
+    branch: claude/replica-skill-sakpz4
+    plan: starter            # o plano gratuito não tem disco: os dados se perderiam a cada reinício
+    region: virginia         # a região do Render mais perto do Brasil
+    healthCheckPath: /api/health
+    disk:
+      name: dados
+      mountPath: /app/data   # banco SQLite e backups diários
+      sizeGB: 1
+    envVars:
+      # Primeira execução: cria o administrador; a senha temporária aparece em Logs uma vez.
+      - key: ADMIN_EMAIL
+        value: bpo@oppsconsultoria.com
+      - key: ORG_NAME
+        value: Opps Consultoria
+      # Endereço dos links nos e-mails. Vazio = usa o endereço .onrender.com. Preencha quando tiver o domínio.
+      - key: APP_URL
+        sync: false
+      # E-mail pelo Google Workspace (senha de app). Vazio = e-mail desligado.
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      # WhatsApp (API da Meta) e IA das atas (Anthropic). Vazio = desligados.
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_ID
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

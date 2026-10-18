@@ -37,7 +37,7 @@ Pendente (decisão da Opps):
 
 ## 3. Hospedagem e domínio
 
-A definir.
+Render (Blueprint em `render.yaml`): web service Docker, plano Starter, disco de 1 GB em `/app/data`, região Virginia, endereço `.onrender.com` no início. Domínio próprio depois (CNAME indicado pelo Render).
 
 ## 4. Acompanhar na primeira semana
 
