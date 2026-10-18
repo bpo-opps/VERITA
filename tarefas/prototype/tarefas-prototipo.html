@@ -1004,6 +1004,14 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     if (db.users.some(u => u.email === email)) fail(409, 'Já existe um usuário com esse email');
     const id = nextId(); db.users.push({ id, name, email, role, client_id, active: 1, password }); return { id };
   });
+  route('POST', '/api/users/:id/password', ({ user, body, id }) => {
+    requireAdmin(user);
+    const u = db.users.find(x => x.id === id); if (!u) fail(404, 'Usuário não encontrado');
+    if (id === user.id) fail(400, 'Para a sua própria senha, use Configurações');
+    const password = str(body.password, 'senha', { max: 200 });
+    if (password.length < 8) fail(400, 'A senha precisa ter pelo menos 8 caracteres');
+    u.password = password; return { ok: true };
+  });
   route('PATCH', '/api/users/:id', ({ user, body, id }) => {
     requireAdmin(user);
     const u = db.users.find(x => x.id === id); if (!u) fail(404, 'Usuário não encontrado');
@@ -2703,9 +2711,15 @@ async function viewTeam() {
       h('tbody', {}, state.users.map(u => h('tr', {},
         h('td', {}, u.name), h('td', {}, u.email), h('td', {}, roleLabel(u.role) + (u.client_name ? ` · ${u.client_name}` : '')),
         h('td', {}, u.active ? 'Ativo' : 'Desativado'),
-        h('td', { class: 'actions' }, isAdmin() && u.id !== state.me.id ? h('button', { class: 'btn small', onclick: guard(async () => {
-          await api('PATCH', `/api/users/${u.id}`, { active: !u.active }); route();
-        }) }, u.active ? 'Desativar' : 'Reativar') : null)))))),
+        h('td', { class: 'actions' }, isAdmin() && u.id !== state.me.id ? [
+          u.active ? h('button', { class: 'btn small', onclick: guard(async () => {
+            const pw = await askText(`Nova senha temporária para ${u.name} (mínimo 8 caracteres). Passe para a pessoa e peça que troque em Configurações.`);
+            if (!pw) return;
+            await api('POST', `/api/users/${u.id}/password`, { password: pw }); toast(`Senha de ${u.name} redefinida`, 5000);
+          }) }, 'Nova senha') : null,
+          h('button', { class: 'btn small', onclick: guard(async () => {
+            await api('PATCH', `/api/users/${u.id}`, { active: !u.active }); route();
+          }) }, u.active ? 'Desativar' : 'Reativar')] : null)))))),
   ]);
 }
 
