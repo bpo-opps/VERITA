@@ -72,14 +72,34 @@ const colName = key => S.COLUMNS.find(c => c.key === key).name;
 const clientById = cid => state.clients.find(c => c.id === cid);
 const where = t => (t.client_id ? t.client_name : state.org.name);
 
-// Cor da marca: escolhe texto branco ou preto sobre ela pelo contraste.
+// Cor da marca: vira --brand (logo, destaques, gráficos). Para botões e links deriva um tom que
+// passa no contraste AA: no tema claro escurece até o texto branco ter 4.5:1; no escuro clareia até
+// ter 4.5:1 sobre o fundo escuro. Assim qualquer cor escolhida em Configurações continua legível.
 function applyAccent(hex) {
-  const lum = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
-  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
-  const L = 0.2126 * lum(r) + 0.7152 * lum(g) + 0.0722 * lum(b);
-  document.documentElement.style.setProperty('--accent', hex);
-  document.documentElement.style.setProperty('--on-accent', (L + 0.05) / 0.05 > 1.05 / (L + 0.05) ? '#000000' : '#ffffff');
+  const rgb = x => [1, 3, 5].map(i => parseInt(x.slice(i, i + 2), 16));
+  const lum = c => c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
+    .reduce((n, v, i) => n + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+  const mix = (c, t, k) => c.map((v, i) => Math.round(v + (t[i] - v) * k));
+  const toHex = c => '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
+  const base = rgb(hex), white = [255, 255, 255], black = [0, 0, 0], darkBg = [21, 27, 38];
+  let light = base, dark = base, k = 0;
+  while (ratio(light, white) < 4.5 && k < 1) { k += 0.04; light = mix(base, black, k); }
+  k = 0;
+  while (ratio(dark, darkBg) < 4.5 && k < 1) { k += 0.04; dark = mix(base, white, k); }
+  const st = document.documentElement.style;
+  st.setProperty('--brand', hex);
+  st.setProperty('--accent-light', toHex(light));
+  st.setProperty('--on-accent-light', '#ffffff');
+  st.setProperty('--accent-dark', toHex(dark));
+  st.setProperty('--on-accent-dark', ratio(dark, white) >= 4.5 ? '#ffffff' : '#111111');
 }
+
+const APP_NAME = 'Painel de Tarefas Opps';
+// Logo da Opps (versão colorida e branca). No protótipo, o build injeta as imagens embutidas.
+const LOGO = window.BRAND_LOGOS || { color: '/brand/opps-logo.png', white: '/brand/opps-logo-branco.png' };
+const wordmark = () => [h('img', { class: 'wordmark light-only', src: LOGO.color, alt: 'Opps Consultoria' }),
+  h('img', { class: 'wordmark dark-only', src: LOGO.white, alt: 'Opps Consultoria' })];
 
 // Logo da empresa no card: o do cliente, ou o da consultoria nas internas sem cliente.
 function logoEl(name, src, size = 'sm') {
@@ -157,7 +177,7 @@ function icon(name) {
 }
 
 function renderLogin(message) {
-  document.title = 'Entrar';
+  document.title = `Entrar · ${APP_NAME}`;
   const err = h('p', { class: 'error', role: 'alert' }, message || '');
   const form = h('form', { class: 'login', onsubmit: async e => {
     e.preventDefault();
@@ -167,8 +187,8 @@ function renderLogin(message) {
       await boot();
     } catch (ex) { err.textContent = ex.message; }
   } },
-    h('div', { class: 'login-mark' }, icon('check')),
-    h('h1', {}, 'Entrar'),
+    h('div', { class: 'login-brand' }, wordmark()),
+    h('h1', {}, 'Painel de Tarefas'),
     h('p', { class: 'muted', style: 'margin:0 0 20px' }, 'Acesse com o email e a senha que você recebeu.'),
     h('div', { class: 'field' }, h('label', { for: 'email' }, 'Email'), h('input', { id: 'email', name: 'email', type: 'email', autocomplete: 'username', required: true })),
     h('div', { class: 'field' }, h('label', { for: 'password' }, 'Senha'), h('input', { id: 'password', name: 'password', type: 'password', autocomplete: 'current-password', required: true })),
@@ -181,14 +201,14 @@ function renderLogin(message) {
 // Estrutura: menu lateral (gaveta no celular) + barra superior com o título e a ação da página.
 function shell(content, { title, sub } = {}) {
   const nav = isStaff()
-    ? [['#/painel', 'Painel', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/alertas', 'Alertas', 'bell'],
+    ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/alertas', 'Alertas', 'bell'],
       ['#/clientes', 'Clientes', 'building'], ['#/modelos', 'Modelos', 'copy'], ['#/relatorio', 'Relatório', 'chart'], ['#/equipe', 'Pessoas', 'users'],
       ['#/config', 'Configurações', 'settings']]
-    : [['#/painel', 'Painel', 'home'], ['#/tarefas', 'Minhas entregas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/alertas', 'Alertas', 'bell'],
+    : [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Minhas entregas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/alertas', 'Alertas', 'bell'],
       ['#/config', 'Minha conta', 'settings']];
   const current = location.hash.split('?')[0] || nav[0][0];
   const page = nav.find(n => n[0] === current) || nav[0];
-  document.title = `${title || page[1]} · ${state.org.name}`;
+  document.title = `${title || page[1]} · ${APP_NAME}`;
   const shellEl = h('div', { class: 'app' });
   const toggleNav = open => shellEl.classList.toggle('nav-open', open);
   const recurringPage = current === '#/recorrentes';
@@ -198,7 +218,7 @@ function shell(content, { title, sub } = {}) {
     : null;
   shellEl.append(
     h('aside', { class: 'sidebar', 'aria-label': 'Menu' },
-      h('div', { class: 'brand' }, logoEl(state.org.name, state.org.logo, 'md'), h('span', {}, state.org.name)),
+      h('a', { class: 'brand', href: '#/painel', 'aria-label': `${APP_NAME}: ir para o Dashboard` }, wordmark(), h('span', { class: 'brand-sub' }, 'Painel de Tarefas')),
       h('div', { class: 'nav-label' }, 'Menu'),
       h('nav', { 'aria-label': 'Principal' },
         nav.map(([href, label, ic]) => h('a', { class: 'nav-link', href, 'aria-current': current === href ? 'page' : null, onclick: () => toggleNav(false) },
@@ -621,7 +641,7 @@ async function viewDashboard() {
         overdue.sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 6).map(t => h('button', { class: 'alert-row', type: 'button', onclick: () => openTask(t.id) },
           taskLogo(t), h('span', { class: 'grow' }, h('strong', {}, t.title), h('span', { class: 'muted small' }, ` · ${where(t)}`)),
           h('span', { class: 'tag late' }, S.alertText(t.alert)))))) : null));
-  shell(content, { title: 'Painel' });
+  shell(content, { title: 'Dashboard' });
   wireTips(document.querySelector('.dash'));
 }
 

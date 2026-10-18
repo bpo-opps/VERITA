@@ -1,4 +1,4 @@
-# Tarefas
+# Painel de Tarefas Opps
 
 Gestão de tarefas da consultoria, com a equipe e com os clientes. Primeira versão, construída a partir do mapa em `replica/recon.md` (que é um rascunho feito sem acesso ao site de referência).
 
@@ -49,6 +49,9 @@ A senha temporária aparece uma vez no terminal; troque em Configurações. O ba
 - **Recorrentes**: só as tarefas que se repetem, agrupadas por frequência, com o próximo prazo de cada uma e o botão "Nova recorrente" (a repetição já vem obrigatória). "Mostrar concluídas e canceladas" traz o histórico.
 
 ## Visual
+
+Identidade da Opps (manual de marca): laranja #FB4F14 e degradê #FBD200 → #FF6A00, logo colorido no claro e branco no escuro (`public/brand/`), símbolo "!" nos espaços pequenos. Botões e links usam um tom derivado da cor da marca que passa no contraste de leitura; a cor pode ser trocada em Configurações e o tom é recalculado.
+
 
 Menu lateral claro com ícones, barra superior com o título e a ação da página, indicadores no topo das tarefas (em aberto, atrasadas, vencem em 7 dias, % no prazo), cards com cantos arredondados. Tema claro e escuro conforme o aparelho. Fonte Plus Jakarta Sans (Google Fonts; sem internet, cai na fonte do sistema).
 

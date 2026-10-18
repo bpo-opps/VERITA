@@ -3,6 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const read = f => fs.readFileSync(path.join(__dirname, f), 'utf8');
+const dataUri = (f, type) => `data:${type};base64,${fs.readFileSync(path.join(__dirname, f)).toString('base64')}`;
+const logos = { color: dataUri('../public/brand/opps-logo.png', 'image/png'), white: dataUri('../public/brand/opps-logo-branco.png', 'image/png') };
 const safe = js => js.replace(/<\/script/gi, '<\\/script');
 
 const fonts = `<link rel="preconnect" href="https://fonts.googleapis.com">
@@ -29,6 +31,9 @@ const body = `<div id="demo-bar" role="region" aria-label="Protótipo">
 <div id="app" aria-live="polite"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <script>
+window.BRAND_LOGOS = ${JSON.stringify(logos)};
+</script>
+<script>
 ${safe(read('../shared.js'))}
 </script>
 <script>
@@ -44,7 +49,7 @@ const html = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Tarefas (protótipo)</title>
+<title>Painel de Tarefas Opps (protótipo)</title>
 ${fonts}
 ${style}
 </head>
@@ -55,7 +60,7 @@ ${body}
 `;
 
 // Página publicada no claude.ai: o publicador coloca o esqueleto (doctype, head, body).
-const page = `<title>Tarefas da Consultoria</title>
+const page = `<title>Painel de Tarefas Opps</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 ${fonts}
 ${style}

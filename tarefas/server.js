@@ -3,7 +3,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { open, createOrg, createUser, seedDemo } = require('./db');
+const { open, createOrg, createUser, seedDemo, OPPS_SYMBOL } = require('./db');
 const { createHandler } = require('./app');
 
 const file = process.env.DB_FILE || path.join(__dirname, 'data', 'tarefas.db');
@@ -22,7 +22,8 @@ if (!db.prepare('select 1 from orgs').get()) {
       process.exit(1);
     }
     const password = process.env.ADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
-    const orgId = createOrg(db, process.env.ORG_NAME || 'Minha Consultoria');
+    const orgId = createOrg(db, process.env.ORG_NAME || 'Opps Consultoria');
+    db.prepare('update orgs set logo = ? where id = ?').run(OPPS_SYMBOL, orgId);
     createUser(db, { orgId, name: 'Administrador', email, password, role: 'admin' });
     console.log(`Administrador criado: ${email}` + (process.env.ADMIN_PASSWORD ? '' : `, senha temporária: ${password} (troque no primeiro acesso)`));
   }

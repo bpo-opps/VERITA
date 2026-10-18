@@ -51,6 +51,6 @@ Ordem: `replica-recon` → `replica-architect` → `replica-design` → `replica
 - Valem as regras do pacote: só fontes públicas e a conta da própria pessoa, nada de código, assets, textos ou APIs privadas do original, nada de avaliação inventada, troca de marca (`sweep.py` limpo) antes de lançar.
 - Nada vai ao ar sem um "sim" explícito da pessoa. Claude não cria contas, não compra domínio e não digita senha, cartão ou chave de produção.
 
-### Clone em andamento: gestão de tarefas
+### Clone em andamento: Painel de Tarefas Opps
 
 `replica/` tem o recon (rascunho, sem acesso ao site de referência), a matriz e o build log. O sistema está em `tarefas/` (Node 22 + `node:sqlite`, sem dependências): `cd tarefas && npm test` e `npm run demo`. Regras de negócio (colunas, alertas, recorrência, %, quem vê, incluindo interna visível ao cliente) ficam em `tarefas/shared.js`, usado pelo servidor e pelo protótipo (`tarefas/prototype/mock-api.js`); mudou uma regra, mude nos dois lados das rotas e rode `node prototype/build.js`. Ao mexer em permissões, mantenha os testes de visibilidade (interna, cliente, organização) em `tarefas/test/api.test.js`.

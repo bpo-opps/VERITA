@@ -5,7 +5,7 @@
 // Os dados são fictícios e ficam só neste navegador (localStorage, quando disponível).
 (function () {
   const S = window.Shared;
-  const KEY = 'tarefas-prototipo-v3';
+  const KEY = 'tarefas-prototipo-v4';
   const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
   const d = n => S.addDays(S.today(), n);
 
@@ -16,7 +16,8 @@
   }
 
   function seed() {
-    const db = { seq: 100, org: { id: 1, name: 'Opps Consultoria', accent: '#0f766e', logo: svgLogo('OP', '#0f766e') },
+    const OPPS_SYMBOL = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="24" y="6" width="16" height="36" rx="4" fill="#FB4F14"/><rect x="24" y="46" width="16" height="12" rx="4" fill="#FB4F14"/></svg>');
+    const db = { seq: 100, org: { id: 1, name: 'Opps Consultoria', accent: '#FB4F14', logo: OPPS_SYMBOL },
       clients: [], users: [], tasks: [], assignees: [], checklist: [], comments: [], adjustments: [], templates: [] };
     db.clients.push(
       { id: 1, name: 'Padaria Exemplo', logo: svgLogo('PE', '#b45309') },

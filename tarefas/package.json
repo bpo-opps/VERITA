@@ -2,7 +2,7 @@
   "name": "tarefas",
   "version": "0.1.0",
   "private": true,
-  "description": "Gestão de tarefas da consultoria com equipe e clientes",
+  "description": "Painel de Tarefas Opps: gestão de tarefas da consultoria com equipe e clientes",
   "main": "server.js",
   "engines": { "node": ">=22.5" },
   "scripts": {

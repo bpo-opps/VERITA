@@ -10,7 +10,7 @@ pragma foreign_keys = on;
 create table if not exists orgs (
   id integer primary key,
   name text not null,
-  accent text not null default '#0f766e',
+  accent text not null default '#FB4F14',
   logo text
 );
 create table if not exists clients (
@@ -147,6 +147,11 @@ function createUser(db, { orgId, name, email, password, role, clientId = null })
   return Number(r.lastInsertRowid);
 }
 
+// Símbolo da Opps (a variação "!" do manual de marca), para os espaços pequenos como os cards.
+const OPPS_SYMBOL = 'data:image/svg+xml;base64,' + Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="24" y="6" width="16" height="36" rx="4" fill="#FB4F14"/>' +
+  '<rect x="24" y="46" width="16" height="12" rx="4" fill="#FB4F14"/></svg>').toString('base64');
+
 // Logo de exemplo: quadrado colorido com as iniciais, como imagem SVG embutida.
 function sampleLogo(initials, color) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${color}"/>` +
@@ -158,7 +163,7 @@ function sampleLogo(initials, color) {
 function seedDemo(db) {
   const d = n => addDays(today(), n);
   const orgId = createOrg(db, 'Opps Consultoria');
-  db.prepare('update orgs set logo = ? where id = ?').run(sampleLogo('OP', '#0f766e'), orgId);
+  db.prepare('update orgs set logo = ? where id = ?').run(OPPS_SYMBOL, orgId);
   const client = (name, logo) => Number(db.prepare('insert into clients (org_id, name, logo) values (?, ?, ?)').run(orgId, name, logo).lastInsertRowid);
   const padaria = client('Padaria Exemplo', sampleLogo('PE', '#b45309'));
   const clinica = client('Clínica Modelo', sampleLogo('CM', '#4338ca'));
@@ -202,4 +207,4 @@ function seedDemo(db) {
     .run(orgId, JSON.stringify(['Conciliar bancos', 'Conferir notas fiscais', 'Lançar provisões', 'Enviar relatório ao cliente']));
 }
 
-module.exports = { open, tx, createOrg, createUser, seedDemo, sampleLogo };
+module.exports = { open, tx, createOrg, createUser, seedDemo, sampleLogo, OPPS_SYMBOL };
