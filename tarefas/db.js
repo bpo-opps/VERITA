@@ -1,27 +1,23 @@
 'use strict';
 const { DatabaseSync } = require('node:sqlite');
 const { hashPassword } = require('./auth');
+const { today, addDays } = require('./shared');
 
-const STAGES = [
-  ['A fazer', 'todo'],
-  ['Em andamento', 'doing'],
-  ['Revisão interna', 'review'],
-  ['Com o cliente', 'client'],
-  ['Em ajuste', 'adjust'],
-  ['Concluída', 'done'],
-];
+const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 pragma foreign_keys = on;
 create table if not exists orgs (
   id integer primary key,
   name text not null,
-  accent text not null default '#0f766e'
+  accent text not null default '#0f766e',
+  logo text
 );
 create table if not exists clients (
   id integer primary key,
   org_id integer not null references orgs(id) on delete cascade,
   name text not null,
+  logo text,
   created_at text not null default (datetime('now'))
 );
 create table if not exists users (
@@ -41,29 +37,33 @@ create table if not exists sessions (
   user_id integer not null references users(id) on delete cascade,
   expires_at integer not null
 );
-create table if not exists stages (
-  id integer primary key,
-  org_id integer not null references orgs(id) on delete cascade,
-  name text not null,
-  kind text not null check (kind in ('todo','doing','review','client','adjust','done')),
-  position integer not null
-);
 create table if not exists tasks (
   id integer primary key,
   org_id integer not null references orgs(id) on delete cascade,
-  client_id integer not null references clients(id) on delete cascade,
-  stage_id integer not null references stages(id),
+  kind text not null check (kind in ('internal','external')),
+  client_id integer references clients(id) on delete cascade,
+  status text not null default 'todo' check (status in ('todo','doing','review','done')),
   title text not null,
   description text not null default '',
+  start_date text,
   due_date text,
+  completed_on text,
+  progress integer not null default 0 check (progress between 0 and 100),
   priority text not null default 'normal' check (priority in ('low','normal','high')),
+  alerts text not null default '[1]',
+  recurrence text not null default 'none',
+  recurrence_every integer,
+  next_task_id integer references tasks(id) on delete set null,
   position real not null default 0,
   created_by integer references users(id) on delete set null,
   created_at text not null default (datetime('now')),
   updated_at text not null default (datetime('now')),
-  completed_at text
+  archived_at text,
+  check (kind = 'internal' or client_id is not null),
+  check ((status = 'done') = (completed_on is not null))
 );
-create index if not exists tasks_client on tasks (client_id, stage_id);
+create index if not exists tasks_org on tasks (org_id, archived_at, status);
+create index if not exists tasks_client on tasks (client_id);
 create index if not exists tasks_due on tasks (org_id, due_date);
 create table if not exists task_assignees (
   task_id integer not null references tasks(id) on delete cascade,
@@ -110,7 +110,13 @@ create table if not exists templates (
 
 function open(file) {
   const db = new DatabaseSync(file);
+  const version = db.prepare('pragma user_version').get().user_version;
+  const hasTables = db.prepare("select 1 from sqlite_master where type = 'table' and name = 'orgs'").get();
+  if (hasTables && version < SCHEMA_VERSION) {
+    throw new Error(`O banco ${file} é da versão anterior do sistema. Como ele só tinha dados de teste, apague o arquivo e rode de novo.`);
+  }
   db.exec(SCHEMA);
+  db.exec(`pragma user_version = ${SCHEMA_VERSION}`);
   return db;
 }
 
@@ -127,13 +133,7 @@ function tx(db, fn) {
 }
 
 function createOrg(db, name) {
-  return tx(db, () => {
-    const org = db.prepare('insert into orgs (name) values (?)').run(name);
-    const orgId = Number(org.lastInsertRowid);
-    const ins = db.prepare('insert into stages (org_id, name, kind, position) values (?, ?, ?, ?)');
-    STAGES.forEach(([n, kind], i) => ins.run(orgId, n, kind, i));
-    return orgId;
-  });
+  return Number(db.prepare('insert into orgs (name) values (?)').run(name).lastInsertRowid);
 }
 
 function createUser(db, { orgId, name, email, password, role, clientId = null }) {
@@ -143,32 +143,57 @@ function createUser(db, { orgId, name, email, password, role, clientId = null })
   return Number(r.lastInsertRowid);
 }
 
-// Dados fictícios para ver o sistema funcionando. Nenhuma pessoa real.
-function seedDemo(db) {
-  const orgId = createOrg(db, 'Minha Consultoria');
-  const stage = kind => db.prepare('select id from stages where org_id = ? and kind = ?').get(orgId, kind).id;
-  const client = name => Number(db.prepare('insert into clients (org_id, name) values (?, ?)').run(orgId, name).lastInsertRowid);
-  const acme = client('Padaria Exemplo');
-  const beta = client('Clínica Modelo');
-  const admin = createUser(db, { orgId, name: 'Admin Demo', email: 'admin@demo.local', password: 'demo1234', role: 'admin' });
-  const ana = createUser(db, { orgId, name: 'Membro Demo', email: 'equipe@demo.local', password: 'demo1234', role: 'member' });
-  createUser(db, { orgId, name: 'Cliente Padaria', email: 'cliente@demo.local', password: 'demo1234', role: 'client', clientId: acme });
-  const task = (clientId, kind, title, due, who) => {
-    const id = Number(db.prepare(
-      'insert into tasks (org_id, client_id, stage_id, title, due_date, created_by) values (?, ?, ?, ?, ?, ?)'
-    ).run(orgId, clientId, stage(kind), title, due, admin).lastInsertRowid);
-    for (const u of who) db.prepare('insert into task_assignees values (?, ?)').run(id, u);
-    return id;
-  };
-  const day = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
-  task(acme, 'todo', 'Levantar processos do financeiro', day(3), [ana]);
-  task(acme, 'doing', 'Mapear fluxo de contas a pagar', day(1), [ana, admin]);
-  const t = task(acme, 'client', 'Relatório de diagnóstico', day(-1), [admin]);
-  db.prepare("insert into comments (task_id, user_id, body, visible_to_client) values (?, ?, 'Versão 1 enviada para sua revisão.', 1)").run(t, admin);
-  task(beta, 'review', 'Conciliação bancária de setembro', day(2), [ana]);
-  task(beta, 'done', 'Reunião de kickoff', day(-7), [admin]);
-  db.prepare("insert into templates (org_id, name, title, checklist) values (?, 'Fechamento mensal', 'Fechamento do mês', ?)")
-    .run(orgId, JSON.stringify(['Conciliar bancos', 'Conferir notas fiscais', 'Enviar relatório ao cliente']));
+// Logo de exemplo: quadrado colorido com as iniciais, como imagem SVG embutida.
+function sampleLogo(initials, color) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${color}"/>` +
+    `<text x="32" y="41" font-family="Arial,sans-serif" font-size="24" font-weight="700" fill="#fff" text-anchor="middle">${initials}</text></svg>`;
+  return 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
 }
 
-module.exports = { open, tx, createOrg, createUser, seedDemo, STAGES };
+// Dados fictícios para ver o sistema funcionando. Nenhuma pessoa ou empresa real.
+function seedDemo(db) {
+  const d = n => addDays(today(), n);
+  const orgId = createOrg(db, 'Opps Consultoria');
+  db.prepare('update orgs set logo = ? where id = ?').run(sampleLogo('OP', '#0f766e'), orgId);
+  const client = (name, logo) => Number(db.prepare('insert into clients (org_id, name, logo) values (?, ?, ?)').run(orgId, name, logo).lastInsertRowid);
+  const padaria = client('Padaria Exemplo', sampleLogo('PE', '#b45309'));
+  const clinica = client('Clínica Modelo', sampleLogo('CM', '#4338ca'));
+  const pw = 'demo1234';
+  const admin = createUser(db, { orgId, name: 'Admin Demo', email: 'admin@demo.local', password: pw, role: 'admin' });
+  const ana = createUser(db, { orgId, name: 'Membro Demo', email: 'equipe@demo.local', password: pw, role: 'member' });
+  const bia = createUser(db, { orgId, name: 'Analista Demo', email: 'analista@demo.local', password: pw, role: 'member' });
+  createUser(db, { orgId, name: 'Cliente Padaria', email: 'cliente@demo.local', password: pw, role: 'client', clientId: padaria });
+
+  let pos = 0;
+  const task = (t, who = [], checklist = []) => {
+    const id = Number(db.prepare(
+      `insert into tasks (org_id, kind, client_id, status, title, description, start_date, due_date, completed_on, progress,
+                          priority, alerts, recurrence, position, created_by, archived_at)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(orgId, t.kind, t.client ?? null, t.status || 'todo', t.title, t.description || '', t.start ?? null, t.due ?? null,
+      t.done ?? null, t.progress || 0, t.priority || 'normal', JSON.stringify(t.alerts || [1]), t.recurrence || 'none',
+      ++pos, t.by || admin, t.archived ? d(-1) : null).lastInsertRowid);
+    for (const u of who) db.prepare('insert into task_assignees values (?, ?)').run(id, u);
+    checklist.forEach(([text, done], i) => db.prepare('insert into checklist_items (task_id, text, done, position) values (?, ?, ?, ?)').run(id, text, done ? 1 : 0, i));
+    return id;
+  };
+
+  task({ kind: 'external', client: padaria, title: 'Levantar processos do financeiro', start: d(0), due: d(5), alerts: [1, 3] }, [ana]);
+  task({ kind: 'external', client: padaria, status: 'doing', title: 'Mapear fluxo de contas a pagar', start: d(-4), due: d(2), progress: 40, alerts: [1] }, [ana, admin]);
+  task({ kind: 'external', client: clinica, status: 'doing', title: 'Fechamento contábil de setembro', start: d(-6), due: d(1), alerts: [0, 1, 3], recurrence: 'monthly', priority: 'high' }, [bia],
+    [['Conciliar bancos', true], ['Conferir notas fiscais', true], ['Lançar provisões', false], ['Enviar relatório ao cliente', false]]);
+  const rev = task({ kind: 'external', client: padaria, status: 'review', title: 'Relatório de diagnóstico', start: d(-10), due: d(3), progress: 90 }, [admin]);
+  db.prepare("insert into comments (task_id, user_id, body, visible_to_client) values (?, ?, 'Versão 1 pronta para sua revisão.', 1)").run(rev, admin);
+  task({ kind: 'external', client: clinica, status: 'doing', title: 'Conciliação bancária de agosto', start: d(-12), due: d(-2), progress: 70, alerts: [1] }, [ana]);
+  task({ kind: 'external', client: clinica, status: 'done', title: 'Reunião de kickoff', start: d(-20), due: d(-14), done: d(-15) }, [admin]);
+  task({ kind: 'external', client: padaria, status: 'done', title: 'Cadastro de fornecedores', start: d(-18), due: d(-9), done: d(-6) }, [ana]);
+  task({ kind: 'internal', title: 'Planejamento comercial do trimestre', start: d(-2), due: d(10), alerts: [7], recurrence: 'quarterly' }, [admin]);
+  task({ kind: 'internal', client: padaria, status: 'doing', title: 'Revisar proposta de renovação da Padaria', due: d(0), progress: 20, alerts: [0], by: ana }, [ana]);
+  task({ kind: 'internal', status: 'todo', title: 'Atualizar modelo de relatório mensal', due: d(15), by: bia }, [bia]);
+  task({ kind: 'external', client: clinica, status: 'done', title: 'Levantamento inicial (antigo)', due: d(-40), done: d(-41), archived: true }, [admin]);
+
+  db.prepare("insert into templates (org_id, name, title, checklist) values (?, 'Fechamento mensal', 'Fechamento do mês', ?)")
+    .run(orgId, JSON.stringify(['Conciliar bancos', 'Conferir notas fiscais', 'Lançar provisões', 'Enviar relatório ao cliente']));
+}
+
+module.exports = { open, tx, createOrg, createUser, seedDemo, sampleLogo };

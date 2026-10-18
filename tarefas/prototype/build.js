@@ -18,12 +18,15 @@ const body = `<div id="demo-bar" role="region" aria-label="Protótipo">
   <strong>Protótipo</strong>
   <span>Dados fictícios, salvos só neste navegador. Senha de todos: demo1234.</span>
   <button type="button" data-as="admin">Entrar como administrador</button>
-  <button type="button" data-as="member">Entrar como equipe</button>
+  <button type="button" data-as="member">Entrar como equipe Opps</button>
   <button type="button" data-as="client">Entrar como cliente</button>
   <button type="button" data-reset>Restaurar dados</button>
 </div>
 <div id="app" aria-live="polite"></div>
 <div id="toast" role="status" aria-live="polite"></div>
+<script>
+${safe(read('../shared.js'))}
+</script>
 <script>
 ${safe(read('mock-api.js'))}
 </script>

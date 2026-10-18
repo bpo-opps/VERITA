@@ -14,7 +14,7 @@ const db = open(file);
 if (!db.prepare('select 1 from orgs').get()) {
   if (process.env.DEMO === '1') {
     seedDemo(db);
-    console.log('Dados de demonstração criados. Logins (senha demo1234): admin@demo.local, equipe@demo.local, cliente@demo.local');
+    console.log('Dados de demonstração criados. Logins (senha demo1234): admin@demo.local, equipe@demo.local, analista@demo.local, cliente@demo.local');
   } else {
     const email = process.env.ADMIN_EMAIL;
     if (!email) {

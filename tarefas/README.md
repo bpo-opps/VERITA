@@ -12,7 +12,7 @@ npm run demo                 # com dados fictícios; logins abaixo, senha demo12
 npm test                     # testes da API
 ```
 
-Logins da demonstração: `admin@demo.local`, `equipe@demo.local`, `cliente@demo.local`.
+Logins da demonstração: `admin@demo.local`, `equipe@demo.local`, `analista@demo.local` (outra pessoa da equipe, para ver que internas alheias não aparecem) e `cliente@demo.local`.
 
 Para uso real, a primeira execução cria a organização e o primeiro administrador:
 
@@ -20,26 +20,34 @@ Para uso real, a primeira execução cria a organização e o primeiro administr
 ADMIN_EMAIL=voce@suaempresa.com ORG_NAME="Sua Consultoria" npm start
 ```
 
-A senha temporária aparece uma vez no terminal; troque em Configurações. O banco fica em `tarefas/data/tarefas.db` (fora do git). Variáveis: `PORT` (3000), `DB_FILE`, `COOKIE_SECURE=1` quando estiver atrás de HTTPS.
+A senha temporária aparece uma vez no terminal; troque em Configurações. O banco fica em `tarefas/data/tarefas.db` (fora do git). Um banco da versão anterior não abre: como só tinha dados de teste, apague o arquivo. Variáveis: `PORT` (3000), `DB_FILE`, `COOKIE_SECURE=1` quando estiver atrás de HTTPS.
+
+## As três visões
+
+- **Administrador:** vê todas as tarefas, internas e externas; gerencia pessoas, clientes, logos e a marca; pode apagar.
+- **Equipe Opps:** cria tarefas; vê todas as externas e as internas que criou ou em que é responsável.
+- **Cliente:** vê só as tarefas externas da empresa dele, com % e datas; aprova entregas em revisão ou pede ajuste.
 
 ## O que faz
 
-- **Quadro por etapas:** A fazer, Em andamento, Revisão interna, Com o cliente, Em ajuste, Concluída. Arrastar entre colunas, ou trocar a etapa no detalhe (funciona pelo teclado).
-- **Tarefa:** cliente, responsáveis, prazo, prioridade, descrição, checklist, comentários.
-- **Ajustes:** a revisão interna registra ajuste interno; o cliente pede ajuste quando a tarefa está com ele. Os dois mandam a tarefa para "Em ajuste" e ficam contados. A equipe marca como resolvido.
-- **Portal do cliente:** o cliente vê só as tarefas dele, aprova a entrega ou pede ajuste. Comentários só aparecem para ele se a equipe marcar "Visível para o cliente"; ajustes internos nunca aparecem.
-- **Minhas tarefas:** atrasadas, hoje, próximas, sem prazo.
-- **Modelos:** para trabalho que se repete (título, descrição, checklist).
-- **Ajustes por cliente:** quantas vezes o trabalho voltou, por cliente.
-- **Pessoas:** papéis Administrador, Equipe e Cliente; o administrador cria acessos e desativa.
-- **Marca:** nome e cor da consultoria (o texto do botão escolhe preto ou branco pelo contraste).
+- **Interna ou externa.** Externa exige um cliente e aparece para ele. Interna é da consultoria: pode ficar ligada a um cliente relacionado ou à própria consultoria, e o cliente nunca vê.
+- **Quadro com 6 colunas:** A fazer, Em andamento, Em revisão, Atrasada, Concluída no prazo, Concluída fora do prazo. "Atrasada" é automática quando o prazo passa. Ao concluir, informa-se a data de término, e ela decide entre no prazo e fora do prazo.
+- **Datas:** início, prazo e término (a data real, pedida ao concluir).
+- **% de execução:** informado à mão; se a tarefa tem checklist, segue os itens marcados.
+- **Alertas do prazo:** no dia, 1 dia antes, 3 dias antes, 1 semana antes (vários ao mesmo tempo). Aparecem nos cards, na tela Alertas e no contador do menu.
+- **Recorrência:** diária, semanal, quinzenal, mensal, bimestral, trimestral, quadrimestral, semestral, anual ou livre (a cada N dias). Ao concluir, a próxima é criada com as datas avançadas, o checklist zerado e os mesmos responsáveis.
+- **Arquivar** tira a tarefa das telas sem apagar; "Ver arquivadas" mostra e permite desarquivar.
+- **Logos** dos clientes e da consultoria nos cards (a imagem é reduzida para 128px no navegador).
+- **Visões:** Kanban, Lista (agrupada por situação, empresa, responsável, prazo ou tipo) e Calendário (pelo prazo; no celular vira agenda). Filtros por tipo, empresa, responsável e prazo.
+- **Também:** ajustes internos e do cliente, comentários (visíveis ao cliente só quando marcados, e nunca em interna), modelos com checklist, relatório por empresa com % no prazo.
 
 ## O que ainda não faz
 
-- Email (avisos de prazo, convite, recuperação de senha). Hoje o administrador cria o acesso e passa a senha.
+- Email (avisos de prazo, convite, recuperação de senha). Os alertas aparecem só dentro do sistema.
 - Anexos.
-- Logo próprio.
-- Um único servidor com SQLite: serve bem uma consultoria. Para muitos clientes simultâneos ou mais de um servidor, trocar por Postgres.
+- Um único servidor com SQLite: serve bem uma consultoria. Para muitos acessos simultâneos ou mais de um servidor, trocar por Postgres.
+
+As regras de colunas, alertas, recorrência, % e quem vê ficam em `shared.js`, usado pelo servidor e pelo protótipo. Defina `TZ` (por exemplo `TZ=America/Sao_Paulo`) para o "hoje" do servidor ser o da consultoria.
 
 ## Segurança
 

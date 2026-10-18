@@ -1,33 +1,59 @@
 'use strict';
+/* global Shared */
 // API do protótipo: a mesma interface do servidor (app.js), rodando dentro do navegador.
+// As regras (colunas, alertas, recorrência, %, quem vê) vêm de shared.js, igual ao servidor.
 // Os dados são fictícios e ficam só neste navegador (localStorage, quando disponível).
 (function () {
-  const KEY = 'tarefas-prototipo-v1';
-  const STAGES = [['A fazer', 'todo'], ['Em andamento', 'doing'], ['Revisão interna', 'review'], ['Com o cliente', 'client'], ['Em ajuste', 'adjust'], ['Concluída', 'done']];
+  const S = window.Shared;
+  const KEY = 'tarefas-prototipo-v2';
   const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
-  const day = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
-  const today = () => day(0);
+  const d = n => S.addDays(S.today(), n);
+
+  function svgLogo(text, color) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${color}"/>` +
+      `<text x="32" y="41" font-family="Arial,sans-serif" font-size="24" font-weight="700" fill="#fff" text-anchor="middle">${text}</text></svg>`;
+    return 'data:image/svg+xml;base64,' + btoa(svg);
+  }
 
   function seed() {
-    const db = { seq: 100, org: { id: 1, name: 'Minha Consultoria', accent: '#0f766e' }, stages: [], clients: [], users: [], tasks: [], assignees: [], checklist: [], comments: [], adjustments: [], templates: [] };
-    STAGES.forEach(([name, kind], i) => db.stages.push({ id: i + 1, name, kind, position: i }));
-    db.clients.push({ id: 1, name: 'Padaria Exemplo', created_at: now() }, { id: 2, name: 'Clínica Modelo', created_at: now() });
+    const db = { seq: 100, org: { id: 1, name: 'Opps Consultoria', accent: '#0f766e', logo: svgLogo('OP', '#0f766e') },
+      clients: [], users: [], tasks: [], assignees: [], checklist: [], comments: [], adjustments: [], templates: [] };
+    db.clients.push(
+      { id: 1, name: 'Padaria Exemplo', logo: svgLogo('PE', '#b45309') },
+      { id: 2, name: 'Clínica Modelo', logo: svgLogo('CM', '#4338ca') });
     db.users.push(
       { id: 1, name: 'Admin Demo', email: 'admin@demo.local', role: 'admin', client_id: null, active: 1 },
       { id: 2, name: 'Membro Demo', email: 'equipe@demo.local', role: 'member', client_id: null, active: 1 },
-      { id: 3, name: 'Cliente Padaria', email: 'cliente@demo.local', role: 'client', client_id: 1, active: 1 });
-    const st = kind => db.stages.find(s => s.kind === kind).id;
-    const task = (id, client, kind, title, due, who) => {
-      db.tasks.push({ id, client_id: client, stage_id: st(kind), title, description: '', due_date: due, priority: 'normal', position: id, created_by: 1, created_at: now(), updated_at: now(), completed_at: kind === 'done' ? now() : null });
-      who.forEach(u => db.assignees.push({ task_id: id, user_id: u }));
+      { id: 3, name: 'Analista Demo', email: 'analista@demo.local', role: 'member', client_id: null, active: 1 },
+      { id: 4, name: 'Cliente Padaria', email: 'cliente@demo.local', role: 'client', client_id: 1, active: 1 });
+    let id = 0;
+    const task = (t, who = [], checklist = []) => {
+      const tid = ++id;
+      db.tasks.push({
+        id: tid, kind: t.kind, client_id: t.client ?? null, status: t.status || 'todo', title: t.title, description: '',
+        start_date: t.start ?? null, due_date: t.due ?? null, completed_on: t.done ?? null, progress: t.progress || 0,
+        priority: t.priority || 'normal', alerts: t.alerts || [1], recurrence: t.recurrence || 'none', recurrence_every: null,
+        next_task_id: null, position: tid, created_by: t.by || 1, created_at: now(), updated_at: now(), archived_at: t.archived ? now() : null,
+      });
+      who.forEach(u => db.assignees.push({ task_id: tid, user_id: u }));
+      checklist.forEach(([text, done], i) => db.checklist.push({ id: 1000 + db.checklist.length, task_id: tid, text, done: done ? 1 : 0, position: i }));
+      return tid;
     };
-    task(1, 1, 'todo', 'Levantar processos do financeiro', day(3), [2]);
-    task(2, 1, 'doing', 'Mapear fluxo de contas a pagar', day(1), [2, 1]);
-    task(3, 1, 'client', 'Relatório de diagnóstico', day(-1), [1]);
-    task(4, 2, 'review', 'Conciliação bancária de setembro', day(2), [2]);
-    task(5, 2, 'done', 'Reunião de kickoff', day(-7), [1]);
-    db.comments.push({ id: 1, task_id: 3, user_id: 1, body: 'Versão 1 enviada para sua revisão.', visible_to_client: 1, created_at: now() });
-    db.templates.push({ id: 1, name: 'Fechamento mensal', title: 'Fechamento do mês', description: '', checklist: ['Conciliar bancos', 'Conferir notas fiscais', 'Enviar relatório ao cliente'] });
+    task({ kind: 'external', client: 1, title: 'Levantar processos do financeiro', start: d(0), due: d(5), alerts: [1, 3] }, [2]);
+    task({ kind: 'external', client: 1, status: 'doing', title: 'Mapear fluxo de contas a pagar', start: d(-4), due: d(2), progress: 40 }, [2, 1]);
+    task({ kind: 'external', client: 2, status: 'doing', title: 'Fechamento contábil de setembro', start: d(-6), due: d(1), alerts: [0, 1, 3], recurrence: 'monthly', priority: 'high' }, [3],
+      [['Conciliar bancos', true], ['Conferir notas fiscais', true], ['Lançar provisões', false], ['Enviar relatório ao cliente', false]]);
+    const rev = task({ kind: 'external', client: 1, status: 'review', title: 'Relatório de diagnóstico', start: d(-10), due: d(3), progress: 90 }, [1]);
+    db.comments.push({ id: 1, task_id: rev, user_id: 1, body: 'Versão 1 pronta para sua revisão.', visible_to_client: 1, created_at: now() });
+    task({ kind: 'external', client: 2, status: 'doing', title: 'Conciliação bancária de agosto', start: d(-12), due: d(-2), progress: 70 }, [2]);
+    task({ kind: 'external', client: 2, status: 'done', title: 'Reunião de kickoff', start: d(-20), due: d(-14), done: d(-15) }, [1]);
+    task({ kind: 'external', client: 1, status: 'done', title: 'Cadastro de fornecedores', start: d(-18), due: d(-9), done: d(-6) }, [2]);
+    task({ kind: 'internal', title: 'Planejamento comercial do trimestre', start: d(-2), due: d(10), alerts: [7], recurrence: 'quarterly' }, [1]);
+    task({ kind: 'internal', client: 1, status: 'doing', title: 'Revisar proposta de renovação da Padaria', due: d(0), progress: 20, alerts: [0], by: 2 }, [2]);
+    task({ kind: 'internal', title: 'Atualizar modelo de relatório mensal', due: d(15), by: 3 }, [3]);
+    task({ kind: 'external', client: 2, status: 'done', title: 'Levantamento inicial (antigo)', due: d(-40), done: d(-41), archived: true }, [1]);
+    db.templates.push({ id: 1, name: 'Fechamento mensal', title: 'Fechamento do mês', description: '',
+      checklist: ['Conciliar bancos', 'Conferir notas fiscais', 'Lançar provisões', 'Enviar relatório ao cliente'] });
     return db;
   }
 
@@ -37,7 +63,7 @@
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sem armazenamento: fica só na memória */ } };
   let sessionUser = null;
   try { sessionUser = Number(sessionStorage.getItem(KEY + '-user')) || null; } catch { /* idem */ }
-  const setSession = id => { sessionUser = id; try { id ? sessionStorage.setItem(KEY + '-user', id) : sessionStorage.removeItem(KEY + '-user'); } catch { /* idem */ } };
+  const setSession = uid => { sessionUser = uid; try { uid ? sessionStorage.setItem(KEY + '-user', uid) : sessionStorage.removeItem(KEY + '-user'); } catch { /* idem */ } };
   const nextId = () => ++db.seq;
 
   class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
@@ -50,51 +76,86 @@
     if (s.length > max) fail(400, `Campo muito longo: ${field} (máx. ${max})`);
     return s;
   };
-  const date = v => { if (!v) return null; if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) fail(400, 'Data inválida (use AAAA-MM-DD)'); return v; };
+  const date = (v, field = 'data') => { if (!v) return null; if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) fail(400, `${field}: data inválida`); return v; };
   const oneOf = (v, f, opts, fb) => { if (v === undefined) return fb; if (!opts.includes(v)) fail(400, `Campo inválido: ${f}`); return v; };
+  const logo = v => { if (v === null || v === '') return null; if (!/^data:image\/(png|jpeg|webp);base64,/.test(v)) fail(400, 'Logo inválido'); if (v.length > 300 * 1024) fail(400, 'Logo grande demais'); return v; };
   const isStaff = u => u.role !== 'client';
   const requireStaff = u => { if (!isStaff(u)) fail(403, 'Sem permissão'); };
   const requireAdmin = u => { if (u.role !== 'admin') fail(403, 'Só administradores'); };
 
-  const stage = id => db.stages.find(s => s.id === id);
-  const stageByKind = k => db.stages.find(s => s.kind === k).id;
-  const clientOf = id => db.clients.find(c => c.id === id);
-  const userName = id => (db.users.find(u => u.id === id) || {}).name;
-  function loadTask(user, id) {
-    const t = db.tasks.find(x => x.id === id);
-    if (!t || (user.role === 'client' && t.client_id !== user.client_id)) fail(404, 'Tarefa não encontrada');
+  const clientOf = cid => db.clients.find(c => c.id === cid);
+  const userName = uid => (db.users.find(u => u.id === uid) || {}).name;
+  const assigneeIds = tid => db.assignees.filter(a => a.task_id === tid).map(a => a.user_id);
+  function loadTask(user, tid) {
+    const t = db.tasks.find(x => x.id === tid);
+    if (!t || !S.canSee(user, t, assigneeIds(t.id)) || (user.role === 'client' && t.archived_at)) fail(404, 'Tarefa não encontrada');
     return t;
   }
-  function checkClient(id) { if (!clientOf(id)) fail(400, 'Cliente inválido'); }
+  function checkClient(cid) { if (!clientOf(cid)) fail(400, 'Cliente inválido'); }
   function checkAssignees(ids) {
     if (!Array.isArray(ids)) fail(400, 'Campo inválido: responsáveis');
     const clean = [...new Set(ids.map(Number))];
-    for (const id of clean) { const u = db.users.find(x => x.id === id); if (!u || u.role === 'client' || !u.active) fail(400, 'Responsável inválido'); }
+    for (const uid of clean) { const u = db.users.find(x => x.id === uid); if (!u || u.role === 'client' || !u.active) fail(400, 'Responsável inválido'); }
     return clean;
   }
-  const setAssignees = (taskId, ids) => { db.assignees = db.assignees.filter(a => a.task_id !== taskId).concat(ids.map(user_id => ({ task_id: taskId, user_id }))); };
-  const assigneesOf = taskId => db.assignees.filter(a => a.task_id === taskId).map(a => ({ id: a.user_id, name: userName(a.user_id) })).sort((a, b) => a.name.localeCompare(b.name));
+  const setAssignees = (tid, ids) => { db.assignees = db.assignees.filter(a => a.task_id !== tid).concat(ids.map(user_id => ({ task_id: tid, user_id }))); };
   const touch = t => { t.updated_at = now(); };
-  function moveTo(t, kind) { t.stage_id = stageByKind(kind); t.completed_at = kind === 'done' ? now() : null; touch(t); }
+  function kindAndClient(kind, cid) {
+    if (kind === 'external' && !cid) fail(400, 'Tarefa externa precisa de um cliente');
+    if (cid) checkClient(cid);
+    return cid || null;
+  }
+  function recurrence(body, cur = {}) {
+    const rec = oneOf(body.recurrence, 'repetição', Object.keys(S.RECURRENCE), cur.recurrence || 'none');
+    let every = null;
+    if (rec === 'custom') {
+      every = Number(body.recurrence_every ?? cur.recurrence_every);
+      if (!Number.isInteger(every) || every < 1 || every > 3650) fail(400, 'Repetição livre: informe a cada quantos dias (1 a 3650)');
+    }
+    return { rec, every };
+  }
+  const alerts = v => { const a = S.validAlerts(v); if (!a) fail(400, 'Alertas inválidos'); return a; };
+  const checkDates = (s, due) => { if (s && due && s > due) fail(400, 'A data de início não pode ser depois do prazo'); };
 
-  function summary(user, t) {
-    const adj = db.adjustments.filter(a => a.task_id === t.id);
+  function completeTask(t, completedOn, userId) {
+    if (completedOn > S.today()) fail(400, 'A data de término não pode ser no futuro');
+    if (t.start_date && completedOn < t.start_date) fail(400, 'A data de término não pode ser antes do início');
+    Object.assign(t, { status: 'done', completed_on: completedOn, progress: 100 }); touch(t);
+    if (t.recurrence === 'none' || t.next_task_id) return null;
+    const next = x => S.nextDate(x, t.recurrence, t.recurrence_every);
+    const nid = nextId();
+    db.tasks.push({ ...t, id: nid, status: 'todo', completed_on: null, progress: 0, next_task_id: null, archived_at: null,
+      start_date: t.start_date ? next(t.start_date) : null,
+      due_date: t.due_date ? next(t.due_date) : (t.start_date ? null : next(completedOn)),
+      position: Math.max(0, ...db.tasks.map(x => x.position)) + 1, created_by: userId, created_at: now(), updated_at: now() });
+    setAssignees(nid, assigneeIds(t.id));
+    db.checklist.filter(i => i.task_id === t.id).forEach(i => db.checklist.push({ ...i, id: nextId(), task_id: nid, done: 0 }));
+    t.next_task_id = nid;
+    return nid;
+  }
+
+  function decorate(user, t) {
     const cl = db.checklist.filter(i => i.task_id === t.id);
-    const r = {
-      id: t.id, client_id: t.client_id, client_name: clientOf(t.client_id).name, stage_id: t.stage_id, stage_kind: stage(t.stage_id).kind,
-      title: t.title, due_date: t.due_date, priority: t.priority, position: t.position, updated_at: t.updated_at, completed_at: t.completed_at,
+    const adj = db.adjustments.filter(a => a.task_id === t.id);
+    const out = {
+      id: t.id, kind: t.kind, client_id: t.client_id, client_name: t.client_id ? clientOf(t.client_id).name : null, status: t.status,
+      column: S.column(t), title: t.title, start_date: t.start_date, due_date: t.due_date, completed_on: t.completed_on,
+      progress: S.progress(t, cl.length, cl.filter(i => i.done).length), progress_from_checklist: cl.length > 0, priority: t.priority,
+      alerts: t.alerts, alert: S.alert(t), recurrence: t.recurrence, recurrence_every: t.recurrence_every,
+      position: t.position, archived_at: t.archived_at, created_by: t.created_by, updated_at: t.updated_at,
       checklist_total: cl.length, checklist_done: cl.filter(i => i.done).length,
       adjustments_client: adj.filter(a => a.origin === 'client').length, adjustments_internal: adj.filter(a => a.origin === 'internal').length,
-      adjustments_open: adj.filter(a => !a.resolved_at).length, assignees: assigneesOf(t.id),
+      adjustments_open: adj.filter(a => !a.resolved_at).length,
+      assignees: db.assignees.filter(a => a.task_id === t.id).map(a => ({ id: a.user_id, name: userName(a.user_id) })).sort((a, b) => a.name.localeCompare(b.name)),
     };
-    if (user.role === 'client') delete r.adjustments_internal;
-    return r;
+    if (user.role === 'client') { delete out.adjustments_internal; delete out.created_by; }
+    return out;
   }
-  function detail(user, id) {
-    const t = loadTask(user, id);
+  function detail(user, tid) {
+    const t = loadTask(user, tid);
     const client = user.role === 'client';
     return {
-      ...t, stage_kind: stage(t.stage_id).kind, client_name: clientOf(t.client_id).name, assignees: assigneesOf(t.id),
+      ...decorate(user, t), description: t.description, next_task_id: t.next_task_id,
       checklist: db.checklist.filter(i => i.task_id === t.id).sort((a, b) => a.position - b.position || a.id - b.id).map(({ id, text, done }) => ({ id, text, done })),
       comments: db.comments.filter(c => c.task_id === t.id && (!client || c.visible_to_client)).map(c => {
         const u = db.users.find(x => x.id === c.user_id) || {};
@@ -104,18 +165,37 @@
         .map(a => ({ id: a.id, origin: a.origin, body: a.body, created_at: a.created_at, resolved_at: a.resolved_at, author: userName(a.user_id) })),
     };
   }
+  function list(user, q) {
+    const today = S.today();
+    let ts = db.tasks.filter(t => S.canSee(user, t, assigneeIds(t.id)));
+    if (user.role === 'client') ts = ts.filter(t => !t.archived_at);
+    else {
+      ts = ts.filter(t => (q.archived === '1' ? t.archived_at : !t.archived_at));
+      if (q.kind) ts = ts.filter(t => t.kind === q.kind);
+      if (q.client_id === 'org') ts = ts.filter(t => !t.client_id);
+      else if (q.client_id) ts = ts.filter(t => t.client_id === Number(q.client_id));
+    }
+    const who = q.mine === '1' ? user.id : (q.assignee ? Number(q.assignee) : null);
+    if (who) ts = ts.filter(t => assigneeIds(t.id).includes(who));
+    if (q.due === 'overdue') ts = ts.filter(t => t.due_date && t.due_date < today && t.status !== 'done');
+    if (q.due === 'today') ts = ts.filter(t => t.due_date === today);
+    if (q.due === 'week') ts = ts.filter(t => t.due_date && t.due_date >= today && t.due_date <= S.addDays(today, 7));
+    if (q.due === 'month') ts = ts.filter(t => t.due_date && t.due_date.slice(0, 7) === today.slice(0, 7));
+    if (q.due === 'none') ts = ts.filter(t => !t.due_date);
+    if (q.q) ts = ts.filter(t => t.title.toLowerCase().includes(String(q.q).toLowerCase()));
+    return ts.sort((a, b) => a.position - b.position || a.id - b.id).map(t => decorate(user, t));
+  }
 
   const routes = [];
   const route = (method, pattern, handler, pub = false) => {
-    const re = new RegExp('^' + pattern.replace(/:id/g, '(\\d+)') + '$');
-    routes.push({ method, re, handler, pub });
+    routes.push({ method, re: new RegExp('^' + pattern.replace(/:id/g, '(\\d+)') + '$'), handler, pub });
   };
 
   route('POST', '/api/login', ({ body }) => {
     const email = str(body.email, 'email', { max: 200 }).toLowerCase();
     str(body.password, 'senha', { max: 200 });
     const u = db.users.find(x => x.email === email && x.active);
-    // No protótipo, qualquer conta ativa aceita a senha demo1234 (ou a senha definida ao criar o acesso).
+    // No protótipo, as contas de exemplo usam demo1234; as criadas aqui usam a senha definida ao criar.
     if (!u || body.password !== (u.password || 'demo1234')) fail(401, 'Email ou senha incorretos');
     setSession(u.id);
     return { ok: true };
@@ -123,7 +203,7 @@
   route('POST', '/api/logout', () => { setSession(null); return { ok: true }; });
   route('GET', '/api/me', ({ user }) => ({
     user: { id: user.id, org_id: 1, name: user.name, email: user.email, role: user.role, client_id: user.client_id },
-    org: db.org, stages: db.stages.map(({ id, name, kind }) => ({ id, name, kind })),
+    org: db.org, today: S.today(),
   }));
   route('POST', '/api/me/password', ({ user, body }) => {
     const cur = str(body.current, 'senha atual'), next = str(body.password, 'nova senha');
@@ -133,20 +213,27 @@
   });
   route('PATCH', '/api/org', ({ user, body }) => {
     requireAdmin(user);
-    const name = str(body.name, 'nome', { max: 80 }), accent = str(body.accent, 'cor', { max: 7 });
-    if (!/^#[0-9a-fA-F]{6}$/.test(accent)) fail(400, 'Cor inválida (use #RRGGBB)');
-    Object.assign(db.org, { name, accent }); return { ok: true };
+    if ('name' in body) db.org.name = str(body.name, 'nome', { max: 80 });
+    if ('accent' in body) { const a = str(body.accent, 'cor', { max: 7 }); if (!/^#[0-9a-fA-F]{6}$/.test(a)) fail(400, 'Cor inválida (use #RRGGBB)'); db.org.accent = a; }
+    if ('logo' in body) db.org.logo = logo(body.logo);
+    return { ok: true };
   });
   route('GET', '/api/clients', ({ user }) => {
-    if (user.role === 'client') return db.clients.filter(c => c.id === user.client_id).map(({ id, name }) => ({ id, name }));
-    return db.clients.map(c => ({ id: c.id, name: c.name, open_tasks: db.tasks.filter(t => t.client_id === c.id && stage(t.stage_id).kind !== 'done').length }))
+    if (user.role === 'client') return db.clients.filter(c => c.id === user.client_id).map(({ id, name, logo: l }) => ({ id, name, logo: l }));
+    const open = (cid, kind) => db.tasks.filter(t => t.client_id === cid && t.kind === kind && t.status !== 'done' && !t.archived_at).length;
+    return db.clients.map(c => ({ id: c.id, name: c.name, logo: c.logo, open_external: open(c.id, 'external'), open_internal: open(c.id, 'internal') }))
       .sort((a, b) => a.name.localeCompare(b.name));
   });
   route('POST', '/api/clients', ({ user, body }) => {
     requireAdmin(user);
-    const id = nextId(); db.clients.push({ id, name: str(body.name, 'nome', { max: 120 }), created_at: now() }); return { id };
+    const id = nextId(); db.clients.push({ id, name: str(body.name, 'nome', { max: 120 }), logo: body.logo ? logo(body.logo) : null }); return { id };
   });
-  route('PATCH', '/api/clients/:id', ({ user, body, id }) => { requireAdmin(user); checkClient(id); clientOf(id).name = str(body.name, 'nome', { max: 120 }); return { ok: true }; });
+  route('PATCH', '/api/clients/:id', ({ user, body, id }) => {
+    requireAdmin(user); checkClient(id);
+    if ('name' in body) clientOf(id).name = str(body.name, 'nome', { max: 120 });
+    if ('logo' in body) clientOf(id).logo = logo(body.logo);
+    return { ok: true };
+  });
   route('GET', '/api/users', ({ user }) => {
     requireStaff(user);
     const order = { admin: 0, client: 1, member: 2 };
@@ -172,19 +259,13 @@
     if (id === user.id) fail(400, 'Você não pode desativar a própria conta');
     u.active = body.active ? 1 : 0; return { ok: true };
   });
-  route('GET', '/api/tasks', ({ user, query }) => {
-    let list = db.tasks.slice();
-    if (user.role === 'client') list = list.filter(t => t.client_id === user.client_id);
-    else if (query.client_id) list = list.filter(t => t.client_id === Number(query.client_id));
-    const has = uid => t => db.assignees.some(a => a.task_id === t.id && a.user_id === uid);
-    if (query.mine === '1') list = list.filter(has(user.id));
-    if (query.assignee) list = list.filter(has(Number(query.assignee)));
-    if (query.q) list = list.filter(t => t.title.toLowerCase().includes(String(query.q).toLowerCase()));
-    return list.sort((a, b) => a.position - b.position || a.id - b.id).map(t => summary(user, t));
-  });
+  route('GET', '/api/tasks', ({ user, query }) => list(user, query));
+  route('GET', '/api/alerts', ({ user }) => list(user, {}).filter(t => t.alert).sort((a, b) => a.alert.days - b.alert.days));
   route('POST', '/api/tasks', ({ user, body }) => {
     requireStaff(user);
-    const client_id = Number(body.client_id); checkClient(client_id);
+    if (body.kind === undefined) fail(400, 'Escolha se a tarefa é interna ou externa');
+    const kind = oneOf(body.kind, 'tipo', ['internal', 'external']);
+    const client_id = kindAndClient(kind, body.client_id ? Number(body.client_id) : null);
     let title = str(body.title, 'título', { max: 200, required: !body.template_id });
     let description = str(body.description, 'descrição', { max: 10000, required: false });
     let checklist = [];
@@ -192,11 +273,15 @@
       const tpl = db.templates.find(t => t.id === Number(body.template_id)); if (!tpl) fail(400, 'Modelo inválido');
       title = title || tpl.title; description = description || tpl.description; checklist = tpl.checklist;
     }
+    const start = date(body.start_date, 'Início'), due = date(body.due_date, 'Prazo');
+    checkDates(start, due);
+    const { rec, every } = recurrence(body);
     const assignees = checkAssignees(body.assignee_ids || []);
     const id = nextId();
-    db.tasks.push({ id, client_id, stage_id: stageByKind('todo'), title, description, due_date: date(body.due_date),
-      priority: oneOf(body.priority, 'prioridade', ['low', 'normal', 'high'], 'normal'),
-      position: Math.max(0, ...db.tasks.map(t => t.position)) + 1, created_by: user.id, created_at: now(), updated_at: now(), completed_at: null });
+    db.tasks.push({ id, kind, client_id, status: 'todo', title, description, start_date: start, due_date: due, completed_on: null, progress: 0,
+      priority: oneOf(body.priority, 'prioridade', ['low', 'normal', 'high'], 'normal'), alerts: body.alerts === undefined ? [1] : alerts(body.alerts),
+      recurrence: rec, recurrence_every: every, next_task_id: null, position: Math.max(0, ...db.tasks.map(t => t.position)) + 1,
+      created_by: user.id, created_at: now(), updated_at: now(), archived_at: null });
     setAssignees(id, assignees);
     checklist.forEach((text, i) => db.checklist.push({ id: nextId(), task_id: id, text, done: 0, position: i }));
     return { id };
@@ -205,16 +290,45 @@
   route('PATCH', '/api/tasks/:id', ({ user, body, id }) => {
     requireStaff(user);
     const t = loadTask(user, id);
-    if ('title' in body) t.title = str(body.title, 'título', { max: 200 });
-    if ('description' in body) t.description = str(body.description, 'descrição', { max: 10000, required: false });
-    if ('due_date' in body) t.due_date = date(body.due_date);
-    if ('priority' in body) t.priority = oneOf(body.priority, 'prioridade', ['low', 'normal', 'high']);
-    if ('position' in body) t.position = Number(body.position);
-    if ('client_id' in body) { checkClient(Number(body.client_id)); t.client_id = Number(body.client_id); }
-    if ('assignee_ids' in body) setAssignees(t.id, checkAssignees(body.assignee_ids));
-    if ('stage_id' in body) { const s = stage(Number(body.stage_id)); if (!s) fail(400, 'Etapa inválida'); moveTo(t, s.kind); }
+    const copy = { ...t };
+    try {
+      if ('title' in body) t.title = str(body.title, 'título', { max: 200 });
+      if ('description' in body) t.description = str(body.description, 'descrição', { max: 10000, required: false });
+      if ('kind' in body || 'client_id' in body) {
+        const kind = 'kind' in body ? oneOf(body.kind, 'tipo', ['internal', 'external']) : t.kind;
+        const cid = 'client_id' in body ? (body.client_id ? Number(body.client_id) : null) : t.client_id;
+        t.client_id = kindAndClient(kind, cid); t.kind = kind;
+      }
+      if ('start_date' in body || 'due_date' in body) {
+        const s = 'start_date' in body ? date(body.start_date, 'Início') : t.start_date;
+        const due = 'due_date' in body ? date(body.due_date, 'Prazo') : t.due_date;
+        checkDates(s, due); t.start_date = s; t.due_date = due;
+      }
+      if ('priority' in body) t.priority = oneOf(body.priority, 'prioridade', ['low', 'normal', 'high']);
+      if ('alerts' in body) t.alerts = alerts(body.alerts);
+      if ('recurrence' in body || 'recurrence_every' in body) { const { rec, every } = recurrence(body, t); t.recurrence = rec; t.recurrence_every = every; }
+      if ('progress' in body) {
+        const n = Number(body.progress);
+        if (!Number.isInteger(n) || n < 0 || n > 100) fail(400, '% de execução deve ser de 0 a 100');
+        if (db.checklist.some(i => i.task_id === t.id)) fail(409, 'Esta tarefa tem checklist: o % segue os itens marcados');
+        t.progress = n;
+      }
+      if ('position' in body) t.position = Number(body.position);
+      if ('assignee_ids' in body) setAssignees(t.id, checkAssignees(body.assignee_ids));
+      if ('status' in body) { t.status = oneOf(body.status, 'situação', ['todo', 'doing', 'review']); t.completed_on = null; }
+    } catch (err) { Object.assign(t, copy); throw err; }
     touch(t);
     return detail(user, id);
+  });
+  route('POST', '/api/tasks/:id/complete', ({ user, body, id }) => {
+    requireStaff(user);
+    const t = loadTask(user, id);
+    const nid = completeTask(t, date(body.completed_on, 'Término') || S.today(), user.id);
+    return { ...detail(user, id), created_next_id: nid };
+  });
+  route('POST', '/api/tasks/:id/archive', ({ user, body, id }) => {
+    requireStaff(user); const t = loadTask(user, id);
+    t.archived_at = body.archived === false ? null : now(); return detail(user, id);
   });
   route('DELETE', '/api/tasks/:id', ({ user, id }) => {
     requireAdmin(user); loadTask(user, id);
@@ -227,7 +341,7 @@
     db.checklist.push({ id: nextId(), task_id: t.id, text: str(body.text, 'item', { max: 300 }), done: 0, position: db.checklist.filter(i => i.task_id === t.id).length });
     touch(t); return detail(user, id);
   });
-  const checklistItem = (user, id) => { const i = db.checklist.find(x => x.id === id); if (!i) fail(404, 'Item não encontrado'); loadTask(user, i.task_id); return i; };
+  const checklistItem = (user, iid) => { const i = db.checklist.find(x => x.id === iid); if (!i) fail(404, 'Item não encontrado'); loadTask(user, i.task_id); return i; };
   route('PATCH', '/api/checklist/:id', ({ user, body, id }) => {
     requireStaff(user); const i = checklistItem(user, id);
     if ('done' in body) i.done = body.done ? 1 : 0;
@@ -241,16 +355,17 @@
   route('POST', '/api/tasks/:id/comments', ({ user, body, id }) => {
     const t = loadTask(user, id);
     db.comments.push({ id: nextId(), task_id: t.id, user_id: user.id, body: str(body.body, 'comentário', { max: 5000 }),
-      visible_to_client: user.role === 'client' ? 1 : (body.visible_to_client ? 1 : 0), created_at: now() });
+      visible_to_client: user.role === 'client' ? 1 : (t.kind === 'external' && body.visible_to_client ? 1 : 0), created_at: now() });
     touch(t); return detail(user, id);
   });
   route('POST', '/api/tasks/:id/adjustments', ({ user, body, id }) => {
     const t = loadTask(user, id);
     const text = str(body.body, 'o que ajustar', { max: 5000 });
     const origin = user.role === 'client' ? 'client' : 'internal';
-    if (origin === 'client' && stage(t.stage_id).kind !== 'client') fail(409, 'Só é possível pedir ajuste quando a tarefa está com você para revisão');
+    if (origin === 'client' && t.status !== 'review') fail(409, 'Só é possível pedir ajuste quando a tarefa está em revisão');
+    if (t.status === 'done') fail(409, 'Reabra a tarefa antes de registrar um ajuste');
     db.adjustments.push({ id: nextId(), task_id: t.id, origin, body: text, user_id: user.id, created_at: now(), resolved_at: null });
-    moveTo(t, 'adjust'); return detail(user, id);
+    t.status = 'doing'; touch(t); return detail(user, id);
   });
   route('POST', '/api/adjustments/:id/resolve', ({ user, id }) => {
     requireStaff(user);
@@ -260,8 +375,8 @@
   route('POST', '/api/tasks/:id/approve', ({ user, id }) => {
     if (user.role !== 'client') fail(403, 'Só o cliente aprova a entrega');
     const t = loadTask(user, id);
-    if (stage(t.stage_id).kind !== 'client') fail(409, 'Esta tarefa não está aguardando sua aprovação');
-    moveTo(t, 'done');
+    if (t.status !== 'review') fail(409, 'Esta tarefa não está esperando sua revisão');
+    completeTask(t, S.today(), null);
     db.comments.push({ id: nextId(), task_id: t.id, user_id: user.id, body: 'Entrega aprovada.', visible_to_client: 1, created_at: now() });
     return detail(user, id);
   });
@@ -277,11 +392,16 @@
   route('DELETE', '/api/templates/:id', ({ user, id }) => { requireStaff(user); db.templates = db.templates.filter(t => t.id !== id); return { ok: true }; });
   route('GET', '/api/report/adjustments', ({ user }) => {
     requireStaff(user);
-    return db.clients.map(c => {
-      const ids = db.tasks.filter(t => t.client_id === c.id).map(t => t.id);
-      const adj = db.adjustments.filter(a => ids.includes(a.task_id));
-      return { id: c.id, name: c.name, tasks: ids.length, internal: adj.filter(a => a.origin === 'internal').length, client: adj.filter(a => a.origin === 'client').length };
-    }).sort((a, b) => b.client - a.client || b.internal - a.internal || a.name.localeCompare(b.name));
+    const rows = new Map();
+    const row = (key, name) => rows.get(key) || rows.set(key, { id: key, name, tasks: 0, internal: 0, client: 0, on_time: 0, late: 0 }).get(key);
+    db.clients.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach(c => row(c.id, c.name));
+    for (const t of list(user, {}).concat(list(user, { archived: '1' }))) {
+      const r = row(t.client_id || 'org', t.client_id ? t.client_name : `${db.org.name} (interna)`);
+      r.tasks++; r.internal += t.adjustments_internal; r.client += t.adjustments_client;
+      if (t.column === 'done_on_time') r.on_time++;
+      if (t.column === 'done_late') r.late++;
+    }
+    return [...rows.values()].sort((a, b) => b.client - a.client || b.internal - a.internal || a.name.localeCompare(b.name));
   });
 
   const realFetch = window.fetch.bind(window);
@@ -298,16 +418,18 @@
       if (!r.pub && !user) fail(401, 'Faça login');
       const out = r.handler({ user, body: init.body ? JSON.parse(init.body) : {}, id: m[1] ? Number(m[1]) : null, query: Object.fromEntries(url.searchParams) });
       persist();
-      return reply(method === 'POST' && out && out.id && !out.title ? 201 : 200, out);
+      return reply(200, out);
     } catch (err) {
+      if (!err.status) console.error(err);
       return reply(err.status || 500, { error: err.status ? err.message : 'Erro interno' });
     }
   };
 
-  // Barra do protótipo: entrar como cada papel e restaurar os dados.
+  // Barra do protótipo: entrar em cada visão e restaurar os dados.
   window.addEventListener('DOMContentLoaded', () => {
     const bar = document.getElementById('demo-bar');
     const as = async email => {
+      document.querySelectorAll('.overlay').forEach(o => o.remove());
       await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'demo1234' }) });
       location.hash = '';
       window.boot();
