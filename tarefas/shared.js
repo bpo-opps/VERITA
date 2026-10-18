@@ -14,8 +14,8 @@
     { key: 'review', name: 'Em revisão' },
     { key: 'overdue', name: 'Atrasada' },
     { key: 'done_on_time', name: 'Concluída no prazo' },
-    { key: 'done_late', name: 'Concluída fora do prazo' },
     { key: 'cancelled', name: 'Cancelada' },
+    { key: 'done_late', name: 'Concluída fora do prazo' },
   ];
 
   const ALERTS = [

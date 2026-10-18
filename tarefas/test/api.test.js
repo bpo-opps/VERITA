@@ -66,6 +66,7 @@ test('regras compartilhadas: meses, colunas, alertas, %', () => {
   assert.equal(S.column({ status: 'done', due_date: '2026-10-17', completed_on: '2026-10-18' }, now), 'done_late');
   assert.equal(S.column({ status: 'done', due_date: null, completed_on: '2026-10-18' }, now), 'done_on_time');
   assert.equal(S.column({ status: 'cancelled', due_date: '2026-10-01' }, now), 'cancelled', 'cancelada não vira atrasada');
+  assert.deepEqual(S.COLUMNS.map(c => c.key), ['todo', 'doing', 'review', 'overdue', 'done_on_time', 'cancelled', 'done_late']);
   assert.equal(S.alert({ status: 'cancelled', due_date: '2026-10-01', alerts: [1] }, now), null);
   const admin = { id: 1, role: 'admin' }, member = { id: 2, role: 'member' };
   const own = { kind: 'internal', created_by: 1, client_id: null };
@@ -261,6 +262,11 @@ test('cliente atualiza situação, início, % e checklist; o resto não', async 
   assert.equal((await cliB('PATCH', `/api/tasks/${t}`, { status: 'doing' })).status, 404, 'outro cliente não mexe');
   const sem = (await admin('POST', '/api/tasks', { kind: 'external', client_id: ids.a, title: 'Sem checklist' })).body.id;
   assert.equal((await cliA('PATCH', `/api/tasks/${sem}`, { status: 'doing', progress: 30 })).body.progress, 30);
+  const done = await cliA('POST', `/api/tasks/${sem}/complete`, { completed_on: S.today() });
+  assert.equal(done.status, 200, 'cliente conclui com data');
+  assert.equal(done.body.column, 'done_on_time');
+  assert.equal((await cliA('POST', `/api/tasks/${sem}/complete`, { completed_on: S.today() })).status, 409, 'não reconclui');
+  assert.equal((await cliB('POST', `/api/tasks/${t}/complete`, {})).status, 404, 'outro cliente não conclui');
   await cliA('PATCH', `/api/tasks/${t}`, { status: 'review' });
   await cliA('POST', `/api/tasks/${t}/approve`);
   assert.equal((await cliA('PATCH', `/api/tasks/${t}`, { status: 'doing' })).status, 409, 'encerrada não reabre pelo cliente');

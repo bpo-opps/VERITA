@@ -317,7 +317,7 @@ function wireDrop(col, key, tasks) {
     const task = tasks.find(t => t.id === taskId);
     if (!task || task.column === key) return;
     if (key === 'overdue') { toast('A coluna Atrasada é automática: a tarefa entra nela quando o prazo passa.'); return; }
-    if (!isStaff() && !['todo', 'doing', 'review'].includes(key)) { toast('Para concluir, deixe a tarefa em Em revisão e aprove a entrega.'); return; }
+    if (!isStaff() && key === 'cancelled') { toast('Só a equipe cancela tarefas. Se for o caso, escreva nos comentários.'); return; }
     if (key === 'done_on_time' || key === 'done_late') { completeDialog(task); return; }
     if (key === 'cancelled') { cancelDialog(task); return; }
     const inCol = tasks.filter(t => t.column === key && t.id !== taskId);
@@ -824,7 +824,7 @@ async function openTask(id) {
       h('div', { class: 'grow' }, h('label', { for: 'd-status' }, 'Situação'),
         h('select', { id: 'd-status', onchange: e => set('status', e.target.value, true) },
           ['todo', 'doing', 'review'].map(x => h('option', { value: x, selected: x === status }, S.STATUS_LABEL[x])))),
-      staff ? h('button', { class: 'btn primary', type: 'button', onclick: withSaved(() => completeDialog(t, afterDialog)) }, 'Concluir…') : null,
+      h('button', { class: 'btn primary', type: 'button', onclick: withSaved(() => completeDialog(t, afterDialog)) }, 'Concluir…'),
       staff ? h('button', { class: 'btn', type: 'button', onclick: withSaved(() => cancelDialog(t, afterDialog)) }, 'Cancelar…') : null,
       t.column === 'overdue' ? h('p', { class: 'small danger full' }, 'Está em Atrasada porque o prazo passou. Ajuste o prazo ou conclua para tirar daqui.') : null);
   }

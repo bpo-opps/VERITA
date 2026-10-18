@@ -432,9 +432,10 @@ route('PATCH', '/api/tasks/:id', ({ db, user, body, params }) => {
   return taskDetail(db, user, t.id);
 });
 
+// Equipe e cliente concluem informando a data de término. O cliente não reconclui uma tarefa encerrada.
 route('POST', '/api/tasks/:id/complete', ({ db, user, body, params }) => {
-  requireStaff(user);
   const t = loadTask(db, user, params.id);
+  if (user.role === 'client' && (t.status === 'done' || t.status === 'cancelled')) fail(409, 'Esta tarefa já foi encerrada');
   const nextId = completeTask(db, t, date(body.completed_on, 'Término') || S.today(), user.id);
   return { ...taskDetail(db, user, t.id), created_next_id: nextId };
 });

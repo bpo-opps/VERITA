@@ -339,8 +339,8 @@
     return detail(user, id);
   });
   route('POST', '/api/tasks/:id/complete', ({ user, body, id }) => {
-    requireStaff(user);
     const t = loadTask(user, id);
+    if (user.role === 'client' && (t.status === 'done' || t.status === 'cancelled')) fail(409, 'Esta tarefa já foi encerrada');
     const nid = completeTask(t, date(body.completed_on, 'Término') || S.today(), user.id);
     return { ...detail(user, id), created_next_id: nid };
   });
