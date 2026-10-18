@@ -624,7 +624,7 @@ function serveStatic(req, res) {
   res.writeHead(200, {
     'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
     'X-Content-Type-Options': 'nosniff',
-    'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
+    'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:",
     'X-Frame-Options': 'DENY',
   });
   fs.createReadStream(file).pipe(res);

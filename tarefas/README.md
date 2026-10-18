@@ -43,6 +43,12 @@ A senha temporária aparece uma vez no terminal; troque em Configurações. O ba
 - **Visões:** Kanban, Lista (agrupada por situação, empresa, responsável, prazo ou tipo) e Calendário (pelo prazo; no celular vira agenda). Filtros por tipo, empresa, responsável, prazo e recorrência (só recorrentes ou só únicas).
 - **Também:** ajustes internos e do cliente, comentários (visíveis ao cliente só quando marcados, e nunca em interna), modelos com checklist, relatório por empresa com % no prazo.
 
+## Visual
+
+Menu lateral com ícones, barra superior com o título e a ação da página, indicadores no topo das tarefas (em aberto, atrasadas, vencem em 7 dias, % no prazo), cards com cantos arredondados. Tema claro e escuro conforme o aparelho. Fonte Plus Jakarta Sans (Google Fonts; sem internet, cai na fonte do sistema).
+
+No celular: o menu vira gaveta, a nova tarefa vira botão flutuante, os filtros recolhem atrás de "Filtros", o quadro rola de lado coluna a coluna, a lista vira cards, o card de tarefa ocupa a tela com Salvar e Sair fixos embaixo e os diálogos sobem de baixo.
+
 ## O que ainda não faz
 
 - Email (avisos de prazo, convite, recuperação de senha). Os alertas aparecem só dentro do sistema.

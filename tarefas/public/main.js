@@ -121,6 +121,37 @@ function logoPicker(label, onPick) {
 // ---------- shell ----------
 const app = () => document.getElementById('app');
 
+// Ícones de traço simples (desenho próprio), em SVG embutido.
+const ICONS = {
+  board: '<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="10" rx="1.5"/><rect x="17" y="4" width="4" height="13" rx="1.5"/>',
+  bell: '<path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  building: '<rect x="4" y="3" width="11" height="18" rx="1.5"/><path d="M15 9h4.5a.5.5 0 0 1 .5.5V21H15M8 7h3M8 11h3M8 15h3"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+  logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 16l-4-4 4-4M6 12h10"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  list: '<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
+  filter: '<path d="M4 5h16l-6 8v5l-4 2v-7z"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+};
+function icon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.8');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.innerHTML = ICONS[name];
+  return svg;
+}
+
 function renderLogin(message) {
   document.title = 'Entrar';
   const err = h('p', { class: 'error', role: 'alert' }, message || '');
@@ -132,31 +163,51 @@ function renderLogin(message) {
       await boot();
     } catch (ex) { err.textContent = ex.message; }
   } },
+    h('div', { class: 'login-mark' }, icon('check')),
     h('h1', {}, 'Entrar'),
-    h('p', { class: 'muted' }, 'Acesse com o email e a senha que você recebeu.'),
+    h('p', { class: 'muted', style: 'margin:0 0 20px' }, 'Acesse com o email e a senha que você recebeu.'),
     h('div', { class: 'field' }, h('label', { for: 'email' }, 'Email'), h('input', { id: 'email', name: 'email', type: 'email', autocomplete: 'username', required: true })),
     h('div', { class: 'field' }, h('label', { for: 'password' }, 'Senha'), h('input', { id: 'password', name: 'password', type: 'password', autocomplete: 'current-password', required: true })),
     err,
     h('button', { class: 'btn primary', type: 'submit' }, 'Entrar'));
-  app().replaceChildren(form);
+  app().replaceChildren(h('div', { class: 'login-wrap' }, form));
   form.querySelector('input').focus();
 }
 
-function shell(content) {
+// Estrutura: menu lateral (gaveta no celular) + barra superior com o título e a ação da página.
+function shell(content, { title, sub } = {}) {
   const nav = isStaff()
-    ? [['#/tarefas', 'Tarefas'], ['#/alertas', 'Alertas'], ['#/clientes', 'Clientes'], ['#/modelos', 'Modelos'],
-      ['#/relatorio', 'Relatório'], ['#/equipe', 'Pessoas'], ['#/config', 'Configurações']]
-    : [['#/tarefas', 'Minhas entregas'], ['#/alertas', 'Alertas'], ['#/config', 'Minha conta']];
+    ? [['#/tarefas', 'Tarefas', 'board'], ['#/alertas', 'Alertas', 'bell'], ['#/clientes', 'Clientes', 'building'], ['#/modelos', 'Modelos', 'copy'],
+      ['#/relatorio', 'Relatório', 'chart'], ['#/equipe', 'Pessoas', 'users'], ['#/config', 'Configurações', 'settings']]
+    : [['#/tarefas', 'Minhas entregas', 'board'], ['#/alertas', 'Alertas', 'bell'], ['#/config', 'Minha conta', 'settings']];
   const current = location.hash.split('?')[0] || nav[0][0];
-  app().replaceChildren(
-    h('header', { class: 'top' },
-      h('div', { class: 'brand' }, logoEl(state.org.name, state.org.logo), state.org.name),
-      h('nav', { class: 'main', 'aria-label': 'Principal' },
-        nav.map(([href, label]) => h('a', { href, 'aria-current': current === href ? 'page' : null }, label,
+  const page = nav.find(n => n[0] === current) || nav[0];
+  document.title = `${title || page[1]} · ${state.org.name}`;
+  const shellEl = h('div', { class: 'app' });
+  const toggleNav = open => shellEl.classList.toggle('nav-open', open);
+  const newTask = isStaff() && current === '#/tarefas'
+    ? h('button', { class: 'btn primary new-task', type: 'button', 'aria-label': 'Nova tarefa', onclick: () => newTaskModal() }, icon('plus'), h('span', { class: 'label-text' }, 'Nova tarefa'))
+    : null;
+  shellEl.append(
+    h('aside', { class: 'sidebar', 'aria-label': 'Menu' },
+      h('div', { class: 'brand' }, logoEl(state.org.name, state.org.logo, 'md'), h('span', {}, state.org.name)),
+      h('div', { class: 'nav-label' }, 'Menu'),
+      h('nav', { 'aria-label': 'Principal' },
+        nav.map(([href, label, ic]) => h('a', { class: 'nav-link', href, 'aria-current': current === href ? 'page' : null, onclick: () => toggleNav(false) },
+          icon(ic), h('span', {}, label),
           href === '#/alertas' && state.alertCount ? h('span', { class: 'badge', 'aria-label': `${state.alertCount} alertas` }, state.alertCount) : null))),
-      h('div', { class: 'who' }, `${state.me.name} · ${roleLabel(state.me.role)}`,
-        h('button', { class: 'btn small', onclick: guard(async () => { await api('POST', '/api/logout'); state.me = null; renderLogin(); }) }, 'Sair'))),
-    h('main', {}, content));
+      h('div', { class: 'side-user' },
+        h('span', { class: 'avatar' }, initials(state.me.name)),
+        h('div', { style: 'min-width:0' }, h('div', { class: 'who-name' }, state.me.name), h('div', { class: 'who-role' }, roleLabel(state.me.role))),
+        h('button', { class: 'icon-btn', type: 'button', title: 'Sair', 'aria-label': 'Sair', onclick: guard(async () => { await api('POST', '/api/logout'); state.me = null; renderLogin(); }) }, icon('logout')))),
+    h('div', { class: 'scrim', onclick: () => toggleNav(false) }),
+    h('div', { class: 'content' },
+      h('header', { class: 'topbar' },
+        h('button', { class: 'icon-btn menu-btn', type: 'button', 'aria-label': 'Abrir menu', onclick: () => toggleNav(true) }, icon('menu')),
+        h('div', { class: 'grow' }, h('h1', {}, title || page[1]), sub ? h('div', { class: 'page-sub' }, sub) : null),
+        newTask),
+      h('main', {}, content)));
+  app().replaceChildren(shellEl);
 }
 
 async function loadCommon() {
@@ -248,14 +299,14 @@ function select(id, label, value, options, onchange) {
       options.map(([v, l]) => h('option', { value: v, selected: String(v) === String(value) }, l)))];
 }
 
+let filtersOpen = false;
 function tasksToolbar() {
   const v = state.view;
   const set = (k, val) => { v[k] = val; saveView(); route(); };
-  const layouts = [['kanban', 'Kanban'], ['list', 'Lista'], ['calendar', 'Calendário']];
+  const layouts = [['kanban', 'Kanban', 'board'], ['list', 'Lista', 'list'], ['calendar', 'Calendário', 'calendar']];
   const staff = state.users.filter(u => u.role !== 'client' && u.active);
-  return h('div', { class: 'toolbar' },
-    h('div', { class: 'seg', role: 'group', 'aria-label': 'Visualização' },
-      layouts.map(([k, l]) => h('button', { type: 'button', class: 'seg-btn', 'aria-pressed': String(v.layout === k), onclick: () => set('layout', k) }, l))),
+  const active = [v.kind, v.client, v.assignee, v.due, v.rec, v.archived].filter(Boolean).length;
+  const filters = h('div', { class: 'filters' + (filtersOpen ? ' open' : ''), id: 'filters' },
     isStaff() ? [
       select('f-kind', 'Tipo', v.kind, [['', 'Internas e externas'], ['external', 'Externas'], ['internal', 'Internas']], x => set('kind', x)),
       select('f-client', 'Empresa', v.client, [['', 'Todas as empresas'], ['org', `${state.org.name} (própria)`], ...state.clients.map(c => [c.id, c.name])], x => set('client', x)),
@@ -264,24 +315,42 @@ function tasksToolbar() {
     select('f-due', 'Prazo', v.due, [['', 'Qualquer prazo'], ['overdue', 'Atrasadas'], ['today', 'Vencem hoje'], ['week', 'Próximos 7 dias'], ['month', 'Este mês'], ['none', 'Sem prazo']], x => set('due', x)),
     select('f-rec', 'Repetição', v.rec, [['', 'Recorrentes e únicas'], ['1', 'Só recorrentes'], ['0', 'Só únicas']], x => set('rec', x)),
     v.layout === 'list' ? select('f-group', 'Agrupar por', v.group, [['column', 'Agrupar por situação'], ...(isStaff() ? [['client', 'Agrupar por empresa'], ['assignee', 'Agrupar por responsável']] : []), ['due', 'Agrupar por prazo'], ...(isStaff() ? [['kind', 'Agrupar por tipo']] : [])], x => set('group', x)) : null,
-    h('label', { class: 'sr-only', for: 'f-q' }, 'Buscar'),
-    h('input', { id: 'f-q', type: 'search', placeholder: 'Buscar tarefa', value: v.q, onchange: e => { v.q = e.target.value; route(); } }),
-    isStaff() ? h('label', { class: 'check inline', for: 'f-arch' }, h('input', { type: 'checkbox', id: 'f-arch', checked: v.archived, onchange: e => { v.archived = e.target.checked; route(); } }), 'Ver arquivadas') : null,
-    h('span', { class: 'spacer' }),
-    isStaff() ? h('button', { class: 'btn primary', onclick: () => newTaskModal() }, '+ Nova tarefa') : null);
+    isStaff() ? h('label', { class: 'check inline', for: 'f-arch' }, h('input', { type: 'checkbox', id: 'f-arch', checked: v.archived, onchange: e => { v.archived = e.target.checked; route(); } }), 'Ver arquivadas') : null);
+  return h('div', { class: 'toolbar' },
+    h('div', { class: 'seg', role: 'group', 'aria-label': 'Visualização' },
+      layouts.map(([k, l, ic]) => h('button', { type: 'button', class: 'seg-btn', 'aria-pressed': String(v.layout === k), onclick: () => set('layout', k) }, icon(ic), l))),
+    h('div', { class: 'search' }, icon('search'), h('label', { class: 'sr-only', for: 'f-q' }, 'Buscar'),
+      h('input', { id: 'f-q', type: 'search', placeholder: 'Buscar tarefa', value: v.q, onchange: e => { v.q = e.target.value; route(); } })),
+    h('button', { class: 'btn filters-toggle', type: 'button', 'aria-expanded': String(filtersOpen), 'aria-controls': 'filters',
+      onclick: e => { filtersOpen = !filtersOpen; filters.classList.toggle('open', filtersOpen); e.currentTarget.setAttribute('aria-expanded', String(filtersOpen)); } },
+      icon('filter'), active ? `Filtros (${active})` : 'Filtros'),
+    filters);
+}
+
+// Indicadores do que está na tela (respeitam os filtros).
+function kpis(tasks) {
+  const open = tasks.filter(t => !['done', 'cancelled'].includes(t.status));
+  const overdue = tasks.filter(t => t.column === 'overdue').length;
+  const soon = open.filter(t => t.due_date && t.due_date >= today() && t.due_date <= S.addDays(today(), 7)).length;
+  const onTime = tasks.filter(t => t.column === 'done_on_time').length, late = tasks.filter(t => t.column === 'done_late').length;
+  const kpi = (label, value, cls = '') => h('div', { class: 'kpi ' + cls }, h('span', { class: 'kpi-label' }, label), h('span', { class: 'kpi-value' }, value));
+  return h('div', { class: 'kpis' },
+    kpi('Em aberto', open.length),
+    kpi('Atrasadas', overdue, overdue ? 'alert' : ''),
+    kpi('Vencem em 7 dias', soon),
+    kpi('Concluídas no prazo', onTime + late ? `${Math.round((onTime / (onTime + late)) * 100)}%` : '–', onTime + late ? 'good' : ''));
 }
 
 async function viewTasks() {
-  document.title = isStaff() ? 'Tarefas' : 'Minhas entregas';
   if (!isStaff()) Object.assign(state.view, { kind: '', client: '', assignee: '', archived: false });
   const tasks = await api('GET', '/api/tasks?' + taskQuery());
   const v = state.view;
   const body = v.layout === 'list' ? listView(tasks) : v.layout === 'calendar' ? calendarView(tasks) : kanbanView(tasks);
   const waiting = isStaff() ? [] : tasks.filter(t => t.status === 'review');
   shell([
-    !isStaff() ? h('h1', { style: 'margin-bottom:12px' }, 'Minhas entregas') : null,
     waiting.length ? h('div', { class: 'card-box waiting-box' }, h('strong', {}, `${waiting.length} entrega${waiting.length > 1 ? 's' : ''} esperando sua revisão: `),
       waiting.map((t, i) => [i ? ', ' : '', h('button', { class: 'link', type: 'button', onclick: () => openTask(t.id) }, t.title)])) : null,
+    v.archived ? null : kpis(tasks),
     tasksToolbar(), v.archived ? h('p', { class: 'muted' }, 'Mostrando só as tarefas arquivadas.') : null, body]);
 }
 
@@ -370,12 +439,12 @@ function listView(tasks) {
       h('tbody', {}, g.items.sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999')).map(t => h('tr', { class: 'row-link', onclick: () => openTask(t.id) },
         h('td', {}, h('button', { class: 'link', type: 'button', onclick: e => { e.stopPropagation(); openTask(t.id); } }, t.title),
           t.alert ? h('div', { class: 'small ' + (t.alert.kind === 'overdue' ? 'danger' : 'warn') }, '⏰ ' + S.alertText(t.alert)) : null),
-        h('td', {}, h('span', { class: 'with-logo' }, taskLogo(t), where(t)), internalTag(t)),
-        h('td', {}, t.assignees.map(a => a.name).join(', ') || '–'),
-        h('td', { class: 'num' }, fmtDate(t.start_date) || '–'),
-        h('td', { class: 'num' }, fmtDate(t.due_date) || '–'),
-        h('td', {}, h('span', { class: `pill col-${t.column}` }, colName(t.column))),
-        h('td', {}, progressBar(t.progress)))))))));
+        h('td', { 'data-label': 'Empresa' }, h('span', { class: 'with-logo' }, taskLogo(t), where(t)), internalTag(t)),
+        h('td', { 'data-label': 'Responsáveis' }, t.assignees.map(a => a.name).join(', ') || '–'),
+        h('td', { class: 'num', 'data-label': 'Início' }, fmtDate(t.start_date) || '–'),
+        h('td', { class: 'num', 'data-label': 'Prazo' }, fmtDate(t.due_date) || '–'),
+        h('td', { 'data-label': 'Situação' }, h('span', { class: `pill col-${t.column}` }, colName(t.column))),
+        h('td', { 'data-label': 'Execução' }, progressBar(t.progress)))))))));
 }
 
 const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
@@ -427,7 +496,6 @@ async function viewAlerts() {
     h('span', { class: 'grow' }, h('strong', {}, t.title), h('span', { class: 'muted small' }, ` · ${where(t)} · prazo ${fmtDate(t.due_date)}`)),
     h('span', { class: 'tag ' + (t.alert.kind === 'overdue' ? 'late' : 'warn') }, S.alertText(t.alert)));
   shell([
-    h('h1', {}, 'Alertas'),
     h('p', { class: 'muted' }, isStaff()
       ? 'Tarefas atrasadas e as que entraram na janela de aviso escolhida em cada tarefa (no dia, 1 dia, 3 dias ou 1 semana antes).'
       : 'Suas entregas atrasadas ou com prazo chegando.'),
@@ -674,6 +742,9 @@ async function openTask(id) {
     // Informar o início de uma tarefa a fazer já a coloca em andamento.
     if (k === 'start_date' && v && t.status === 'todo' && !('status' in draft)) draft.status = 'doing';
     if (k === 'start_date' && !v && draft.status === 'doing' && t.status === 'todo') delete draft.status;
+    // E o contrário: sair de "A fazer" sem início preenche o início com hoje (o servidor faz o mesmo ao salvar).
+    if (k === 'status' && v !== 'todo' && !t.start_date && !draft.start_date) draft.start_date = today();
+    if (k === 'status' && v === 'todo' && !t.start_date) delete draft.start_date;
     repaint ? paint() : markDirty();
   };
   const terminal = ['done', 'cancelled'].includes(t.status);
@@ -693,7 +764,7 @@ async function openTask(id) {
   const body = h('div', { class: 'drawer-body' });
   const saveBtn = h('button', { class: 'btn primary', type: 'button', onclick: () => save() }, 'Salvar');
   const dirtyNote = h('span', { class: 'muted small', role: 'status' });
-  const drawer = h('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': t.title },
+  const drawer = h('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': t.title, tabindex: '-1' },
     body,
     h('div', { class: 'drawer-foot' }, saveBtn, h('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Sair'), dirtyNote));
   overlay.append(drawer);
@@ -923,7 +994,8 @@ async function openTask(id) {
   }
 
   paint();
-  drawer.querySelector('input:not([disabled]), select, button')?.focus();
+  // Foco no card, não num campo: no celular não abre o teclado sozinho.
+  drawer.focus({ preventScroll: true });
 }
 
 // ---------- clientes ----------
@@ -933,7 +1005,6 @@ async function viewClients() {
   let newLogo = null;
   const preview = h('span', {});
   shell([
-    h('h1', { style: 'margin-bottom:16px' }, 'Clientes'),
     isAdmin() ? h('form', { class: 'card-box row', onsubmit: guard(async e => {
       e.preventDefault();
       await api('POST', '/api/clients', { name: e.target.elements.name.value, logo: newLogo }); toast('Cliente cadastrado'); route();
@@ -991,7 +1062,6 @@ async function viewTeam() {
       h('li', {}, h('strong', {}, 'Cliente: '), 'vê as externas da empresa dele e as internas marcadas como visíveis; aprova entregas e pede ajustes.')),
     err, h('button', { class: 'btn primary', type: 'submit' }, 'Criar acesso')) : null;
   shell([
-    h('h1', { style: 'margin-bottom:16px' }, 'Pessoas'),
     form,
     h('div', { class: 'card-box table-wrap' }, h('table', {},
       h('thead', {}, h('tr', {}, h('th', {}, 'Nome'), h('th', {}, 'Email'), h('th', {}, 'Visão'), h('th', {}, 'Situação'), h('th', {}, ''))),
@@ -1010,7 +1080,6 @@ async function viewTemplates() {
   state.templates = await api('GET', '/api/templates');
   const err = h('p', { class: 'error', role: 'alert' });
   shell([
-    h('h1', { style: 'margin-bottom:16px' }, 'Modelos de tarefa'),
     h('form', { class: 'card-box', onsubmit: async e => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -1045,7 +1114,6 @@ async function viewReport() {
   const rows = await api('GET', '/api/report/adjustments');
   const pct = r => (r.on_time + r.late ? Math.round((r.on_time / (r.on_time + r.late)) * 100) + '%' : '–');
   shell([
-    h('h1', {}, 'Relatório por empresa'),
     h('p', { class: 'muted' }, 'Entregas no prazo e quantas vezes o trabalho voltou. Ajuste do cliente mostra o que passou pela revisão interna.'),
     h('div', { class: 'card-box table-wrap' }, h('table', {},
       h('thead', {}, h('tr', {}, ['Empresa', 'Tarefas', 'Concluídas no prazo', 'Fora do prazo', '% no prazo', 'Canceladas', 'Ajustes internos', 'Ajustes do cliente'].map((x, i) => h('th', { class: i ? 'num' : null }, x)))),
@@ -1061,7 +1129,6 @@ async function viewSettings() {
   const msg = h('p', { role: 'status' });
   const pwErr = h('p', { class: 'error', role: 'alert' });
   shell([
-    h('h1', { style: 'margin-bottom:16px' }, isStaff() ? 'Configurações' : 'Minha conta'),
     isAdmin() ? h('form', { class: 'card-box', onsubmit: async e => {
       e.preventDefault();
       const fd = new FormData(e.target);
