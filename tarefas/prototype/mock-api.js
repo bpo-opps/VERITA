@@ -18,7 +18,7 @@
   function seed() {
     const OPPS_SYMBOL = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="24" y="6" width="16" height="36" rx="4" fill="#FB4F14"/><rect x="24" y="46" width="16" height="12" rx="4" fill="#FB4F14"/></svg>');
     const db = { seq: 100, org: { id: 1, name: 'Opps Consultoria', accent: '#FB4F14', logo: OPPS_SYMBOL },
-      clients: [], users: [], tasks: [], assignees: [], checklist: [], comments: [], adjustments: [], templates: [] };
+      clients: [], users: [], tasks: [], assignees: [], checklist: [], comments: [], adjustments: [], templates: [], notifications: [] };
     db.clients.push(
       { id: 1, name: 'Padaria Exemplo', logo: svgLogo('PE', '#b45309') },
       { id: 2, name: 'Clínica Modelo', logo: svgLogo('CM', '#4338ca') });
@@ -64,6 +64,7 @@
   let db;
   try { db = JSON.parse(localStorage.getItem(KEY)); } catch { db = null; }
   if (!db) db = seed();
+  db.notifications = db.notifications || [];
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sem armazenamento: fica só na memória */ } };
   let sessionUser = null;
   try { sessionUser = Number(sessionStorage.getItem(KEY + '-user')) || null; } catch { /* idem */ }
@@ -126,6 +127,26 @@
     return v.map(x => str(x, 'item do checklist', { max: 300, required: false })).filter(Boolean).slice(0, 100);
   };
 
+  // Avisos: o protótipo registra quem receberia, como o servidor faria, mas nada sai daqui.
+  const NOT_SENT = 'Protótipo: nada é enviado. No sistema instalado, sai por e-mail (Google) e WhatsApp.';
+  function notice(u, t, kind, subject, body) {
+    const ch = [];
+    if (u.notify_email !== 0) ch.push('email');
+    if (u.notify_whatsapp && u.phone && u.whatsapp_consent_at) ch.push('whatsapp');
+    for (const channel of ch) db.notifications.push({ id: nextId(), user_id: u.id, task_id: t ? t.id : null, channel, kind, subject, body,
+      status: 'not_sent', error: NOT_SENT, created_at: now(), sent_at: null });
+  }
+  function noticeCreated(tid, actorId) {
+    const t = db.tasks.find(x => x.id === tid);
+    const ids = new Set(assigneeIds(tid));
+    if (S.clientSees(t)) db.users.filter(u => u.role === 'client' && u.client_id === t.client_id && u.active).forEach(u => ids.add(u.id));
+    ids.delete(actorId);
+    for (const u of db.users.filter(x => ids.has(x.id) && x.active && S.canSee(x, t, assigneeIds(tid)))) {
+      notice(u, t, 'created', `Nova tarefa: ${t.title}`, `Olá, ${u.name}.\n\nUma tarefa foi criada para você: ${t.title}` +
+        (t.due_date ? `\nPrazo: ${t.due_date.split('-').reverse().join('/')}` : '') + '\n\nAbra o Painel de Tarefas Opps para ver os detalhes.');
+    }
+  }
+
   function completeTask(t, completedOn, userId) {
     if (completedOn > S.today()) fail(400, 'A data de término não pode ser no futuro');
     if (t.start_date && completedOn < t.start_date) fail(400, 'A data de término não pode ser antes do início');
@@ -138,6 +159,7 @@
     setAssignees(nid, assigneeIds(t.id));
     db.checklist.filter(i => i.task_id === t.id).forEach(i => db.checklist.push({ ...i, id: nextId(), task_id: nid, done: 0 }));
     t.next_task_id = nid;
+    noticeCreated(nid, null);
     return nid;
   }
 
@@ -221,6 +243,39 @@
     if (cur !== (user.password || 'demo1234')) fail(400, 'Senha atual incorreta');
     user.password = next; return { ok: true };
   });
+  route('GET', '/api/me/notify', ({ user }) => ({ email: user.email, phone: user.phone || null, notify_email: user.notify_email !== 0,
+    notify_whatsapp: !!user.notify_whatsapp, whatsapp_consent: !!user.whatsapp_consent_at, channels: { email: false, whatsapp: false } }));
+  route('PATCH', '/api/me/notify', ({ user, body }) => {
+    let phone = user.phone || null;
+    if ('phone' in body) {
+      const raw = body.phone ? String(body.phone).replace(/\D/g, '') : '';
+      phone = !raw ? null : /^\d{10,11}$/.test(raw) ? '55' + raw : /^\d{12,15}$/.test(raw) ? raw : undefined;
+      if (phone === undefined) fail(400, 'Celular inválido: use DDD e número, por exemplo (11) 98765-4321');
+    }
+    let consentAt = user.whatsapp_consent_at || null;
+    if ('consent' in body) consentAt = body.consent ? (consentAt || now()) : null;
+    let wa = 'notify_whatsapp' in body ? (body.notify_whatsapp ? 1 : 0) : (user.notify_whatsapp || 0);
+    if ('notify_whatsapp' in body && wa && !phone) fail(400, 'Para receber no WhatsApp, informe o celular');
+    if ('notify_whatsapp' in body && wa && !consentAt) fail(400, 'Para receber no WhatsApp, marque a autorização');
+    if (!phone || !consentAt) wa = 0;
+    Object.assign(user, { phone, whatsapp_consent_at: consentAt, notify_whatsapp: wa,
+      notify_email: 'notify_email' in body ? (body.notify_email ? 1 : 0) : (user.notify_email === 0 ? 0 : 1) });
+    return { ok: true };
+  });
+  route('GET', '/api/notify/status', ({ user }) => { requireAdmin(user); return { email: { configured: false }, whatsapp: { configured: false }, app_url: null, schedule: null }; });
+  route('GET', '/api/notifications', ({ user }) => {
+    requireAdmin(user);
+    return db.notifications.slice(-200).reverse().map(n => {
+      const u = db.users.find(x => x.id === n.user_id) || {}, t = db.tasks.find(x => x.id === n.task_id);
+      return { ...n, user_name: u.name, user_role: u.role, task_title: t ? t.title : null };
+    });
+  });
+  route('POST', '/api/notifications/run', ({ user }) => { requireAdmin(user); return { sent: 0 }; });
+  route('POST', '/api/notifications/test', ({ user }) => {
+    requireAdmin(user);
+    notice({ ...user, notify_email: 1, notify_whatsapp: 0 }, null, 'test', 'Teste de aviso do Painel de Tarefas Opps', `Olá, ${user.name}.\n\nSe este e-mail chegou, o envio está funcionando.`);
+    return { status: 'not_sent', error: NOT_SENT };
+  });
   route('PATCH', '/api/org', ({ user, body }) => {
     requireAdmin(user);
     if ('name' in body) db.org.name = str(body.name, 'nome', { max: 80 });
@@ -295,6 +350,7 @@
       created_by: user.id, created_at: now(), updated_at: now(), archived_at: null });
     setAssignees(id, assignees);
     checklist.forEach((text, i) => db.checklist.push({ id: nextId(), task_id: id, text, done: 0, position: i }));
+    noticeCreated(id, user.id);
     return { id };
   });
   route('GET', '/api/tasks/:id', ({ user, id }) => detail(user, id));

@@ -4,6 +4,7 @@ const path = require('node:path');
 const { tx, createUser } = require('./db');
 const auth = require('./auth');
 const S = require('./shared');
+const whatsapp = require('./whatsapp');
 
 const PUBLIC = path.join(__dirname, 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
@@ -16,6 +17,8 @@ class HttpError extends Error {
 const fail = (status, message) => { throw new HttpError(status, message); };
 // Resposta com código ou cookie diferente do padrão (200, sem cookie).
 const REPLY = Symbol('reply');
+// Motor de avisos (notify.js); o servidor passa em createHandler. Sem ele, nada é enviado.
+let notifier = null;
 const reply = (code, body, cookie) => ({ [REPLY]: true, code, body, cookie });
 
 // ---------- validação ----------
@@ -246,6 +249,59 @@ route('POST', '/api/logout', ({ db, token }) => {
   return reply(200, { ok: true }, 'sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
 });
 
+// Preferências de aviso de cada pessoa. WhatsApp exige número e autorização (LGPD).
+route('GET', '/api/me/notify', ({ db, user }) => {
+  const u = db.prepare('select email, phone, notify_email, notify_whatsapp, whatsapp_consent_at from users where id = ?').get(user.id);
+  return { email: u.email, phone: u.phone, notify_email: !!u.notify_email, notify_whatsapp: !!u.notify_whatsapp, whatsapp_consent: !!u.whatsapp_consent_at,
+    channels: notifier ? { email: notifier.status().email.configured, whatsapp: notifier.status().whatsapp.configured } : { email: false, whatsapp: false } };
+});
+
+route('PATCH', '/api/me/notify', ({ db, user, body }) => {
+  const cur = db.prepare('select phone, notify_email, notify_whatsapp, whatsapp_consent_at from users where id = ?').get(user.id);
+  let phone = cur.phone;
+  if ('phone' in body) {
+    phone = whatsapp.normalizePhone(body.phone);
+    if (phone === undefined) fail(400, 'Celular inválido: use DDD e número, por exemplo (11) 98765-4321');
+  }
+  let consentAt = cur.whatsapp_consent_at;
+  if ('consent' in body) consentAt = body.consent ? (consentAt || new Date().toISOString()) : null;
+  const email = 'notify_email' in body ? (body.notify_email ? 1 : 0) : cur.notify_email;
+  let wa = 'notify_whatsapp' in body ? (body.notify_whatsapp ? 1 : 0) : cur.notify_whatsapp;
+  // Pedir WhatsApp exige celular e autorização; tirar um dos dois desliga o WhatsApp.
+  if ('notify_whatsapp' in body && wa && !phone) fail(400, 'Para receber no WhatsApp, informe o celular');
+  if ('notify_whatsapp' in body && wa && !consentAt) fail(400, 'Para receber no WhatsApp, marque a autorização');
+  if (!phone || !consentAt) wa = 0;
+  db.prepare('update users set phone = ?, whatsapp_consent_at = ?, notify_email = ?, notify_whatsapp = ? where id = ?').run(phone, consentAt, email, wa, user.id);
+  return { ok: true };
+});
+
+route('GET', '/api/notify/status', ({ user }) => {
+  requireAdmin(user);
+  return notifier ? notifier.status() : { email: { configured: false }, whatsapp: { configured: false }, app_url: null, schedule: null };
+});
+
+route('GET', '/api/notifications', ({ db, user }) => {
+  requireAdmin(user);
+  return db.prepare(
+    `select n.id, n.channel, n.kind, n.subject, n.body, n.status, n.error, n.created_at, n.sent_at, n.task_id,
+            u.name as user_name, u.role as user_role, t.title as task_title
+       from notifications n join users u on u.id = n.user_id left join tasks t on t.id = n.task_id
+      where n.org_id = ? order by n.id desc limit 200`
+  ).all(user.org_id);
+});
+
+route('POST', '/api/notifications/run', async ({ user }) => {
+  requireAdmin(user);
+  if (!notifier) fail(503, 'Avisos desligados neste servidor');
+  return { sent: await notifier.tick() };
+});
+
+route('POST', '/api/notifications/test', async ({ db, user }) => {
+  requireAdmin(user);
+  if (!notifier) fail(503, 'Avisos desligados neste servidor');
+  return notifier.testEmail(db.prepare('select * from users where id = ?').get(user.id));
+});
+
 route('GET', '/api/me', ({ db, user }) => ({
   user,
   org: db.prepare('select id, name, accent, logo from orgs where id = ?').get(user.org_id),
@@ -370,6 +426,7 @@ route('POST', '/api/tasks', ({ db, user, body }) => {
     checklist.forEach((text, i) => ins.run(taskId, String(text).slice(0, 300), i));
     return taskId;
   });
+  notifier?.onTaskCreated(newId, user.id);
   return reply(201, { id: newId });
 });
 
@@ -437,6 +494,7 @@ route('POST', '/api/tasks/:id/complete', ({ db, user, body, params }) => {
   const t = loadTask(db, user, params.id);
   if (user.role === 'client' && (t.status === 'done' || t.status === 'cancelled')) fail(409, 'Esta tarefa já foi encerrada');
   const nextId = completeTask(db, t, date(body.completed_on, 'Término') || S.today(), user.id);
+  if (nextId) notifier?.onTaskCreated(nextId, user.id);
   return { ...taskDetail(db, user, t.id), created_next_id: nextId };
 });
 
@@ -537,7 +595,8 @@ route('POST', '/api/tasks/:id/approve', ({ db, user, params }) => {
   if (user.role !== 'client') fail(403, 'Só o cliente aprova a entrega');
   const t = loadTask(db, user, params.id);
   if (t.status !== 'review') fail(409, 'Esta tarefa não está esperando sua revisão');
-  completeTask(db, t, S.today(), null);
+  const nextId = completeTask(db, t, S.today(), null);
+  if (nextId) notifier?.onTaskCreated(nextId, null);
   db.prepare("insert into comments (task_id, user_id, body, visible_to_client) values (?, ?, 'Entrega aprovada.', 1)").run(t.id, user.id);
   return taskDetail(db, user, t.id);
 });
@@ -630,7 +689,8 @@ function serveStatic(req, res) {
   fs.createReadStream(file).pipe(res);
 }
 
-function createHandler(db) {
+function createHandler(db, opts = {}) {
+  notifier = opts.notifier || null;
   return async (req, res) => {
     const url = new URL(req.url, 'http://x');
     if (!url.pathname.startsWith('/api/')) {
@@ -662,7 +722,7 @@ function createHandler(db) {
       const user = auth.userFromToken(db, token);
       if (!r.public && !user) fail(401, 'Faça login');
 
-      const out = r.handler({ db, user, body, params, query: Object.fromEntries(url.searchParams), token, ip: req.socket.remoteAddress });
+      const out = await r.handler({ db, user, body, params, query: Object.fromEntries(url.searchParams), token, ip: req.socket.remoteAddress });
       if (out && out[REPLY]) {
         const cookie = out.cookie && process.env.COOKIE_SECURE === '1' ? out.cookie + '; Secure' : out.cookie;
         send(res, out.code, out.body, cookie ? { 'Set-Cookie': cookie } : {});

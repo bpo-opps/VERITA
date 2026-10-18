@@ -178,6 +178,7 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
   filter: '<path d="M4 5h16l-6 8v5l-4 2v-7z"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
   moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
   home: '<rect x="3.5" y="3.5" width="7" height="8" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="5" rx="1.5"/><rect x="13.5" y="11.5" width="7" height="9" rx="1.5"/><rect x="3.5" y="14.5" width="7" height="6" rx="1.5"/>',
@@ -225,6 +226,7 @@ function shell(content, { title, sub } = {}) {
   const nav = isStaff()
     ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/alertas', 'Alertas', 'bell'],
       ['#/clientes', 'Clientes', 'building'], ['#/modelos', 'Modelos', 'copy'], ['#/relatorio', 'Relatório', 'chart'], ['#/equipe', 'Pessoas', 'users'],
+      ...(isAdmin() ? [['#/avisos', 'Avisos', 'mail']] : []),
       ['#/config', 'Configurações', 'settings']]
     : [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Minhas entregas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/alertas', 'Alertas', 'bell'],
       ['#/config', 'Minha conta', 'settings']];
@@ -280,19 +282,23 @@ async function boot() {
 }
 
 const ROUTES = {
-  '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
+  '#/avisos': viewNotifications, '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
   '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings,
 };
 
 async function route() {
   if (!state.me) return;
   const key = location.hash.split('?')[0];
+  // Link direto para uma tarefa (usado nos e-mails): abre o quadro e o card.
+  const deep = /^#\/tarefa\/(\d+)$/.exec(key);
+  if (deep) { history.replaceState(null, '', '#/tarefas'); await route(); openTask(Number(deep[1])); return; }
+  if (key === '#/avisos' && !isAdmin()) { location.hash = '#/painel'; return; }
   const fallback = '#/painel';
   const clientPages = ['#/painel', '#/tarefas', '#/recorrentes', '#/alertas', '#/config'];
   const view = ROUTES[key];
   if (!view || (!isStaff() && !clientPages.includes(key))) { location.hash = fallback; return; }
   try { await refreshAlerts(); } catch { /* segue sem o contador */ }
-  guard(view)();
+  await guard(view)();
 }
 window.addEventListener('hashchange', route);
 
@@ -1351,7 +1357,36 @@ async function viewSettings() {
   const msg = h('p', { role: 'status' });
   const pwErr = h('p', { class: 'error', role: 'alert' });
   const themes = [['light', 'Claro', 'sun'], ['dark', 'Escuro', 'moon'], ['auto', 'Automático', 'settings']];
+  const prefs = await api('GET', '/api/me/notify');
+  const nErr = h('p', { class: 'error', role: 'alert' });
+  const waBox = h('input', { type: 'checkbox', id: 'n-wa', checked: prefs.notify_whatsapp });
+  const waFields = h('div', { hidden: !prefs.notify_whatsapp },
+    h('div', { class: 'field', style: 'max-width:320px' }, h('label', { for: 'n-phone' }, 'Celular com DDD'),
+      h('input', { id: 'n-phone', type: 'tel', inputmode: 'tel', autocomplete: 'tel', placeholder: '(11) 98765-4321', value: prefs.phone ? formatPhone(prefs.phone) : '' })),
+    h('label', { class: 'check', for: 'n-consent', style: 'font-weight:400;align-items:flex-start' },
+      h('input', { type: 'checkbox', id: 'n-consent', checked: prefs.whatsapp_consent, style: 'margin-top:2px' }),
+      'Autorizo a Opps Consultoria a me enviar avisos de tarefas por WhatsApp neste número. Posso desligar quando quiser.'));
+  waBox.addEventListener('change', () => { waFields.hidden = !waBox.checked; });
+  const notifyCard = h('form', { class: 'card-box', onsubmit: async e => {
+    e.preventDefault();
+    const f = e.target.elements;
+    try {
+      await api('PATCH', '/api/me/notify', { notify_email: f['n-email'].checked, notify_whatsapp: waBox.checked,
+        phone: f['n-phone'].value || null, consent: f['n-consent'].checked });
+      nErr.textContent = ''; toast('Preferências de aviso salvas');
+    } catch (ex) { nErr.textContent = ex.message; }
+  } },
+    h('h2', {}, 'Avisos'),
+    h('p', { class: 'muted' }, 'Você recebe quando uma tarefa sua é criada, quando o prazo chega (nos alertas escolhidos na tarefa) e um resumo toda segunda às 8h.'),
+    h('label', { class: 'check', for: 'n-email', style: 'font-weight:500' }, h('input', { type: 'checkbox', id: 'n-email', checked: prefs.notify_email }), `Por e-mail (${prefs.email})`),
+    h('label', { class: 'check', for: 'n-wa', style: 'font-weight:500' }, waBox, 'Por WhatsApp'),
+    waFields,
+    !prefs.channels.email || !prefs.channels.whatsapp ? h('p', { class: 'muted small' },
+      [!prefs.channels.email ? 'O envio por e-mail ainda não foi ligado.' : null, !prefs.channels.whatsapp ? 'O envio por WhatsApp ainda não foi ligado.' : null].filter(Boolean).join(' '),
+      ' Suas escolhas ficam guardadas e passam a valer quando for ligado.') : null,
+    nErr, h('button', { class: 'btn primary', type: 'submit' }, 'Salvar avisos'));
   shell([
+    notifyCard,
     h('div', { class: 'card-box' },
       h('h2', {}, 'Aparência'),
       h('p', { class: 'muted' }, 'Vale para este aparelho. Automático segue o tema do celular ou do computador.'),
@@ -1389,6 +1424,54 @@ async function viewSettings() {
         h('div', { class: 'field' }, h('label', { for: 'p-new' }, 'Nova senha (mín. 8)'), h('input', { id: 'p-new', name: 'password', type: 'password', minlength: 8, required: true, autocomplete: 'new-password' }))),
       pwErr, h('button', { class: 'btn', type: 'submit' }, 'Trocar senha')),
   ]);
+}
+
+// ---------- avisos (administrador) ----------
+const formatPhone = d => (/^55(\d{2})(\d{4,5})(\d{4})$/.test(d) ? d.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, '($1) $2-$3') : '+' + d);
+const NOTICE_KIND = { created: 'Tarefa criada', due: 'Prazo chegando', overdue: 'Atrasou', weekly: 'Resumo semanal', test: 'Teste' };
+const NOTICE_STATUS = { sent: ['Enviado', 'done_on_time'], pending: ['Na fila', 'doing'], failed: ['Falhou', 'overdue'], not_sent: ['Não enviado', 'cancelled'] };
+async function viewNotifications() {
+  const [st, list] = await Promise.all([api('GET', '/api/notify/status'), api('GET', '/api/notifications')]);
+  const channel = (name, ok, okText, offText) => h('div', { class: 'kpi ' + (ok ? 'good' : '') },
+    h('span', { class: 'kpi-label' }, name), h('span', { class: 'kpi-value', style: 'font-size:18px' }, ok ? 'Ligado' : 'Desligado'),
+    h('span', { class: 'muted small' }, ok ? okText : offText));
+  const show = n => modal(close => h('div', {},
+    h('h2', {}, n.subject),
+    h('p', { class: 'muted small' }, `${NOTICE_KIND[n.kind]} · para ${n.user_name} · ${n.channel === 'email' ? 'e-mail' : 'WhatsApp'} · ${fmtDateTime(n.created_at)}`),
+    n.error ? h('p', { class: 'error' }, n.error) : null,
+    h('pre', { class: 'notice-body' }, n.body),
+    h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar'))));
+  shell([
+    h('div', { class: 'kpis' },
+      channel('E-mail (Google)', st.email.configured, st.email.from ? `Envia como ${st.email.from}` : 'Pronto para enviar', 'Falta configurar no servidor (veja o guia)'),
+      channel('WhatsApp', st.whatsapp.configured, 'API oficial da Meta', 'Falta a conta na Meta e os modelos aprovados'),
+      h('div', { class: 'kpi' }, h('span', { class: 'kpi-label' }, 'Resumo semanal'), h('span', { class: 'kpi-value', style: 'font-size:18px' }, 'Segunda, 8h'), h('span', { class: 'muted small' }, 'Para cada responsável e cliente com tarefas abertas')),
+      h('div', { class: 'kpi' }, h('span', { class: 'kpi-label' }, 'Últimos avisos'), h('span', { class: 'kpi-value' }, list.length), h('span', { class: 'muted small' }, `${list.filter(n => n.status === 'sent').length} enviados`))),
+    h('div', { class: 'card-box' },
+      h('h2', {}, 'Quando os avisos saem'),
+      h('ul', { class: 'roles' },
+        h('li', {}, h('strong', {}, 'Tarefa criada: '), 'na hora, para os responsáveis (menos quem criou) e para o cliente, se ele vê a tarefa. Vale também para a próxima repetição de uma recorrente.'),
+        h('li', {}, h('strong', {}, 'Prazo chegando: '), 'a partir das 8h, nos alertas escolhidos em cada tarefa (no dia, 1, 3 ou 7 dias antes), e no primeiro dia de atraso.'),
+        h('li', {}, h('strong', {}, 'Resumo semanal: '), 'toda segunda às 8h, com o que está atrasado, o que vence na semana e o que está em andamento.')),
+      h('p', { class: 'muted small' }, 'Cada pessoa escolhe e-mail e/ou WhatsApp em Minha conta. Ninguém recebe aviso de tarefa que não pode ver.'),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
+          const r = await api('POST', '/api/notifications/test');
+          toast(r.status === 'sent' ? `E-mail de teste enviado para ${state.me.email}` : `Não enviado: ${r.error}`); route();
+        }) }, icon('mail'), 'Enviar e-mail de teste para mim'),
+        h('button', { class: 'btn', type: 'button', onclick: guard(async () => { const r = await api('POST', '/api/notifications/run'); toast(`Verificado. ${r.sent} enviado${r.sent === 1 ? '' : 's'} agora.`); route(); }) }, 'Verificar prazos agora'))),
+    h('div', { class: 'card-box table-wrap' }, h('h2', {}, 'Últimos avisos'),
+      list.length ? h('table', { class: 'tasks' },
+        h('thead', {}, h('tr', {}, ['Quando', 'Para', 'Canal', 'Tipo', 'Assunto', 'Situação'].map(x => h('th', {}, x)))),
+        h('tbody', {}, list.map(n => h('tr', { class: 'row-link', onclick: () => show(n) },
+          h('td', { class: 'num' }, h('button', { class: 'link', type: 'button', onclick: e => { e.stopPropagation(); show(n); } }, fmtDateTime(n.created_at))),
+          h('td', { 'data-label': 'Para' }, h('span', {}, n.user_name, n.user_role === 'client' ? h('span', { class: 'muted small' }, ' (cliente)') : null)),
+          h('td', { 'data-label': 'Canal' }, n.channel === 'email' ? 'E-mail' : 'WhatsApp'),
+          h('td', { 'data-label': 'Tipo' }, NOTICE_KIND[n.kind]),
+          h('td', { 'data-label': 'Assunto' }, n.subject),
+          h('td', { 'data-label': 'Situação' }, h('span', { class: `pill col-${NOTICE_STATUS[n.status][1]}`, title: n.error || '' }, NOTICE_STATUS[n.status][0]))))))
+        : h('p', { class: 'empty' }, 'Nenhum aviso ainda. Eles aparecem aqui quando uma tarefa é criada ou um prazo chega.')),
+  ], { title: 'Avisos' });
 }
 
 boot();

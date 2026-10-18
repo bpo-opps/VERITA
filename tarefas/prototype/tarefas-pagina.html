@@ -434,6 +434,8 @@ details > summary { cursor: pointer; font-weight: 600; }
   pointer-events: none; max-width: 280px; box-shadow: var(--shadow-lg); }
 .card-box h2 .with-logo svg { width: 18px; height: 18px; color: var(--accent); }
 
+.notice-body { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; max-height: 50vh; overflow: auto; }
+
 /* ---------- tablet ---------- */
 @media (max-width: 1100px) {
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -664,7 +666,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
   function seed() {
     const OPPS_SYMBOL = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="24" y="6" width="16" height="36" rx="4" fill="#FB4F14"/><rect x="24" y="46" width="16" height="12" rx="4" fill="#FB4F14"/></svg>');
     const db = { seq: 100, org: { id: 1, name: 'Opps Consultoria', accent: '#FB4F14', logo: OPPS_SYMBOL },
-      clients: [], users: [], tasks: [], assignees: [], checklist: [], comments: [], adjustments: [], templates: [] };
+      clients: [], users: [], tasks: [], assignees: [], checklist: [], comments: [], adjustments: [], templates: [], notifications: [] };
     db.clients.push(
       { id: 1, name: 'Padaria Exemplo', logo: svgLogo('PE', '#b45309') },
       { id: 2, name: 'Clínica Modelo', logo: svgLogo('CM', '#4338ca') });
@@ -710,6 +712,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
   let db;
   try { db = JSON.parse(localStorage.getItem(KEY)); } catch { db = null; }
   if (!db) db = seed();
+  db.notifications = db.notifications || [];
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sem armazenamento: fica só na memória */ } };
   let sessionUser = null;
   try { sessionUser = Number(sessionStorage.getItem(KEY + '-user')) || null; } catch { /* idem */ }
@@ -772,6 +775,26 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     return v.map(x => str(x, 'item do checklist', { max: 300, required: false })).filter(Boolean).slice(0, 100);
   };
 
+  // Avisos: o protótipo registra quem receberia, como o servidor faria, mas nada sai daqui.
+  const NOT_SENT = 'Protótipo: nada é enviado. No sistema instalado, sai por e-mail (Google) e WhatsApp.';
+  function notice(u, t, kind, subject, body) {
+    const ch = [];
+    if (u.notify_email !== 0) ch.push('email');
+    if (u.notify_whatsapp && u.phone && u.whatsapp_consent_at) ch.push('whatsapp');
+    for (const channel of ch) db.notifications.push({ id: nextId(), user_id: u.id, task_id: t ? t.id : null, channel, kind, subject, body,
+      status: 'not_sent', error: NOT_SENT, created_at: now(), sent_at: null });
+  }
+  function noticeCreated(tid, actorId) {
+    const t = db.tasks.find(x => x.id === tid);
+    const ids = new Set(assigneeIds(tid));
+    if (S.clientSees(t)) db.users.filter(u => u.role === 'client' && u.client_id === t.client_id && u.active).forEach(u => ids.add(u.id));
+    ids.delete(actorId);
+    for (const u of db.users.filter(x => ids.has(x.id) && x.active && S.canSee(x, t, assigneeIds(tid)))) {
+      notice(u, t, 'created', `Nova tarefa: ${t.title}`, `Olá, ${u.name}.\n\nUma tarefa foi criada para você: ${t.title}` +
+        (t.due_date ? `\nPrazo: ${t.due_date.split('-').reverse().join('/')}` : '') + '\n\nAbra o Painel de Tarefas Opps para ver os detalhes.');
+    }
+  }
+
   function completeTask(t, completedOn, userId) {
     if (completedOn > S.today()) fail(400, 'A data de término não pode ser no futuro');
     if (t.start_date && completedOn < t.start_date) fail(400, 'A data de término não pode ser antes do início');
@@ -784,6 +807,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     setAssignees(nid, assigneeIds(t.id));
     db.checklist.filter(i => i.task_id === t.id).forEach(i => db.checklist.push({ ...i, id: nextId(), task_id: nid, done: 0 }));
     t.next_task_id = nid;
+    noticeCreated(nid, null);
     return nid;
   }
 
@@ -867,6 +891,39 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     if (cur !== (user.password || 'demo1234')) fail(400, 'Senha atual incorreta');
     user.password = next; return { ok: true };
   });
+  route('GET', '/api/me/notify', ({ user }) => ({ email: user.email, phone: user.phone || null, notify_email: user.notify_email !== 0,
+    notify_whatsapp: !!user.notify_whatsapp, whatsapp_consent: !!user.whatsapp_consent_at, channels: { email: false, whatsapp: false } }));
+  route('PATCH', '/api/me/notify', ({ user, body }) => {
+    let phone = user.phone || null;
+    if ('phone' in body) {
+      const raw = body.phone ? String(body.phone).replace(/\D/g, '') : '';
+      phone = !raw ? null : /^\d{10,11}$/.test(raw) ? '55' + raw : /^\d{12,15}$/.test(raw) ? raw : undefined;
+      if (phone === undefined) fail(400, 'Celular inválido: use DDD e número, por exemplo (11) 98765-4321');
+    }
+    let consentAt = user.whatsapp_consent_at || null;
+    if ('consent' in body) consentAt = body.consent ? (consentAt || now()) : null;
+    let wa = 'notify_whatsapp' in body ? (body.notify_whatsapp ? 1 : 0) : (user.notify_whatsapp || 0);
+    if ('notify_whatsapp' in body && wa && !phone) fail(400, 'Para receber no WhatsApp, informe o celular');
+    if ('notify_whatsapp' in body && wa && !consentAt) fail(400, 'Para receber no WhatsApp, marque a autorização');
+    if (!phone || !consentAt) wa = 0;
+    Object.assign(user, { phone, whatsapp_consent_at: consentAt, notify_whatsapp: wa,
+      notify_email: 'notify_email' in body ? (body.notify_email ? 1 : 0) : (user.notify_email === 0 ? 0 : 1) });
+    return { ok: true };
+  });
+  route('GET', '/api/notify/status', ({ user }) => { requireAdmin(user); return { email: { configured: false }, whatsapp: { configured: false }, app_url: null, schedule: null }; });
+  route('GET', '/api/notifications', ({ user }) => {
+    requireAdmin(user);
+    return db.notifications.slice(-200).reverse().map(n => {
+      const u = db.users.find(x => x.id === n.user_id) || {}, t = db.tasks.find(x => x.id === n.task_id);
+      return { ...n, user_name: u.name, user_role: u.role, task_title: t ? t.title : null };
+    });
+  });
+  route('POST', '/api/notifications/run', ({ user }) => { requireAdmin(user); return { sent: 0 }; });
+  route('POST', '/api/notifications/test', ({ user }) => {
+    requireAdmin(user);
+    notice({ ...user, notify_email: 1, notify_whatsapp: 0 }, null, 'test', 'Teste de aviso do Painel de Tarefas Opps', `Olá, ${user.name}.\n\nSe este e-mail chegou, o envio está funcionando.`);
+    return { status: 'not_sent', error: NOT_SENT };
+  });
   route('PATCH', '/api/org', ({ user, body }) => {
     requireAdmin(user);
     if ('name' in body) db.org.name = str(body.name, 'nome', { max: 80 });
@@ -941,6 +998,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
       created_by: user.id, created_at: now(), updated_at: now(), archived_at: null });
     setAssignees(id, assignees);
     checklist.forEach((text, i) => db.checklist.push({ id: nextId(), task_id: id, text, done: 0, position: i }));
+    noticeCreated(id, user.id);
     return { id };
   });
   route('GET', '/api/tasks/:id', ({ user, id }) => detail(user, id));
@@ -1302,6 +1360,7 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
   filter: '<path d="M4 5h16l-6 8v5l-4 2v-7z"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
   moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
   home: '<rect x="3.5" y="3.5" width="7" height="8" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="5" rx="1.5"/><rect x="13.5" y="11.5" width="7" height="9" rx="1.5"/><rect x="3.5" y="14.5" width="7" height="6" rx="1.5"/>',
@@ -1349,6 +1408,7 @@ function shell(content, { title, sub } = {}) {
   const nav = isStaff()
     ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/alertas', 'Alertas', 'bell'],
       ['#/clientes', 'Clientes', 'building'], ['#/modelos', 'Modelos', 'copy'], ['#/relatorio', 'Relatório', 'chart'], ['#/equipe', 'Pessoas', 'users'],
+      ...(isAdmin() ? [['#/avisos', 'Avisos', 'mail']] : []),
       ['#/config', 'Configurações', 'settings']]
     : [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Minhas entregas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/alertas', 'Alertas', 'bell'],
       ['#/config', 'Minha conta', 'settings']];
@@ -1404,19 +1464,23 @@ async function boot() {
 }
 
 const ROUTES = {
-  '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
+  '#/avisos': viewNotifications, '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
   '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings,
 };
 
 async function route() {
   if (!state.me) return;
   const key = location.hash.split('?')[0];
+  // Link direto para uma tarefa (usado nos e-mails): abre o quadro e o card.
+  const deep = /^#\/tarefa\/(\d+)$/.exec(key);
+  if (deep) { history.replaceState(null, '', '#/tarefas'); await route(); openTask(Number(deep[1])); return; }
+  if (key === '#/avisos' && !isAdmin()) { location.hash = '#/painel'; return; }
   const fallback = '#/painel';
   const clientPages = ['#/painel', '#/tarefas', '#/recorrentes', '#/alertas', '#/config'];
   const view = ROUTES[key];
   if (!view || (!isStaff() && !clientPages.includes(key))) { location.hash = fallback; return; }
   try { await refreshAlerts(); } catch { /* segue sem o contador */ }
-  guard(view)();
+  await guard(view)();
 }
 window.addEventListener('hashchange', route);
 
@@ -2475,7 +2539,36 @@ async function viewSettings() {
   const msg = h('p', { role: 'status' });
   const pwErr = h('p', { class: 'error', role: 'alert' });
   const themes = [['light', 'Claro', 'sun'], ['dark', 'Escuro', 'moon'], ['auto', 'Automático', 'settings']];
+  const prefs = await api('GET', '/api/me/notify');
+  const nErr = h('p', { class: 'error', role: 'alert' });
+  const waBox = h('input', { type: 'checkbox', id: 'n-wa', checked: prefs.notify_whatsapp });
+  const waFields = h('div', { hidden: !prefs.notify_whatsapp },
+    h('div', { class: 'field', style: 'max-width:320px' }, h('label', { for: 'n-phone' }, 'Celular com DDD'),
+      h('input', { id: 'n-phone', type: 'tel', inputmode: 'tel', autocomplete: 'tel', placeholder: '(11) 98765-4321', value: prefs.phone ? formatPhone(prefs.phone) : '' })),
+    h('label', { class: 'check', for: 'n-consent', style: 'font-weight:400;align-items:flex-start' },
+      h('input', { type: 'checkbox', id: 'n-consent', checked: prefs.whatsapp_consent, style: 'margin-top:2px' }),
+      'Autorizo a Opps Consultoria a me enviar avisos de tarefas por WhatsApp neste número. Posso desligar quando quiser.'));
+  waBox.addEventListener('change', () => { waFields.hidden = !waBox.checked; });
+  const notifyCard = h('form', { class: 'card-box', onsubmit: async e => {
+    e.preventDefault();
+    const f = e.target.elements;
+    try {
+      await api('PATCH', '/api/me/notify', { notify_email: f['n-email'].checked, notify_whatsapp: waBox.checked,
+        phone: f['n-phone'].value || null, consent: f['n-consent'].checked });
+      nErr.textContent = ''; toast('Preferências de aviso salvas');
+    } catch (ex) { nErr.textContent = ex.message; }
+  } },
+    h('h2', {}, 'Avisos'),
+    h('p', { class: 'muted' }, 'Você recebe quando uma tarefa sua é criada, quando o prazo chega (nos alertas escolhidos na tarefa) e um resumo toda segunda às 8h.'),
+    h('label', { class: 'check', for: 'n-email', style: 'font-weight:500' }, h('input', { type: 'checkbox', id: 'n-email', checked: prefs.notify_email }), `Por e-mail (${prefs.email})`),
+    h('label', { class: 'check', for: 'n-wa', style: 'font-weight:500' }, waBox, 'Por WhatsApp'),
+    waFields,
+    !prefs.channels.email || !prefs.channels.whatsapp ? h('p', { class: 'muted small' },
+      [!prefs.channels.email ? 'O envio por e-mail ainda não foi ligado.' : null, !prefs.channels.whatsapp ? 'O envio por WhatsApp ainda não foi ligado.' : null].filter(Boolean).join(' '),
+      ' Suas escolhas ficam guardadas e passam a valer quando for ligado.') : null,
+    nErr, h('button', { class: 'btn primary', type: 'submit' }, 'Salvar avisos'));
   shell([
+    notifyCard,
     h('div', { class: 'card-box' },
       h('h2', {}, 'Aparência'),
       h('p', { class: 'muted' }, 'Vale para este aparelho. Automático segue o tema do celular ou do computador.'),
@@ -2513,6 +2606,54 @@ async function viewSettings() {
         h('div', { class: 'field' }, h('label', { for: 'p-new' }, 'Nova senha (mín. 8)'), h('input', { id: 'p-new', name: 'password', type: 'password', minlength: 8, required: true, autocomplete: 'new-password' }))),
       pwErr, h('button', { class: 'btn', type: 'submit' }, 'Trocar senha')),
   ]);
+}
+
+// ---------- avisos (administrador) ----------
+const formatPhone = d => (/^55(\d{2})(\d{4,5})(\d{4})$/.test(d) ? d.replace(/^55(\d{2})(\d{4,5})(\d{4})$/, '($1) $2-$3') : '+' + d);
+const NOTICE_KIND = { created: 'Tarefa criada', due: 'Prazo chegando', overdue: 'Atrasou', weekly: 'Resumo semanal', test: 'Teste' };
+const NOTICE_STATUS = { sent: ['Enviado', 'done_on_time'], pending: ['Na fila', 'doing'], failed: ['Falhou', 'overdue'], not_sent: ['Não enviado', 'cancelled'] };
+async function viewNotifications() {
+  const [st, list] = await Promise.all([api('GET', '/api/notify/status'), api('GET', '/api/notifications')]);
+  const channel = (name, ok, okText, offText) => h('div', { class: 'kpi ' + (ok ? 'good' : '') },
+    h('span', { class: 'kpi-label' }, name), h('span', { class: 'kpi-value', style: 'font-size:18px' }, ok ? 'Ligado' : 'Desligado'),
+    h('span', { class: 'muted small' }, ok ? okText : offText));
+  const show = n => modal(close => h('div', {},
+    h('h2', {}, n.subject),
+    h('p', { class: 'muted small' }, `${NOTICE_KIND[n.kind]} · para ${n.user_name} · ${n.channel === 'email' ? 'e-mail' : 'WhatsApp'} · ${fmtDateTime(n.created_at)}`),
+    n.error ? h('p', { class: 'error' }, n.error) : null,
+    h('pre', { class: 'notice-body' }, n.body),
+    h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar'))));
+  shell([
+    h('div', { class: 'kpis' },
+      channel('E-mail (Google)', st.email.configured, st.email.from ? `Envia como ${st.email.from}` : 'Pronto para enviar', 'Falta configurar no servidor (veja o guia)'),
+      channel('WhatsApp', st.whatsapp.configured, 'API oficial da Meta', 'Falta a conta na Meta e os modelos aprovados'),
+      h('div', { class: 'kpi' }, h('span', { class: 'kpi-label' }, 'Resumo semanal'), h('span', { class: 'kpi-value', style: 'font-size:18px' }, 'Segunda, 8h'), h('span', { class: 'muted small' }, 'Para cada responsável e cliente com tarefas abertas')),
+      h('div', { class: 'kpi' }, h('span', { class: 'kpi-label' }, 'Últimos avisos'), h('span', { class: 'kpi-value' }, list.length), h('span', { class: 'muted small' }, `${list.filter(n => n.status === 'sent').length} enviados`))),
+    h('div', { class: 'card-box' },
+      h('h2', {}, 'Quando os avisos saem'),
+      h('ul', { class: 'roles' },
+        h('li', {}, h('strong', {}, 'Tarefa criada: '), 'na hora, para os responsáveis (menos quem criou) e para o cliente, se ele vê a tarefa. Vale também para a próxima repetição de uma recorrente.'),
+        h('li', {}, h('strong', {}, 'Prazo chegando: '), 'a partir das 8h, nos alertas escolhidos em cada tarefa (no dia, 1, 3 ou 7 dias antes), e no primeiro dia de atraso.'),
+        h('li', {}, h('strong', {}, 'Resumo semanal: '), 'toda segunda às 8h, com o que está atrasado, o que vence na semana e o que está em andamento.')),
+      h('p', { class: 'muted small' }, 'Cada pessoa escolhe e-mail e/ou WhatsApp em Minha conta. Ninguém recebe aviso de tarefa que não pode ver.'),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
+          const r = await api('POST', '/api/notifications/test');
+          toast(r.status === 'sent' ? `E-mail de teste enviado para ${state.me.email}` : `Não enviado: ${r.error}`); route();
+        }) }, icon('mail'), 'Enviar e-mail de teste para mim'),
+        h('button', { class: 'btn', type: 'button', onclick: guard(async () => { const r = await api('POST', '/api/notifications/run'); toast(`Verificado. ${r.sent} enviado${r.sent === 1 ? '' : 's'} agora.`); route(); }) }, 'Verificar prazos agora'))),
+    h('div', { class: 'card-box table-wrap' }, h('h2', {}, 'Últimos avisos'),
+      list.length ? h('table', { class: 'tasks' },
+        h('thead', {}, h('tr', {}, ['Quando', 'Para', 'Canal', 'Tipo', 'Assunto', 'Situação'].map(x => h('th', {}, x)))),
+        h('tbody', {}, list.map(n => h('tr', { class: 'row-link', onclick: () => show(n) },
+          h('td', { class: 'num' }, h('button', { class: 'link', type: 'button', onclick: e => { e.stopPropagation(); show(n); } }, fmtDateTime(n.created_at))),
+          h('td', { 'data-label': 'Para' }, h('span', {}, n.user_name, n.user_role === 'client' ? h('span', { class: 'muted small' }, ' (cliente)') : null)),
+          h('td', { 'data-label': 'Canal' }, n.channel === 'email' ? 'E-mail' : 'WhatsApp'),
+          h('td', { 'data-label': 'Tipo' }, NOTICE_KIND[n.kind]),
+          h('td', { 'data-label': 'Assunto' }, n.subject),
+          h('td', { 'data-label': 'Situação' }, h('span', { class: `pill col-${NOTICE_STATUS[n.status][1]}`, title: n.error || '' }, NOTICE_STATUS[n.status][0]))))))
+        : h('p', { class: 'empty' }, 'Nenhum aviso ainda. Eles aparecem aqui quando uma tarefa é criada ou um prazo chega.')),
+  ], { title: 'Avisos' });
 }
 
 boot();

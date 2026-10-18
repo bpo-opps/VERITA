@@ -57,9 +57,61 @@ Menu lateral claro com ícones, barra superior com o título e a ação da pági
 
 No celular: o menu vira gaveta, a nova tarefa vira botão flutuante, os filtros recolhem atrás de "Filtros", o quadro rola de lado coluna a coluna, a lista vira cards, o card de tarefa ocupa a tela com Salvar e Sair fixos embaixo e os diálogos sobem de baixo.
 
+## Avisos por e-mail e WhatsApp
+
+Quem recebe: os responsáveis pela tarefa e, quando o cliente vê a tarefa (externa, ou interna marcada como visível), os usuários daquele cliente. Quem criou a tarefa não recebe o aviso da própria criação. Ninguém recebe aviso de tarefa que não pode ver.
+
+| Aviso | Quando |
+|---|---|
+| Tarefa criada | Na hora. Vale também para a próxima repetição de uma recorrente. |
+| Prazo chegando | A partir das 8h, nos alertas escolhidos em cada tarefa (no dia, 1, 3 ou 7 dias antes). |
+| Atrasou | No primeiro dia de atraso, uma vez. |
+| Resumo semanal | Toda segunda às 8h: atrasadas, as que vencem nos próximos 7 dias e as em andamento. Só para quem tem tarefa aberta. |
+
+O servidor verifica a cada 5 minutos, usa o horário de Brasília (`TZ=America/Sao_Paulo` é o padrão) e não manda o mesmo aviso duas vezes. Se o servidor estiver desligado às 8h de segunda, o resumo sai quando ele voltar, ainda na segunda. Envio que falha é tentado de novo até 3 vezes. Cada pessoa liga e desliga e-mail e WhatsApp em Configurações → Avisos. O administrador vê o que saiu (e o que falhou, com o motivo) no menu Avisos, onde também manda um e-mail de teste para si.
+
+O e-mail traz um botão que abre a tarefa: defina `APP_URL` com o endereço público do sistema (ex.: `https://tarefas.oppsconsultoria.com`).
+
+Na demonstração (`npm run demo`) e no protótipo nada é enviado: os avisos aparecem na tela Avisos como "não enviado".
+
+### E-mail pelo Google Workspace
+
+1. Na conta Google que vai enviar (de preferência uma conta própria para isso, como `avisos@...`), ative a verificação em duas etapas.
+2. Em Conta Google → Segurança → Senhas de app, crie uma senha de app. Se a opção não aparecer, o administrador do Workspace precisa permitir. Alternativa: o administrador configura um "Serviço de redirecionamento SMTP" (`smtp-relay.gmail.com`) no Admin Console.
+3. Rode o servidor com:
+
+```bash
+SMTP_HOST=smtp.gmail.com SMTP_PORT=465 \
+SMTP_USER=avisos@oppsconsultoria.com SMTP_PASS='senha de app de 16 letras' \
+SMTP_FROM='Painel de Tarefas Opps <avisos@oppsconsultoria.com>' \
+APP_URL=https://tarefas.oppsconsultoria.com npm start
+```
+
+Porta 587 também funciona (STARTTLS). O Google limita a cerca de 2.000 mensagens por dia por conta, bem acima do uso de uma consultoria. Depois de ligar, use "Enviar e-mail de teste para mim" na tela Avisos.
+
+### WhatsApp pela API oficial da Meta
+
+Mensagens que a empresa inicia só saem por modelos aprovados pela Meta. Não se usa número pessoal nem WhatsApp Web.
+
+1. Crie uma conta no Meta Business (business.facebook.com), um app do tipo Business em developers.facebook.com e adicione o produto WhatsApp.
+2. Cadastre um número que não esteja em uso no WhatsApp comum. Pegue o **ID do número** (`WHATSAPP_PHONE_ID`) e gere um **token de usuário do sistema** permanente (`WHATSAPP_TOKEN`).
+3. Em Modelos de mensagem, crie três modelos na categoria Utilidade, em português (pt_BR), com estes nomes e parâmetros:
+
+| Modelo | Texto sugerido |
+|---|---|
+| `tarefa_criada` | Olá, {{1}}. Nova tarefa: {{2}} ({{3}}). Prazo: {{4}}. |
+| `tarefa_vencendo` | Olá, {{1}}. A tarefa {{2}} {{3}} (prazo {{4}}). |
+| `resumo_semanal` | Olá, {{1}}. Sua semana: {{2}} atrasada(s), {{3}} vencendo nos próximos 7 dias e {{4}} em andamento. |
+
+Os parâmetros precisam ficar nessa ordem; o texto em volta pode mudar. Para usar outros nomes: `WHATSAPP_TEMPLATE_CREATED`, `WHATSAPP_TEMPLATE_DUE`, `WHATSAPP_TEMPLATE_WEEKLY`.
+
+4. Rode o servidor com `WHATSAPP_TOKEN=... WHATSAPP_PHONE_ID=...` (junto com as variáveis do e-mail).
+
+Cada pessoa informa o celular e marca a autorização em Configurações → Avisos; sem a autorização, nada vai para o WhatsApp dela. A Meta cobra por conversa iniciada pela empresa (tabela em developers.facebook.com/docs/whatsapp/pricing).
+
 ## O que ainda não faz
 
-- Email (avisos de prazo, convite, recuperação de senha). Os alertas aparecem só dentro do sistema.
+- Convite e recuperação de senha por e-mail.
 - Anexos.
 - Um único servidor com SQLite: serve bem uma consultoria. Para muitos acessos simultâneos ou mais de um servidor, trocar por Postgres.
 

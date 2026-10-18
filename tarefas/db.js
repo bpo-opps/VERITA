@@ -3,7 +3,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { hashPassword } = require('./auth');
 const { today, addDays } = require('./shared');
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const SCHEMA = `
 pragma foreign_keys = on;
@@ -29,6 +29,10 @@ create table if not exists users (
   role text not null check (role in ('admin','member','client')),
   client_id integer references clients(id) on delete cascade,
   active integer not null default 1,
+  phone text,
+  notify_email integer not null default 1,
+  notify_whatsapp integer not null default 0,
+  whatsapp_consent_at text,
   created_at text not null default (datetime('now')),
   check ((role = 'client') = (client_id is not null))
 );
@@ -102,6 +106,27 @@ create table if not exists adjustments (
   resolved_at text
 );
 create index if not exists adjustments_task on adjustments (task_id);
+-- Avisos: cada linha é uma mensagem para uma pessoa num canal. dedupe_key impede repetir o mesmo aviso.
+create table if not exists notifications (
+  id integer primary key,
+  org_id integer not null references orgs(id) on delete cascade,
+  user_id integer not null references users(id) on delete cascade,
+  task_id integer references tasks(id) on delete set null,
+  channel text not null check (channel in ('email','whatsapp')),
+  kind text not null check (kind in ('created','due','overdue','weekly','test')),
+  dedupe_key text not null unique,
+  subject text not null,
+  body text not null,
+  html text,
+  wa_params text,
+  status text not null default 'pending' check (status in ('pending','sent','failed','not_sent')),
+  error text,
+  attempts integer not null default 0,
+  created_at text not null default (datetime('now')),
+  sent_at text
+);
+create index if not exists notifications_status on notifications (status, created_at);
+create index if not exists notifications_org on notifications (org_id, created_at);
 create table if not exists templates (
   id integer primary key,
   org_id integer not null references orgs(id) on delete cascade,
@@ -116,8 +141,15 @@ function open(file) {
   const db = new DatabaseSync(file);
   const version = db.prepare('pragma user_version').get().user_version;
   const hasTables = db.prepare("select 1 from sqlite_master where type = 'table' and name = 'orgs'").get();
-  if (hasTables && version < SCHEMA_VERSION) {
-    throw new Error(`O banco ${file} é da versão anterior do sistema. Como ele só tinha dados de teste, apague o arquivo e rode de novo.`);
+  if (hasTables && version < 3) {
+    throw new Error(`O banco ${file} é de uma versão antiga do sistema. Como ele só tinha dados de teste, apague o arquivo e rode de novo.`);
+  }
+  // Versão 3 -> 4: preferências de aviso nas pessoas (a tabela de avisos vem do SCHEMA).
+  if (hasTables && version === 3) {
+    db.exec(`alter table users add column phone text;
+      alter table users add column notify_email integer not null default 1;
+      alter table users add column notify_whatsapp integer not null default 0;
+      alter table users add column whatsapp_consent_at text;`);
   }
   db.exec(SCHEMA);
   db.exec(`pragma user_version = ${SCHEMA_VERSION}`);

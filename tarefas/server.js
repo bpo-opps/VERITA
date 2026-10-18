@@ -1,10 +1,13 @@
 'use strict';
+// "Hoje", os avisos de prazo e o resumo de segunda às 8h usam o fuso do processo: Brasília por padrão.
+process.env.TZ = process.env.TZ || 'America/Sao_Paulo';
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { open, createOrg, createUser, seedDemo, OPPS_SYMBOL } = require('./db');
 const { createHandler } = require('./app');
+const { createNotifier } = require('./notify');
 
 const file = process.env.DB_FILE || path.join(__dirname, 'data', 'tarefas.db');
 fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -29,5 +32,13 @@ if (!db.prepare('select 1 from orgs').get()) {
   }
 }
 
+// Avisos. Na demonstração os e-mails são fictícios (@demo.local), então nada é enviado:
+// os avisos ficam registrados na tela Avisos como "não enviado".
+const demo = process.env.DEMO === '1';
+const notifier = createNotifier(db, { env: demo ? { APP_URL: process.env.APP_URL } : process.env });
+notifier.start();
+const st = notifier.status();
+console.log(`Avisos: e-mail ${st.email.configured ? 'ligado' : 'desligado'}, WhatsApp ${st.whatsapp.configured ? 'ligado' : 'desligado'}${demo ? ' (demonstração: nada é enviado)' : ''}`);
+
 const port = Number(process.env.PORT) || 3000;
-http.createServer(createHandler(db)).listen(port, () => console.log(`Rodando em http://localhost:${port}`));
+http.createServer(createHandler(db, { notifier })).listen(port, () => console.log(`Rodando em http://localhost:${port}`));
