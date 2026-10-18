@@ -647,6 +647,13 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     return Math.max(0, Math.min(100, Number(t.progress) || 0));
   }
 
+  // Marcar um item do checklist numa tarefa A fazer é começar: vai para Em andamento e, sem início, começa hoje.
+  // Devolve o que mudar na tarefa, ou null.
+  function startByChecklist(t, day) {
+    if (t.status !== 'todo') return null;
+    return { status: 'doing', start_date: t.start_date || day };
+  }
+
   // O cliente vê a tarefa? Externa sempre; interna só se estiver ligada a ele e marcada como visível.
   function clientSees(t) {
     return !!t.client_id && (t.kind === 'external' || !!t.client_visible);
@@ -664,7 +671,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     return [...new Set(list.map(Number))].sort((a, b) => a - b);
   }
 
-  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, clientSees, canSee, validAlerts };
+  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, startByChecklist, clientSees, canSee, validAlerts };
 });
 
 </script>
@@ -1103,6 +1110,8 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     const task = db.tasks.find(x => x.id === i.task_id);
     if (user.role === 'client' && (task.status === 'done' || task.status === 'cancelled')) fail(409, 'Esta tarefa já foi encerrada');
     if ('done' in body) i.done = body.done ? 1 : 0;
+    const start = body.done ? S.startByChecklist(task, S.today()) : null;
+    if (start) { Object.assign(task, start); touch(task); }
     if ('text' in body) i.text = str(body.text, 'item', { max: 300 });
     return detail(user, i.task_id);
   });
@@ -2447,7 +2456,8 @@ async function openTask(id) {
         field('Data de início (quando começou)', canEditProgress()
           ? h('input', { id: 'd-start', type: 'date', value: val('start_date') || '', onchange: e => set('start_date', e.target.value || null, true) })
           : h('p', {}, fmtDate(t.start_date) || '–'), 'd-start',
-          t.status === 'todo' && canEditProgress() ? h('p', { class: 'muted small' }, 'Ao informar o início, a tarefa vai para Em andamento.') : null),
+          startedByCheck && !t.start_date ? h('p', { class: 'muted small' }, 'Preenchida com hoje porque um item do checklist foi marcado. Se começou antes, ajuste a data.')
+            : t.status === 'todo' && canEditProgress() ? h('p', { class: 'muted small' }, 'Ao informar o início ou marcar um item do checklist, a tarefa vai para Em andamento.') : null),
         checklistField(),
         progressField(status),
         h('div', { class: 'grid2' },
@@ -2504,6 +2514,21 @@ async function openTask(id) {
       t.column === 'overdue' ? h('p', { class: 'small danger full' }, 'Está em Atrasada porque o prazo passou. Ajuste o prazo ou conclua para tirar daqui.') : null);
   }
 
+  // Marcar um item numa tarefa A fazer: início hoje (se vazio) e Em andamento; o % já vem do checklist.
+  // Desmarcar tudo de novo desfaz o que a marcação tinha mudado.
+  let startedByCheck = false;
+  function checkStarts() {
+    const anyDone = checklistNow().some(i => i.done);
+    const st = S.startByChecklist({ status: val('status'), start_date: val('start_date') }, today());
+    if (anyDone && st && canEditProgress()) {
+      startedByCheck = true;
+      if (!val('start_date')) set('start_date', st.start_date); else set('status', 'doing');
+    } else if (!anyDone && startedByCheck && t.status === 'todo') {
+      startedByCheck = false;
+      delete draft.status; if (!t.start_date) delete draft.start_date;
+    }
+  }
+
   function checklistField() {
     const list = checklistNow();
     if (!staff && !list.length) return null;
@@ -2514,7 +2539,7 @@ async function openTask(id) {
     return field(`Checklist ${list.length ? `(${done}/${list.length})` : ''}`, h('div', {},
       list.map(i => h('div', { class: 'check' },
         h('input', { type: 'checkbox', id: `ck-${i.id}`, checked: !!i.done, disabled: i.isNew || !canEditProgress(),
-          onchange: e => { const orig = t.checklist.find(x => x.id === i.id); if (!!orig.done === e.target.checked) ck.done.delete(i.id); else ck.done.set(i.id, e.target.checked); paint(); } }),
+          onchange: e => { const orig = t.checklist.find(x => x.id === i.id); if (!!orig.done === e.target.checked) ck.done.delete(i.id); else ck.done.set(i.id, e.target.checked); checkStarts(); paint(); } }),
         h('label', { for: `ck-${i.id}`, class: (i.done ? 'done ' : '') + 'ck-text' }, i.text, i.isNew ? h('span', { class: 'muted small' }, ' (novo, salve para marcar)') : null),
         staff ? h('button', { class: 'btn ghost small', type: 'button', 'aria-label': `Remover ${i.text}`, onclick: () => {
           if (i.isNew) ck.added.splice(Number(String(i.id).slice(4)), 1); else ck.removed.add(i.id);

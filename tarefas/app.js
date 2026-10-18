@@ -751,6 +751,8 @@ route('PATCH', '/api/checklist/:id', ({ db, user, body, params }) => {
   const { item, task } = loadChecklistItem(db, user, params.id);
   if (user.role === 'client' && (task.status === 'done' || task.status === 'cancelled')) fail(409, 'Esta tarefa já foi encerrada');
   if ('done' in body) db.prepare('update checklist_items set done = ? where id = ?').run(body.done ? 1 : 0, item.id);
+  const start = body.done ? S.startByChecklist(task, S.today()) : null;
+  if (start) db.prepare('update tasks set status = ?, start_date = ? where id = ?').run(start.status, start.start_date, task.id);
   if ('text' in body) db.prepare('update checklist_items set text = ? where id = ?').run(str(body.text, 'item', { max: 300 }), item.id);
   touch(db, task.id);
   return taskDetail(db, user, task.id);

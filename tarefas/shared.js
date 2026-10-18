@@ -99,6 +99,13 @@
     return Math.max(0, Math.min(100, Number(t.progress) || 0));
   }
 
+  // Marcar um item do checklist numa tarefa A fazer é começar: vai para Em andamento e, sem início, começa hoje.
+  // Devolve o que mudar na tarefa, ou null.
+  function startByChecklist(t, day) {
+    if (t.status !== 'todo') return null;
+    return { status: 'doing', start_date: t.start_date || day };
+  }
+
   // O cliente vê a tarefa? Externa sempre; interna só se estiver ligada a ele e marcada como visível.
   function clientSees(t) {
     return !!t.client_id && (t.kind === 'external' || !!t.client_visible);
@@ -116,5 +123,5 @@
     return [...new Set(list.map(Number))].sort((a, b) => a - b);
   }
 
-  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, clientSees, canSee, validAlerts };
+  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, startByChecklist, clientSees, canSee, validAlerts };
 });

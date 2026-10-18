@@ -191,7 +191,7 @@ test('recorrência: concluir cria a próxima com datas avançadas e checklist ze
   })).body.id;
   const ck = await admin('POST', `/api/tasks/${t}/checklist`, { text: 'Conciliar' });
   await admin('PATCH', `/api/checklist/${ck.body.checklist[0].id}`, { done: true });
-  const done = await admin('POST', `/api/tasks/${t}/complete`, { completed_on: '2026-01-30' });
+  const done = await admin('POST', `/api/tasks/${t}/complete`, { completed_on: S.today() });
   const next = (await admin('GET', `/api/tasks/${done.body.created_next_id}`)).body;
   assert.equal(next.start_date, null, 'início fica para quando começar');
   assert.equal(next.due_date, '2026-02-28');
@@ -240,6 +240,29 @@ test('início: vazio ao criar, preenchido ao entrar em andamento, editável', as
   assert.equal(d.body.start_date, day(5), 'pode começar depois do prazo');
   d = await admin('PATCH', `/api/tasks/${t}`, { status: 'review' });
   assert.equal(d.body.start_date, day(5), 'não sobrescreve um início já informado');
+});
+
+test('marcar item do checklist numa tarefa a fazer: em andamento, início hoje e % pelo checklist', async () => {
+  const admin = await login('admin@t.local');
+  const cliA = await login('a@t.local');
+  const t = (await admin('POST', '/api/tasks', { kind: 'external', client_id: ids.a, title: 'Check inicia', checklist: ['um', 'dois', 'três', 'quatro'] })).body.id;
+  let d = (await admin('GET', `/api/tasks/${t}`)).body;
+  assert.deepEqual([d.status, d.start_date], ['todo', null]);
+  d = (await cliA('PATCH', `/api/checklist/${d.checklist[0].id}`, { done: true })).body;
+  assert.deepEqual([d.status, d.start_date, d.progress], ['doing', S.today(), 25], 'o cliente marcando também inicia');
+  // Com início já informado, mantém a data; desmarcar não volta a situação.
+  const t2 = (await admin('POST', '/api/tasks', { kind: 'internal', title: 'Com início', checklist: ['a', 'b'] })).body.id;
+  await admin('PATCH', `/api/tasks/${t2}`, { start_date: day(-3) });
+  await admin('PATCH', `/api/tasks/${t2}`, { status: 'todo' });
+  d = (await admin('GET', `/api/tasks/${t2}`)).body;
+  d = (await admin('PATCH', `/api/checklist/${d.checklist[1].id}`, { done: true })).body;
+  assert.deepEqual([d.status, d.start_date, d.progress], ['doing', day(-3), 50]);
+  d = (await admin('PATCH', `/api/checklist/${d.checklist[1].id}`, { done: false })).body;
+  assert.equal(d.status, 'doing');
+  // Em revisão não volta para em andamento.
+  await admin('PATCH', `/api/tasks/${t2}`, { status: 'review' });
+  d = (await admin('PATCH', `/api/checklist/${d.checklist[0].id}`, { done: true })).body;
+  assert.equal(d.status, 'review');
 });
 
 test('cliente atualiza situação, início, % e checklist; o resto não', async () => {

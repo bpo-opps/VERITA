@@ -432,6 +432,8 @@
     const task = db.tasks.find(x => x.id === i.task_id);
     if (user.role === 'client' && (task.status === 'done' || task.status === 'cancelled')) fail(409, 'Esta tarefa já foi encerrada');
     if ('done' in body) i.done = body.done ? 1 : 0;
+    const start = body.done ? S.startByChecklist(task, S.today()) : null;
+    if (start) { Object.assign(task, start); touch(task); }
     if ('text' in body) i.text = str(body.text, 'item', { max: 300 });
     return detail(user, i.task_id);
   });
