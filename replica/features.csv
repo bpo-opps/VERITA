@@ -1,22 +1,22 @@
 feature,area,priority,original,clone,notes
-Criar tarefa com título descrição e prazo,tarefas,must,yes,no,confirmado que existe gestão de tarefas; campos são hipótese
-Atribuir um ou mais responsáveis,tarefas,must,unknown,no,hipótese
-Quadro por etapas (kanban) com arrastar,tarefas,must,unknown,no,hipótese
-Tarefas separadas por cliente,clientes,must,unknown,no,"hipótese a partir de ""ajustes dos clientes"""
-Registrar ajuste interno,ajustes,must,yes,no,"""controle de ajustes internos"" no site"
-Registrar ajuste pedido pelo cliente,ajustes,must,yes,no,"""ajustes externos dos clientes"" no site"
-Acesso do cliente só às próprias tarefas,portal do cliente,must,unknown,no,necessário para o uso com clientes
-Comentários na tarefa,tarefas,must,unknown,no,hipótese
-Convidar membros da equipe,equipe,must,unknown,no,hipótese
-Cliente aprova a entrega,portal do cliente,should,yes,no,site cita aprovação pelo cliente (de conteúdo)
-Modelos de tarefa (tarefas personalizadas),tarefas,should,yes,no,"""tarefas personalizadas"" no site"
-Minhas tarefas por prazo,tarefas,should,unknown,no,hipótese
-Checklist dentro da tarefa,tarefas,should,unknown,no,hipótese
+Criar tarefa com título descrição e prazo,tarefas,must,yes,yes,confirmado que existe gestão de tarefas; campos são hipótese
+Atribuir um ou mais responsáveis,tarefas,must,unknown,yes,hipótese
+Quadro por etapas (kanban) com arrastar,tarefas,must,unknown,yes,hipótese
+Tarefas separadas por cliente,clientes,must,unknown,yes,"hipótese a partir de ""ajustes dos clientes"""
+Registrar ajuste interno,ajustes,must,yes,yes,"""controle de ajustes internos"" no site"
+Registrar ajuste pedido pelo cliente,ajustes,must,yes,yes,"""ajustes externos dos clientes"" no site"
+Acesso do cliente só às próprias tarefas,portal do cliente,must,unknown,yes,necessário para o uso com clientes
+Comentários na tarefa,tarefas,must,unknown,yes,hipótese
+Convidar membros da equipe,equipe,must,unknown,yes,clone: admin cria o acesso com senha inicial; sem convite por email
+Cliente aprova a entrega,portal do cliente,should,yes,yes,site cita aprovação pelo cliente (de conteúdo)
+Modelos de tarefa (tarefas personalizadas),tarefas,should,yes,yes,"""tarefas personalizadas"" no site"
+Minhas tarefas por prazo,tarefas,should,unknown,yes,hipótese
+Checklist dentro da tarefa,tarefas,should,unknown,yes,hipótese
 Anexos na tarefa,tarefas,should,unknown,no,hipótese
 Aviso por email de prazo e de ajuste,notificações,should,unknown,no,hipótese
-Contagem de ajustes por cliente,relatórios,could,unknown,no,hipótese
-Filtros por responsável cliente e prazo,tarefas,could,unknown,no,hipótese
-Marca própria (logo e cores da consultoria),white label,could,yes,no,"""100% white label"" na página Don"
+Contagem de ajustes por cliente,relatórios,could,unknown,yes,hipótese
+Filtros por responsável cliente e prazo,tarefas,could,unknown,partial,"clone: cliente, responsável e busca; prazo só em Minhas tarefas"
+Marca própria (logo e cores da consultoria),white label,could,yes,partial,"""100% white label"" na página Don; clone: nome e cor, sem logo"
 Criação de conteúdo,conteúdo,could,yes,skip,fora do escopo escolhido
 Agendamento de posts,conteúdo,could,yes,skip,fora do escopo escolhido
 Visualização do feed,conteúdo,could,yes,skip,fora do escopo escolhido

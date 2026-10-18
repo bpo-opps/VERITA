@@ -50,3 +50,7 @@ Ordem: `replica-recon` → `replica-architect` → `replica-design` → `replica
 - Os caminhos `../replica-*/script.py` citados nas skills, a partir da raiz, são `.claude/skills/replica-*/script.py` (ex.: `python3 .claude/skills/replica-diff/parity.py replica/features.csv`).
 - Valem as regras do pacote: só fontes públicas e a conta da própria pessoa, nada de código, assets, textos ou APIs privadas do original, nada de avaliação inventada, troca de marca (`sweep.py` limpo) antes de lançar.
 - Nada vai ao ar sem um "sim" explícito da pessoa. Claude não cria contas, não compra domínio e não digita senha, cartão ou chave de produção.
+
+### Clone em andamento: gestão de tarefas
+
+`replica/` tem o recon (rascunho, sem acesso ao site de referência), a matriz e o build log. O sistema está em `tarefas/` (Node 22 + `node:sqlite`, sem dependências): `cd tarefas && npm test` e `npm run demo`. Ao mexer em permissões, mantenha os testes de isolamento entre clientes e entre organizações em `tarefas/test/api.test.js`.
