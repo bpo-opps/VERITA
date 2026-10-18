@@ -3,7 +3,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { hashPassword } = require('./auth');
 const { today, addDays } = require('./shared');
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA = `
 pragma foreign_keys = on;
@@ -127,6 +127,45 @@ create table if not exists notifications (
 );
 create index if not exists notifications_status on notifications (status, created_at);
 create index if not exists notifications_org on notifications (org_id, created_at);
+-- Reuniões: a ata em PDF, quem estava presente e as tarefas que a IA encontrou, esperando o OK.
+create table if not exists meetings (
+  id integer primary key,
+  org_id integer not null references orgs(id) on delete cascade,
+  title text not null,
+  meeting_date text not null,
+  client_id integer references clients(id) on delete set null,
+  attendee_ids text not null default '[]',
+  other_attendees text not null default '',
+  pdf blob,
+  pdf_name text,
+  summary text,
+  status text not null default 'processing' check (status in ('processing','ready','error')),
+  error text,
+  created_by integer references users(id) on delete set null,
+  created_at text not null default (datetime('now'))
+);
+create index if not exists meetings_org on meetings (org_id, meeting_date);
+create table if not exists meeting_items (
+  id integer primary key,
+  meeting_id integer not null references meetings(id) on delete cascade,
+  title text not null,
+  description text not null default '',
+  kind text not null check (kind in ('internal','external')),
+  client_id integer references clients(id) on delete set null,
+  client_visible integer not null default 0,
+  assignee_ids text not null default '[]',
+  client_responsible text not null default '',
+  due_date text,
+  priority text not null default 'normal' check (priority in ('low','normal','high')),
+  checklist text not null default '[]',
+  quote text not null default '',
+  status text not null default 'pending' check (status in ('pending','approved','discarded')),
+  task_id integer references tasks(id) on delete set null,
+  decided_by integer references users(id) on delete set null,
+  decided_at text,
+  position integer not null default 0
+);
+create index if not exists meeting_items_meeting on meeting_items (meeting_id);
 create table if not exists templates (
   id integer primary key,
   org_id integer not null references orgs(id) on delete cascade,

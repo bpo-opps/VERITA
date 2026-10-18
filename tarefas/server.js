@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const { open, createOrg, createUser, seedDemo, OPPS_SYMBOL } = require('./db');
 const { createHandler } = require('./app');
 const { createNotifier } = require('./notify');
+const meetings = require('./meetings');
 
 const file = process.env.DB_FILE || path.join(__dirname, 'data', 'tarefas.db');
 fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -40,5 +41,10 @@ notifier.start();
 const st = notifier.status();
 console.log(`Avisos: e-mail ${st.email.configured ? 'ligado' : 'desligado'}, WhatsApp ${st.whatsapp.configured ? 'ligado' : 'desligado'}${demo ? ' (demonstração: nada é enviado)' : ''}`);
 
+// Leitura das atas de reunião pela IA (Anthropic). Sem ANTHROPIC_API_KEY, a triagem funciona à mão.
+const ai = meetings.config();
+const extractor = ai && (args => meetings.extract(ai, args));
+console.log(`Reuniões: leitura por IA ${ai ? 'ligada' : 'desligada (defina ANTHROPIC_API_KEY)'}`);
+
 const port = Number(process.env.PORT) || 3000;
-http.createServer(createHandler(db, { notifier })).listen(port, () => console.log(`Rodando em http://localhost:${port}`));
+http.createServer(createHandler(db, { notifier, extractor })).listen(port, () => console.log(`Rodando em http://localhost:${port}`));

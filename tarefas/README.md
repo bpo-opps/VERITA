@@ -4,10 +4,11 @@ Gestão de tarefas da consultoria, com a equipe e com os clientes. Primeira vers
 
 ## Rodar
 
-Precisa de Node 22.5 ou mais novo. Não tem dependências para instalar.
+Precisa de Node 22.5 ou mais novo. A única dependência é o SDK da Anthropic, usado só na leitura das atas de reunião.
 
 ```bash
 cd tarefas
+npm install                  # instala o SDK da Anthropic
 npm run demo                 # com dados fictícios; logins abaixo, senha demo1234
 npm test                     # testes da API
 ```
@@ -108,6 +109,22 @@ Os parâmetros precisam ficar nessa ordem; o texto em volta pode mudar. Para usa
 4. Rode o servidor com `WHATSAPP_TOKEN=... WHATSAPP_PHONE_ID=...` (junto com as variáveis do e-mail).
 
 Cada pessoa informa o celular e marca a autorização em Configurações → Avisos; sem a autorização, nada vai para o WhatsApp dela. A Meta cobra por conversa iniciada pela empresa (tabela em developers.facebook.com/docs/whatsapp/pricing).
+
+## Reuniões: ata do Google Meet vira tarefa
+
+Menu **Reuniões** (equipe e administrador; o cliente não vê):
+
+1. Anexe o PDF da ata (as anotações do Gemini no Meet, exportadas em PDF, ou qualquer ata em PDF com texto), escolha a empresa e marque **quem estava presente**: a equipe e as pessoas do cliente. Quem não tem acesso ao sistema vai em "Outros participantes".
+2. A IA (Claude, da Anthropic) lê a ata e faz o pré-lançamento: título, empresa, tipo, responsáveis, prazo, prioridade, checklist e o trecho da ata de onde cada tarefa saiu. Responsável só pode ser alguém da equipe que estava presente; quando quem ficou de fazer é do cliente, o nome vai em "Responsável no cliente". Prazo só entra se foi combinado; "sexta" ou "semana que vem" são convertidos a partir da data da reunião.
+3. Na triagem você corrige o que quiser (salva na hora), descarta o que não é tarefa, adiciona o que faltou e dá **OK, lançar** em cada uma, ou **Lançar todas**. Só depois do OK a tarefa vai para o quadro, com os avisos de tarefa criada. A descrição ganha "Da reunião ... de dd/mm/aaaa".
+
+"Ler de novo" refaz a leitura e troca só as sugestões ainda não lançadas. Apagar a reunião apaga o PDF e as sugestões; as tarefas lançadas continuam. O PDF fica guardado no banco (até 15 MB).
+
+**Para ligar a leitura por IA:** crie uma chave em console.anthropic.com (conta da Opps, com cobrança por uso) e rode o servidor com `ANTHROPIC_API_KEY=...`. Sem a chave, a tela funciona igual, mas as tarefas são lançadas à mão na triagem. Modelo: Claude Opus 5.5 (troque com `MEETINGS_MODEL`). Uma ata de 5 a 10 páginas custa em geral de 10 a 40 centavos de dólar (estimativa pelo preço por token do modelo; o valor real aparece no console da Anthropic).
+
+Privacidade: o PDF da ata é enviado à API da Anthropic para ser lido. Avise os clientes, se o contrato pedir, que as atas passam por um serviço de IA.
+
+No protótipo a leitura é simulada: as sugestões são de exemplo, montadas a partir de quem estava presente, e o PDF fica só até recarregar a página.
 
 ## O que ainda não faz
 

@@ -10,6 +10,7 @@ const PUBLIC = path.join(__dirname, 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
 const MAX_BODY = 512 * 1024;
 const MAX_LOGO = 300 * 1024;
+const MAX_PDF = 15 * 1024 * 1024;
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -19,6 +20,8 @@ const fail = (status, message) => { throw new HttpError(status, message); };
 const REPLY = Symbol('reply');
 // Motor de avisos (notify.js); o servidor passa em createHandler. Sem ele, nada é enviado.
 let notifier = null;
+// Leitura das atas pela IA: async ({ pdf, meeting, attendees, others, clients }) => { summary, tasks }. null = desligada.
+let extractor = null;
 const reply = (code, body, cookie) => ({ [REPLY]: true, code, body, cookie });
 
 // ---------- validação ----------
@@ -228,7 +231,7 @@ const routes = [];
 const route = (method, pattern, handler, opts = {}) => {
   const keys = [];
   const re = new RegExp('^' + pattern.replace(/:(\w+)/g, (_, k) => { keys.push(k); return '(\\d+)'; }) + '$');
-  routes.push({ method, re, keys, handler, public: !!opts.public });
+  routes.push({ method, re, keys, handler, public: !!opts.public, maxBody: opts.maxBody || MAX_BODY });
 };
 
 route('POST', '/api/login', ({ db, body, ip }) => {
@@ -300,6 +303,206 @@ route('POST', '/api/notifications/test', async ({ db, user }) => {
   requireAdmin(user);
   if (!notifier) fail(503, 'Avisos desligados neste servidor');
   return notifier.testEmail(db.prepare('select * from users where id = ?').get(user.id));
+});
+
+// ---------- reuniões: ata em PDF -> triagem -> tarefas ----------
+const ITEM_FIELDS = 'id, meeting_id, title, description, kind, client_id, client_visible, assignee_ids, client_responsible, due_date, priority, checklist, quote, status, task_id, decided_at';
+const itemOut = it => ({ ...it, client_visible: !!it.client_visible, assignee_ids: JSON.parse(it.assignee_ids), checklist: JSON.parse(it.checklist) });
+function loadMeeting(db, user, meetingId) {
+  requireStaff(user);
+  const m = db.prepare('select id, org_id, title, meeting_date, client_id, attendee_ids, other_attendees, pdf_name, summary, status, error, created_by, created_at from meetings where id = ? and org_id = ?').get(meetingId, user.org_id);
+  if (!m) fail(404, 'Reunião não encontrada');
+  return { ...m, attendee_ids: JSON.parse(m.attendee_ids) };
+}
+function loadItem(db, user, itemId) {
+  const it = db.prepare(`select ${ITEM_FIELDS} from meeting_items where id = ?`).get(itemId);
+  if (!it) fail(404, 'Tarefa sugerida não encontrada');
+  loadMeeting(db, user, it.meeting_id);
+  return it;
+}
+function meetingDetail(db, user, meetingId) {
+  const m = loadMeeting(db, user, meetingId);
+  const items = db.prepare(`select ${ITEM_FIELDS} from meeting_items where meeting_id = ? order by position, id`).all(meetingId).map(itemOut);
+  return { ...m, items, ai: !!extractor };
+}
+function aiError(e) {
+  if (e.status === 401 || e.status === 403) return 'A chave da IA (ANTHROPIC_API_KEY) foi recusada. Confira a chave no servidor.';
+  if (e.status === 429) return 'A IA está ocupada agora. Clique em "Ler de novo" daqui a pouco.';
+  if (e.status === 413 || e.status === 400) return 'A IA não conseguiu abrir este PDF. Confira se é a ata exportada do Google (PDF com texto) e tente de novo.';
+  if (e.status >= 500 || e.name === 'APIConnectionError') return 'A IA não respondeu. Clique em "Ler de novo" daqui a pouco.';
+  return e.message || 'Falha ao ler a ata';
+}
+async function processMeeting(db, meetingId) {
+  const m = db.prepare('select * from meetings where id = ?').get(meetingId);
+  if (!m) return;
+  const setStatus = (status, error = null) => db.prepare('update meetings set status = ?, error = ? where id = ?').run(status, error, meetingId);
+  if (!extractor) { setStatus('error', 'A leitura por IA não está ligada neste servidor (falta ANTHROPIC_API_KEY). Lance as tarefas à mão aqui embaixo.'); return; }
+  const ids = JSON.parse(m.attendee_ids);
+  const attendees = ids.map(uid => db.prepare('select id, name, role, client_id from users where id = ? and org_id = ?').get(uid, m.org_id)).filter(Boolean);
+  const clients = db.prepare('select id, name from clients where org_id = ? order by name').all(m.org_id);
+  const meeting = { title: m.title, meeting_date: m.meeting_date, client_id: m.client_id };
+  try {
+    const out = await extractor({ pdf: m.pdf, meeting, attendees, others: m.other_attendees, clients });
+    const items = out.tasks.map(t => require('./meetings').sanitize(t, { meeting, attendees, clients }));
+    tx(db, () => {
+      db.prepare("delete from meeting_items where meeting_id = ? and status = 'pending'").run(meetingId);
+      const base = db.prepare('select coalesce(max(position), 0) as p from meeting_items where meeting_id = ?').get(meetingId).p;
+      const ins = db.prepare(`insert into meeting_items (meeting_id, title, description, kind, client_id, assignee_ids, client_responsible, due_date, priority, checklist, quote, position)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      items.forEach((t, i) => ins.run(meetingId, t.title, t.description, t.kind, t.client_id, JSON.stringify(t.assignee_ids), t.client_responsible,
+        t.due_date, t.priority, JSON.stringify(t.checklist), t.quote, base + i + 1));
+      db.prepare("update meetings set status = 'ready', error = null, summary = ? where id = ?").run(out.summary.slice(0, 2000), meetingId);
+    });
+  } catch (e) {
+    console.error(`Leitura da ata ${meetingId}:`, e.message);
+    setStatus('error', aiError(e));
+  }
+}
+function attendeeList(db, user, v) {
+  if (!Array.isArray(v)) fail(400, 'Marque quem estava presente');
+  const ids = [...new Set(v.map(x => id(x, 'participantes')))];
+  for (const uid of ids) if (!db.prepare('select 1 from users where id = ? and org_id = ?').get(uid, user.org_id)) fail(400, 'Participante inválido');
+  return ids;
+}
+function pdfBuffer(v) {
+  if (typeof v !== 'string' || !v) fail(400, 'Anexe o PDF da reunião');
+  const b64 = v.replace(/^data:application\/pdf;base64,/, '');
+  if (!/^[A-Za-z0-9+/=\s]+$/.test(b64)) fail(400, 'PDF inválido');
+  const buf = Buffer.from(b64, 'base64');
+  if (buf.length > MAX_PDF) fail(400, 'PDF grande demais (máximo 15 MB)');
+  if (buf.subarray(0, 5).toString('latin1') !== '%PDF-') fail(400, 'O arquivo não é um PDF');
+  return buf;
+}
+
+route('GET', '/api/meetings', ({ db, user }) => {
+  requireStaff(user);
+  return db.prepare(
+    `select m.id, m.title, m.meeting_date, m.client_id, c.name as client_name, m.status, m.error, m.attendee_ids,
+            (select count(*) from meeting_items i where i.meeting_id = m.id and i.status = 'pending') as pending,
+            (select count(*) from meeting_items i where i.meeting_id = m.id and i.status = 'approved') as approved,
+            (select count(*) from meeting_items i where i.meeting_id = m.id and i.status = 'discarded') as discarded
+       from meetings m left join clients c on c.id = m.client_id
+      where m.org_id = ? order by m.meeting_date desc, m.id desc`
+  ).all(user.org_id).map(m => ({ ...m, attendee_ids: JSON.parse(m.attendee_ids) }));
+});
+
+route('POST', '/api/meetings', ({ db, user, body }) => {
+  requireStaff(user);
+  const title = str(body.title, 'título', { max: 200 });
+  const meetingDate = date(body.meeting_date, 'Data da reunião');
+  if (!meetingDate) fail(400, 'Informe a data da reunião');
+  const clientId = body.client_id ? id(body.client_id, 'cliente') : null;
+  if (clientId) checkClient(db, user, clientId);
+  const attendees = attendeeList(db, user, body.attendee_ids || []);
+  const others = str(body.other_attendees, 'outros participantes', { max: 1000, required: false });
+  if (!attendees.length && !others) fail(400, 'Marque quem estava presente');
+  const pdf = pdfBuffer(body.pdf);
+  const name = str(body.pdf_name, 'nome do arquivo', { max: 200, required: false }) || 'ata.pdf';
+  const r = db.prepare(`insert into meetings (org_id, title, meeting_date, client_id, attendee_ids, other_attendees, pdf, pdf_name, created_by)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(user.org_id, title, meetingDate, clientId, JSON.stringify(attendees), others, pdf, name, user.id);
+  const meetingId = Number(r.lastInsertRowid);
+  // A leitura leva de segundos a um ou dois minutos: roda por trás e a tela acompanha pelo status.
+  processMeeting(db, meetingId).catch(e => console.error(e));
+  return reply(201, { id: meetingId });
+}, { maxBody: Math.ceil(MAX_PDF * 1.4) + 64 * 1024 });
+
+route('GET', '/api/meetings/:id', ({ db, user, params }) => meetingDetail(db, user, params.id));
+
+route('GET', '/api/meetings/:id/pdf', ({ db, user, params }) => {
+  loadMeeting(db, user, params.id);
+  const m = db.prepare('select pdf, pdf_name from meetings where id = ?').get(params.id);
+  if (!m.pdf) fail(404, 'PDF não encontrado');
+  return { name: m.pdf_name, data: Buffer.from(m.pdf).toString('base64') };
+});
+
+route('POST', '/api/meetings/:id/process', ({ db, user, params }) => {
+  const m = loadMeeting(db, user, params.id);
+  if (m.status === 'processing') fail(409, 'A ata já está sendo lida');
+  db.prepare("update meetings set status = 'processing', error = null where id = ?").run(params.id);
+  processMeeting(db, params.id).catch(e => console.error(e));
+  return meetingDetail(db, user, params.id);
+});
+
+route('PATCH', '/api/meetings/:id', ({ db, user, params, body }) => {
+  const m = loadMeeting(db, user, params.id);
+  const title = 'title' in body ? str(body.title, 'título', { max: 200 }) : m.title;
+  const meetingDate = 'meeting_date' in body ? date(body.meeting_date, 'Data da reunião') || m.meeting_date : m.meeting_date;
+  const attendees = 'attendee_ids' in body ? attendeeList(db, user, body.attendee_ids) : m.attendee_ids;
+  const others = 'other_attendees' in body ? str(body.other_attendees, 'outros participantes', { max: 1000, required: false }) : m.other_attendees;
+  db.prepare('update meetings set title = ?, meeting_date = ?, attendee_ids = ?, other_attendees = ? where id = ?')
+    .run(title, meetingDate, JSON.stringify(attendees), others, params.id);
+  return meetingDetail(db, user, params.id);
+});
+
+route('DELETE', '/api/meetings/:id', ({ db, user, params }) => {
+  const m = loadMeeting(db, user, params.id);
+  if (user.role !== 'admin' && m.created_by !== user.id) fail(403, 'Só quem lançou a reunião ou um administrador pode apagar');
+  // As tarefas já lançadas continuam; some só a reunião, o PDF e as sugestões.
+  db.prepare('delete from meetings where id = ?').run(params.id);
+  return { ok: true };
+});
+
+// Tarefa sugerida à mão, quando a IA deixou passar alguma.
+route('POST', '/api/meetings/:id/items', ({ db, user, params, body }) => {
+  const m = loadMeeting(db, user, params.id);
+  const title = str(body.title, 'título', { max: 200 });
+  const pos = db.prepare('select coalesce(max(position), 0) + 1 as p from meeting_items where meeting_id = ?').get(params.id).p;
+  const kind = m.client_id ? 'external' : 'internal';
+  const r = db.prepare('insert into meeting_items (meeting_id, title, kind, client_id, position) values (?, ?, ?, ?, ?)').run(params.id, title, kind, m.client_id, pos);
+  return itemOut(db.prepare(`select ${ITEM_FIELDS} from meeting_items where id = ?`).get(Number(r.lastInsertRowid)));
+});
+
+route('PATCH', '/api/meeting-items/:id', ({ db, user, params, body }) => {
+  const it = loadItem(db, user, params.id);
+  if (it.status === 'approved') fail(409, 'Esta tarefa já foi lançada; edite no quadro de tarefas');
+  const kind = oneOf(body.kind, 'tipo', ['internal', 'external'], it.kind);
+  const clientId = 'client_id' in body ? (body.client_id ? id(body.client_id, 'cliente') : null) : it.client_id;
+  if (clientId) checkClient(db, user, clientId);
+  const v = {
+    title: 'title' in body ? str(body.title, 'título', { max: 200 }) : it.title,
+    description: 'description' in body ? str(body.description, 'descrição', { max: 10000, required: false }) : it.description,
+    kind, client_id: clientId,
+    client_visible: 'client_visible' in body ? clientVisible(kind, clientId, body.client_visible) : clientVisible(kind, clientId, it.client_visible),
+    assignee_ids: 'assignee_ids' in body ? JSON.stringify(checkAssignees(db, user, body.assignee_ids)) : it.assignee_ids,
+    client_responsible: 'client_responsible' in body ? str(body.client_responsible, 'responsável no cliente', { max: 120, required: false }) : it.client_responsible,
+    due_date: 'due_date' in body ? date(body.due_date, 'Prazo') : it.due_date,
+    priority: oneOf(body.priority, 'prioridade', ['low', 'normal', 'high'], it.priority),
+    checklist: 'checklist' in body ? JSON.stringify(checklistItems(body.checklist)) : it.checklist,
+  };
+  db.prepare(`update meeting_items set title = ?, description = ?, kind = ?, client_id = ?, client_visible = ?, assignee_ids = ?,
+    client_responsible = ?, due_date = ?, priority = ?, checklist = ? where id = ?`)
+    .run(v.title, v.description, v.kind, v.client_id, v.client_visible, v.assignee_ids, v.client_responsible, v.due_date, v.priority, v.checklist, params.id);
+  return itemOut(db.prepare(`select ${ITEM_FIELDS} from meeting_items where id = ?`).get(params.id));
+});
+
+// O OK: vira tarefa de verdade, com os avisos de tarefa criada.
+route('POST', '/api/meeting-items/:id/approve', ({ db, user, params }) => {
+  const it = itemOut(loadItem(db, user, params.id));
+  if (it.status === 'approved') fail(409, 'Esta tarefa já foi lançada');
+  const m = loadMeeting(db, user, it.meeting_id);
+  const br = d => d.split('-').reverse().join('/');
+  const description = [it.description, it.client_responsible ? `Responsável no cliente: ${it.client_responsible}` : '',
+    `Da reunião "${m.title}" de ${br(m.meeting_date)}.`].filter(Boolean).join('\n\n');
+  const taskId = createTask(db, user, {
+    kind: it.kind, client_id: it.client_id, client_visible: it.client_visible, title: it.title, description,
+    due_date: it.due_date, priority: it.priority, assignee_ids: it.assignee_ids, checklist: it.checklist,
+  });
+  db.prepare("update meeting_items set status = 'approved', task_id = ?, decided_by = ?, decided_at = datetime('now') where id = ?").run(taskId, user.id, params.id);
+  return { task_id: taskId };
+});
+
+route('POST', '/api/meeting-items/:id/discard', ({ db, user, params }) => {
+  const it = loadItem(db, user, params.id);
+  if (it.status === 'approved') fail(409, 'Esta tarefa já foi lançada; cancele no quadro de tarefas');
+  db.prepare("update meeting_items set status = 'discarded', decided_by = ?, decided_at = datetime('now') where id = ?").run(user.id, params.id);
+  return { ok: true };
+});
+
+route('POST', '/api/meeting-items/:id/restore', ({ db, user, params }) => {
+  const it = loadItem(db, user, params.id);
+  if (it.status !== 'discarded') fail(409, 'Só dá para voltar uma tarefa descartada');
+  db.prepare("update meeting_items set status = 'pending', decided_by = null, decided_at = null where id = ?").run(params.id);
+  return { ok: true };
 });
 
 route('GET', '/api/me', ({ db, user }) => ({
@@ -392,7 +595,8 @@ route('GET', '/api/tasks', ({ db, user, query }) => taskList(db, user, query));
 route('GET', '/api/alerts', ({ db, user }) =>
   taskList(db, user, {}).filter(t => t.alert).sort((a, b) => a.alert.days - b.alert.days));
 
-route('POST', '/api/tasks', ({ db, user, body }) => {
+// Cria a tarefa (usado pelo formulário e pela triagem das reuniões).
+function createTask(db, user, body) {
   requireStaff(user);
   if (body.kind === undefined) fail(400, 'Escolha se a tarefa é interna ou externa');
   const kind = oneOf(body.kind, 'tipo', ['internal', 'external']);
@@ -427,8 +631,10 @@ route('POST', '/api/tasks', ({ db, user, body }) => {
     return taskId;
   });
   notifier?.onTaskCreated(newId, user.id);
-  return reply(201, { id: newId });
-});
+  return newId;
+}
+
+route('POST', '/api/tasks', ({ db, user, body }) => reply(201, { id: createTask(db, user, body) }));
 
 route('GET', '/api/tasks/:id', ({ db, user, params }) => taskDetail(db, user, params.id));
 
@@ -645,13 +851,13 @@ route('GET', '/api/report/adjustments', ({ db, user }) => {
 });
 
 // ---------- HTTP ----------
-function readBody(req) {
+function readBody(req, max = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     req.on('data', c => {
       size += c.length;
-      if (size > MAX_BODY) { reject(new HttpError(413, 'Requisição grande demais')); req.destroy(); return; }
+      if (size > max) { reject(new HttpError(413, 'Requisição grande demais')); req.destroy(); return; }
       chunks.push(c);
     });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
@@ -691,6 +897,9 @@ function serveStatic(req, res) {
 
 function createHandler(db, opts = {}) {
   notifier = opts.notifier || null;
+  extractor = opts.extractor || null;
+  // Leitura interrompida por um reinício do servidor: deixa a reunião pronta para ler de novo.
+  db.prepare("update meetings set status = 'error', error = 'A leitura foi interrompida. Clique em \"Ler de novo\".' where status = 'processing'").run();
   return async (req, res) => {
     const url = new URL(req.url, 'http://x');
     if (!url.pathname.startsWith('/api/')) {
@@ -710,7 +919,7 @@ function createHandler(db, opts = {}) {
         // Contra CSRF: só aceita JSON e, se o navegador mandar Origin, ele tem de ser este mesmo servidor.
         const origin = req.headers.origin;
         if (origin && new URL(origin).host !== req.headers.host) fail(403, 'Origem não permitida');
-        const raw = await readBody(req);
+        const raw = await readBody(req, r.maxBody);
         if (raw) {
           if (!String(req.headers['content-type'] || '').startsWith('application/json')) fail(415, 'Envie JSON');
           try { body = JSON.parse(raw); } catch { fail(400, 'JSON inválido'); }

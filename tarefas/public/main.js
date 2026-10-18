@@ -184,6 +184,7 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
   filter: '<path d="M4 5h16l-6 8v5l-4 2v-7z"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  meet: '<rect x="3" y="6" width="12.5" height="12" rx="2"/><path d="M15.5 10.5l5-3v9l-5-3"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
   moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
@@ -230,7 +231,7 @@ function renderLogin(message) {
 // Estrutura: menu lateral (gaveta no celular) + barra superior com o título e a ação da página.
 function shell(content, { title, sub } = {}) {
   const nav = isStaff()
-    ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/alertas', 'Alertas', 'bell'],
+    ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/reunioes', 'Reuniões', 'meet'], ['#/alertas', 'Alertas', 'bell'],
       ['#/clientes', 'Clientes', 'building'], ['#/modelos', 'Modelos', 'copy'], ['#/relatorio', 'Relatório', 'chart'], ['#/equipe', 'Pessoas', 'users'],
       ...(isAdmin() ? [['#/avisos', 'Avisos', 'mail']] : []),
       ['#/config', 'Configurações', 'settings']]
@@ -289,7 +290,7 @@ async function boot() {
 }
 
 const ROUTES = {
-  '#/avisos': viewNotifications, '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
+  '#/avisos': viewNotifications, '#/reunioes': viewMeetings, '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
   '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings,
 };
 
@@ -300,6 +301,12 @@ async function route() {
   const deep = /^#\/tarefa\/(\d+)$/.exec(key);
   if (deep) { history.replaceState(null, '', '#/tarefas'); await route(); openTask(Number(deep[1])); return; }
   if (key === '#/avisos' && !isAdmin()) { location.hash = '#/painel'; return; }
+  const meeting = /^#\/reuniao\/(\d+)$/.exec(key);
+  if (meeting) {
+    if (!isStaff()) { location.hash = '#/painel'; return; }
+    await guard(() => viewMeeting(Number(meeting[1])))();
+    return;
+  }
   const fallback = '#/painel';
   const clientPages = ['#/painel', '#/tarefas', '#/recorrentes', '#/alertas', '#/config'];
   const view = ROUTES[key];
@@ -1366,6 +1373,220 @@ async function viewTemplates() {
       t.checklist.length ? h('ul', {}, t.checklist.map(i => h('li', {}, i))) : null))
       : h('div', { class: 'card-box empty' }, 'Nenhum modelo ainda.'),
   ]);
+}
+
+// ---------- reuniões: ata em PDF, triagem e OK ----------
+const readFileData = file => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = () => reject(new Error('Não deu para ler o arquivo'));
+  reader.readAsDataURL(file);
+});
+const MEETING_STATUS = m => m.status === 'processing' ? ['Lendo a ata…', 'warn']
+  : m.status === 'error' ? ['Precisa de atenção', 'late']
+  : m.pending ? [`${m.pending} para revisar`, 'warn'] : ['Revisada', 'ok'];
+
+function attendeePicker(prefix, clientId, selected = []) {
+  const box = h('div', {});
+  const paint = cid => {
+    const keep = [...box.querySelectorAll('input:checked')].map(i => Number(i.value));
+    const sel = new Set([...selected, ...keep]);
+    const staff = staffUsers();
+    const clients = state.users.filter(u => u.role === 'client' && u.active && (!cid || u.client_id === Number(cid)));
+    const group = (label, users) => users.length ? h('div', { class: 'field' }, h('span', { class: 'label' }, label),
+      h('div', { class: 'checks', role: 'group', 'aria-label': label },
+        users.map(u => h('label', {}, h('input', { type: 'checkbox', name: `${prefix}-who`, value: u.id, checked: sel.has(u.id) }), u.name,
+          !cid && u.client_name ? h('span', { class: 'muted small' }, ` (${u.client_name})`) : null)))) : null;
+    box.replaceChildren(group('Equipe Opps', staff), group(cid ? 'Do cliente' : 'Clientes', clients) ||
+      (cid ? h('p', { class: 'muted small' }, 'Esta empresa ainda não tem acesso de cliente cadastrado; quem esteve presente pode ir em "Outros participantes".') : null));
+  };
+  paint(clientId);
+  return { el: box, repaint: paint, value: () => [...box.querySelectorAll('input:checked')].map(i => Number(i.value)) };
+}
+
+async function viewMeetings() {
+  const list = await api('GET', '/api/meetings');
+  const err = h('p', { class: 'error', role: 'alert' });
+  const clientSel = h('select', { id: 'm-client', name: 'client_id' }, h('option', { value: '' }, `${state.org.name} (reunião interna)`),
+    state.clients.map(c => h('option', { value: c.id }, c.name)));
+  const who = attendeePicker('m', '');
+  clientSel.addEventListener('change', () => who.repaint(clientSel.value));
+  const fileInfo = h('span', { class: 'muted small' }, 'Nenhum arquivo escolhido');
+  const file = h('input', { id: 'm-pdf', type: 'file', accept: 'application/pdf,.pdf', class: 'sr-only', required: true,
+    onchange: e => { fileInfo.textContent = e.target.files[0] ? e.target.files[0].name : 'Nenhum arquivo escolhido'; } });
+  const submit = h('button', { class: 'btn primary', type: 'submit' }, 'Enviar para a triagem');
+  const form = h('form', { class: 'card-box', onsubmit: async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const f = file.files[0];
+    if (!f) { err.textContent = 'Anexe o PDF da reunião'; return; }
+    if (f.size > 15 * 1024 * 1024) { err.textContent = 'PDF grande demais (máximo 15 MB)'; return; }
+    submit.disabled = true; submit.textContent = 'Enviando…';
+    try {
+      const { id } = await api('POST', '/api/meetings', { title: fd.get('title'), meeting_date: fd.get('meeting_date'),
+        client_id: clientSel.value ? Number(clientSel.value) : null, attendee_ids: who.value(), other_attendees: fd.get('others'),
+        pdf: (await readFileData(f)).replace(/^data:[^,]*,/, 'data:application/pdf;base64,'), pdf_name: f.name });
+      location.hash = `#/reuniao/${id}`;
+    } catch (ex) { err.textContent = ex.message; submit.disabled = false; submit.textContent = 'Enviar para a triagem'; }
+  } },
+    h('h2', {}, 'Nova reunião'),
+    h('p', { class: 'muted' }, 'Anexe o PDF da ata do Google Meet e marque quem estava presente. A IA lê a ata e separa as tarefas; nada vai para o quadro antes do seu OK.'),
+    h('div', { class: 'grid2' },
+      h('div', { class: 'field' }, h('label', { for: 'm-title' }, 'Reunião'), h('input', { id: 'm-title', name: 'title', required: true, maxlength: 200, placeholder: 'Ex.: Alinhamento mensal' })),
+      h('div', { class: 'field' }, h('label', { for: 'm-date' }, 'Data'), h('input', { id: 'm-date', name: 'meeting_date', type: 'date', required: true, value: today() }))),
+    h('div', { class: 'field' }, h('label', { for: 'm-client' }, 'Empresa'), clientSel),
+    h('h3', { class: 'sub-h' }, 'Quem estava presente'),
+    who.el,
+    h('div', { class: 'field' }, h('label', { for: 'm-others' }, 'Outros participantes (opcional)'), h('input', { id: 'm-others', name: 'others', maxlength: 1000, placeholder: 'Ex.: Paulo (contador do cliente)' })),
+    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Ata da reunião (PDF)'),
+      h('div', { class: 'row' }, h('label', { class: 'btn file-btn', for: 'm-pdf' }, file, 'Escolher PDF'), fileInfo)),
+    err, submit);
+  shell([
+    form,
+    h('div', { class: 'card-box table-wrap' }, h('h2', {}, 'Reuniões lançadas'),
+      list.length ? h('table', { class: 'tasks' },
+        h('thead', {}, h('tr', {}, ['Data', 'Reunião', 'Empresa', 'Situação', 'Lançadas'].map(x => h('th', {}, x)))),
+        h('tbody', {}, list.map(m => {
+          const [label, cls] = MEETING_STATUS(m);
+          return h('tr', { class: 'row-link', onclick: () => { location.hash = `#/reuniao/${m.id}`; } },
+            h('td', { class: 'num' }, fmtDate(m.meeting_date)),
+            h('td', { 'data-label': 'Reunião' }, h('a', { href: `#/reuniao/${m.id}` }, m.title)),
+            h('td', { 'data-label': 'Empresa' }, m.client_name || `${state.org.name} (interna)`),
+            h('td', { 'data-label': 'Situação' }, h('span', { class: 'tag ' + cls }, label)),
+            h('td', { 'data-label': 'Lançadas', class: 'num' }, `${m.approved}` + (m.discarded ? ` · ${m.discarded} descartada${m.discarded > 1 ? 's' : ''}` : '')));
+        })))
+        : h('p', { class: 'muted' }, 'Nenhuma reunião lançada ainda.')),
+  ], { sub: 'Ata do Google Meet → tarefas, com o seu OK' });
+}
+
+let meetingPoll = null;
+async function viewMeeting(meetingId) {
+  clearTimeout(meetingPoll);
+  const m = await api('GET', `/api/meetings/${meetingId}`);
+  const here = location.hash;
+  if (m.status === 'processing') meetingPoll = setTimeout(() => { if (location.hash === here) route(); }, 2500);
+  const people = m.attendee_ids.map(uid => state.users.find(u => u.id === uid)).filter(Boolean);
+  const client = state.clients.find(c => c.id === m.client_id);
+  const pending = m.items.filter(i => i.status === 'pending');
+  const approved = m.items.filter(i => i.status === 'approved');
+  const discarded = m.items.filter(i => i.status === 'discarded');
+
+  const openPdf = guard(async () => {
+    const f = await api('GET', `/api/meetings/${meetingId}/pdf`);
+    const bytes = Uint8Array.from(atob(f.data), c => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    const a = h('a', { href: url, download: f.name, target: '_blank', rel: 'noopener' });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  });
+  const header = h('div', { class: 'card-box meeting-head' },
+    h('div', { class: 'row', style: 'align-items:flex-start' },
+      h('div', { class: 'grow' },
+        h('p', { class: 'muted small', style: 'margin:0' }, `${fmtDate(m.meeting_date)} · ${client ? client.name : `${state.org.name} (interna)`}`),
+        h('h2', { style: 'margin:2px 0 8px' }, m.title)),
+      h('a', { class: 'btn small', href: '#/reunioes' }, 'Voltar')),
+    h('div', { class: 'people' }, h('span', { class: 'muted small' }, 'Presentes: '),
+      people.map(u => h('span', { class: 'tag' }, u.name, u.role === 'client' ? ' (cliente)' : '')),
+      m.other_attendees ? h('span', { class: 'tag' }, m.other_attendees) : null),
+    m.summary ? h('p', { class: 'summary' }, m.summary) : null,
+    h('div', { class: 'row' },
+      m.pdf_name ? h('button', { class: 'btn small', type: 'button', onclick: openPdf }, `Abrir PDF (${m.pdf_name})`) : null,
+      m.status !== 'processing' && m.ai !== false ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
+        if (pending.length && !(await ask('Ler a ata de novo? As tarefas que ainda estão para revisar serão trocadas pela nova leitura. As já lançadas ficam.', { ok: 'Ler de novo' }))) return;
+        await api('POST', `/api/meetings/${meetingId}/process`); route();
+      }) }, 'Ler de novo') : null,
+      h('button', { class: 'btn small danger', type: 'button', onclick: guard(async () => {
+        if (!(await ask('Apagar esta reunião, o PDF e as sugestões? As tarefas já lançadas continuam no quadro.', { ok: 'Apagar reunião', danger: true }))) return;
+        await api('DELETE', `/api/meetings/${meetingId}`); toast('Reunião apagada'); location.hash = '#/reunioes';
+      }) }, 'Apagar')));
+
+  const status = m.status === 'processing'
+    ? h('div', { class: 'card-box reading', role: 'status' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'A IA está lendo a ata. Isso leva de alguns segundos a um ou dois minutos; esta tela atualiza sozinha.')
+    : m.status === 'error' ? h('div', { class: 'card-box error-box', role: 'alert' }, h('strong', {}, 'Não deu para ler a ata. '), m.error) : null;
+
+  const addForm = h('form', { class: 'row add-item', onsubmit: guard(async e => {
+    e.preventDefault();
+    const input = e.target.elements['mi-new'];
+    if (!input.value.trim()) return;
+    await api('POST', `/api/meetings/${meetingId}/items`, { title: input.value.trim() }); route();
+  }) },
+    h('label', { class: 'sr-only', for: 'mi-new' }, 'Tarefa que faltou'),
+    h('input', { id: 'mi-new', class: 'grow', maxlength: 200, placeholder: 'Faltou alguma? Escreva o título e adicione' }),
+    h('button', { class: 'btn', type: 'submit' }, icon('plus'), 'Adicionar'));
+
+  const approveAll = pending.length > 1 ? h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
+    if (!(await ask(`Lançar as ${pending.length} tarefas no quadro, como estão?`, { ok: `Lançar ${pending.length} tarefas` }))) return;
+    let ok = 0;
+    for (const it of pending) {
+      try { await api('POST', `/api/meeting-items/${it.id}/approve`); ok++; } catch (ex) { toast(`"${it.title}": ${ex.message}`, 6000); }
+    }
+    if (ok) toast(`${ok} tarefa${ok > 1 ? 's' : ''} lançada${ok > 1 ? 's' : ''}`);
+    route();
+  }) }, icon('check'), `Lançar todas (${pending.length})`) : null;
+
+  shell([
+    header, status,
+    m.status !== 'processing' ? h('section', { 'aria-labelledby': 'mi-h' },
+      h('div', { class: 'row section-h' }, h('h2', { id: 'mi-h', class: 'grow' }, pending.length ? `Para revisar (${pending.length})` : 'Para revisar'), approveAll),
+      pending.length ? h('p', { class: 'muted small' }, 'Confira cada tarefa: o que você muda fica salvo na hora. "OK, lançar" leva para o quadro e avisa os responsáveis.') : null,
+      pending.map(meetingItemCard),
+      !pending.length && m.status === 'ready' ? h('div', { class: 'card-box empty' }, approved.length ? 'Tudo revisado.' : 'A IA não encontrou tarefas nesta ata. Se faltou alguma, adicione abaixo.') : null,
+      h('div', { class: 'card-box' }, addForm)) : null,
+    approved.length ? h('section', { class: 'card-box' }, h('h2', {}, `Lançadas (${approved.length})`),
+      h('ul', { class: 'plain-list' }, approved.map(it => h('li', {}, h('span', { class: 'tag ok' }, 'Lançada'), ' ',
+        it.task_id ? h('a', { href: `#/tarefa/${it.task_id}` }, it.title) : h('span', {}, it.title, h('span', { class: 'muted small' }, ' (tarefa apagada)')))))) : null,
+    discarded.length ? h('details', { class: 'card-box' }, h('summary', {}, `Descartadas (${discarded.length})`),
+      h('ul', { class: 'plain-list' }, discarded.map(it => h('li', {}, h('span', { class: 'grow' }, it.title),
+        h('button', { class: 'btn small', type: 'button', onclick: guard(async () => { await api('POST', `/api/meeting-items/${it.id}/restore`); route(); }) }, 'Voltar para revisão'))))) : null,
+  ], { title: 'Reunião', sub: m.title });
+}
+
+function meetingItemCard(it) {
+  const p = `mi${it.id}`;
+  const saved = h('span', { class: 'muted small', role: 'status' });
+  let timer, last = Promise.resolve();
+  // Salva cada mudança na hora, uma depois da outra; o OK espera a última terminar.
+  const save = patch => (last = last.then(async () => {
+    try {
+      await api('PATCH', `/api/meeting-items/${it.id}`, patch);
+      saved.textContent = 'Salvo'; clearTimeout(timer); timer = setTimeout(() => { saved.textContent = ''; }, 1500);
+    } catch (ex) { toast(ex.message, 5000); }
+  }));
+  const kc = kindClientFields(p, it.kind, it.client_id, it.client_visible, v => save(v));
+  const field = (label, id, input) => h('div', { class: 'field' }, h('label', { for: id }, label), input);
+  const who = h('div', { class: 'checks', role: 'group', 'aria-label': 'Responsáveis' },
+    staffUsers().map(u => h('label', {}, h('input', { type: 'checkbox', value: u.id, checked: it.assignee_ids.includes(u.id),
+      onchange: () => save({ assignee_ids: [...who.querySelectorAll('input:checked')].map(i => Number(i.value)) }) }), u.name)));
+  const card = h('article', { class: 'card-box item-card', 'aria-label': it.title },
+    field('Tarefa', `${p}-title`, h('input', { id: `${p}-title`, value: it.title, maxlength: 200, required: true,
+      onchange: e => e.target.value.trim() && save({ title: e.target.value.trim() }) })),
+    it.quote ? h('blockquote', { class: 'quote' }, h('span', { class: 'muted small' }, 'Na ata: '), `“${it.quote}”`) : null,
+    h('div', { class: 'item-grid' },
+      h('div', {}, kc.el,
+        field('Responsável no cliente (opcional)', `${p}-cr`, h('input', { id: `${p}-cr`, value: it.client_responsible, maxlength: 120, placeholder: 'Quem do cliente ficou de fazer',
+          onchange: e => save({ client_responsible: e.target.value }) }))),
+      h('div', {},
+        h('div', { class: 'field' }, h('span', { class: 'label' }, 'Responsáveis (equipe)'), who),
+        h('div', { class: 'grid2' },
+          field('Prazo', `${p}-due`, h('input', { id: `${p}-due`, type: 'date', value: it.due_date || '', onchange: e => save({ due_date: e.target.value || null }) })),
+          field('Prioridade', `${p}-pri`, h('select', { id: `${p}-pri`, onchange: e => save({ priority: e.target.value }) },
+            Object.entries(PRIORITY).map(([v, l]) => h('option', { value: v, selected: v === it.priority }, l)))))),
+      field('Descrição', `${p}-desc`, h('textarea', { id: `${p}-desc`, rows: 2, onchange: e => save({ description: e.target.value }) }, it.description)),
+      field('Checklist (um item por linha)', `${p}-ck`, h('textarea', { id: `${p}-ck`, rows: Math.max(2, it.checklist.length),
+        onchange: e => save({ checklist: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) }) }, it.checklist.join('\n')))),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
+        // Garante que o que foi digitado por último (sem sair do campo) também vai.
+        document.activeElement?.blur?.();
+        await new Promise(r => setTimeout(r, 0));
+        await last;
+        const r = await api('POST', `/api/meeting-items/${it.id}/approve`);
+        toast('Tarefa lançada no quadro', 4000); route();
+        return r;
+      }) }, icon('check'), 'OK, lançar'),
+      h('button', { class: 'btn', type: 'button', onclick: guard(async () => { await api('POST', `/api/meeting-items/${it.id}/discard`); route(); }) }, 'Descartar'),
+      saved));
+  return card;
 }
 
 // ---------- relatório ----------

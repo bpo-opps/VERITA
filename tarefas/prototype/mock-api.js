@@ -18,7 +18,7 @@
   function seed() {
     const OPPS_SYMBOL = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="24" y="6" width="16" height="36" rx="4" fill="#FB4F14"/><rect x="24" y="46" width="16" height="12" rx="4" fill="#FB4F14"/></svg>');
     const db = { seq: 100, org: { id: 1, name: 'Opps Consultoria', accent: '#FB4F14', logo: OPPS_SYMBOL },
-      clients: [], users: [], tasks: [], assignees: [], checklist: [], comments: [], adjustments: [], templates: [], notifications: [] };
+      clients: [], users: [], tasks: [], assignees: [], checklist: [], comments: [], adjustments: [], templates: [], notifications: [], meetings: [], meeting_items: [] };
     db.clients.push(
       { id: 1, name: 'Padaria Exemplo', logo: svgLogo('PE', '#b45309') },
       { id: 2, name: 'Clínica Modelo', logo: svgLogo('CM', '#4338ca') });
@@ -65,6 +65,8 @@
   try { db = JSON.parse(localStorage.getItem(KEY)); } catch { db = null; }
   if (!db) db = seed();
   db.notifications = db.notifications || [];
+  db.meetings = db.meetings || [];
+  db.meeting_items = db.meeting_items || [];
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sem armazenamento: fica só na memória */ } };
   let sessionUser = null;
   try { sessionUser = Number(sessionStorage.getItem(KEY + '-user')) || null; } catch { /* idem */ }
@@ -326,7 +328,7 @@
   });
   route('GET', '/api/tasks', ({ user, query }) => list(user, query));
   route('GET', '/api/alerts', ({ user }) => list(user, {}).filter(t => t.alert).sort((a, b) => a.alert.days - b.alert.days));
-  route('POST', '/api/tasks', ({ user, body }) => {
+  function createTask(user, body) {
     requireStaff(user);
     if (body.kind === undefined) fail(400, 'Escolha se a tarefa é interna ou externa');
     const kind = oneOf(body.kind, 'tipo', ['internal', 'external']);
@@ -351,8 +353,9 @@
     setAssignees(id, assignees);
     checklist.forEach((text, i) => db.checklist.push({ id: nextId(), task_id: id, text, done: 0, position: i }));
     noticeCreated(id, user.id);
-    return { id };
-  });
+    return id;
+  }
+  route('POST', '/api/tasks', ({ user, body }) => ({ id: createTask(user, body) }));
   route('GET', '/api/tasks/:id', ({ user, id }) => detail(user, id));
   const CLIENT_FIELDS = ['status', 'start_date', 'progress'];
   route('PATCH', '/api/tasks/:id', ({ user, body, id }) => {
@@ -463,6 +466,127 @@
     completeTask(t, S.today(), null);
     db.comments.push({ id: nextId(), task_id: t.id, user_id: user.id, body: 'Entrega aprovada.', visible_to_client: 1, created_at: now() });
     return detail(user, id);
+  });
+  // Reuniões. No protótipo a leitura da ata é simulada: as sugestões são de exemplo, montadas com
+  // quem estava presente. O PDF fica só na memória desta aba (não cabe no armazenamento do navegador).
+  const pdfs = new Map();
+  const loadMeeting = (user, mid) => { requireStaff(user); const m = db.meetings.find(x => x.id === mid); if (!m) fail(404, 'Reunião não encontrada'); return m; };
+  const loadItem = (user, iid) => { const it = db.meeting_items.find(x => x.id === iid); if (!it) fail(404, 'Tarefa sugerida não encontrada'); loadMeeting(user, it.meeting_id); return it; };
+  const meetingDetail = (user, mid) => ({ ...loadMeeting(user, mid), ai: true,
+    items: db.meeting_items.filter(i => i.meeting_id === mid).sort((a, b) => a.position - b.position || a.id - b.id) });
+  function simulateReading(mid) {
+    setTimeout(() => {
+      const m = db.meetings.find(x => x.id === mid); if (!m) return;
+      const people = m.attendee_ids.map(uid => db.users.find(u => u.id === uid)).filter(Boolean);
+      const staff = people.filter(u => u.role !== 'client'), cli = people.find(u => u.role === 'client');
+      const s1 = staff[0], s2 = staff[1] || staff[0];
+      const first = u => (u ? u.name.split(' ')[0] : 'A equipe');
+      const c = db.clients.find(x => x.id === m.client_id);
+      const plus = n => S.addDays(m.meeting_date, n);
+      const sug = [
+        { title: 'Enviar o resumo da reunião com os próximos passos', kind: c ? 'external' : 'internal', who: s1, due: plus(1), priority: 'normal',
+          quote: `${first(s1)} fica de mandar o resumo amanhã.` },
+        c && { title: `Revisar a conciliação bancária da ${c.name}`, kind: 'external', who: s2, due: plus(7), priority: 'high',
+          checklist: ['Conferir os extratos', 'Apontar as divergências', 'Enviar o relatório'], quote: `${first(s2)} revisa a conciliação até a próxima semana.` },
+        c && { title: 'Receber os extratos bancários do mês', kind: 'external', who: s1, due: plus(3), priority: 'normal', cr: cli ? cli.name : 'Financeiro do cliente',
+          quote: `${cli ? first(cli) : 'O cliente'} manda os extratos até ${S.addDays(m.meeting_date, 3).split('-').reverse().slice(0, 2).join('/')}.` },
+        { title: 'Agendar a próxima reunião de acompanhamento', kind: 'internal', who: s1, due: null, priority: 'low', quote: 'Marcar a próxima conversa em um mês.' },
+      ].filter(Boolean);
+      sug.forEach((t, i) => db.meeting_items.push({ id: nextId(), meeting_id: mid, title: t.title, description: 'Combinado na reunião.', kind: t.kind,
+        client_id: m.client_id, client_visible: false, assignee_ids: t.who ? [t.who.id] : [], client_responsible: t.cr || '', due_date: t.due,
+        priority: t.priority, checklist: t.checklist || [], quote: t.quote, status: 'pending', task_id: null, decided_at: null, position: i + 1 }));
+      Object.assign(m, { status: 'ready', error: null,
+        summary: 'Protótipo: leitura simulada, com sugestões de exemplo montadas a partir de quem estava presente. No sistema instalado, a IA lê o PDF da ata e sugere as tarefas que estão nele.' });
+      persist();
+    }, 1800);
+  }
+  route('GET', '/api/meetings', ({ user }) => {
+    requireStaff(user);
+    return db.meetings.slice().sort((a, b) => b.meeting_date.localeCompare(a.meeting_date) || b.id - a.id).map(m => {
+      const its = db.meeting_items.filter(i => i.meeting_id === m.id), n = st => its.filter(i => i.status === st).length;
+      return { ...m, client_name: (db.clients.find(c => c.id === m.client_id) || {}).name || null, pending: n('pending'), approved: n('approved'), discarded: n('discarded') };
+    });
+  });
+  route('POST', '/api/meetings', ({ user, body }) => {
+    requireStaff(user);
+    const title = str(body.title, 'título', { max: 200 });
+    const meeting_date = date(body.meeting_date, 'Data da reunião'); if (!meeting_date) fail(400, 'Informe a data da reunião');
+    const client_id = body.client_id ? Number(body.client_id) : null; if (client_id) checkClient(client_id);
+    const attendee_ids = [...new Set((body.attendee_ids || []).map(Number))];
+    attendee_ids.forEach(uid => { if (!db.users.some(u => u.id === uid)) fail(400, 'Participante inválido'); });
+    const other_attendees = str(body.other_attendees, 'outros participantes', { max: 1000, required: false });
+    if (!attendee_ids.length && !other_attendees) fail(400, 'Marque quem estava presente');
+    if (typeof body.pdf !== 'string' || !body.pdf.startsWith('data:application/pdf;base64,')) fail(400, 'Anexe o PDF da reunião');
+    if (atob(body.pdf.slice(28, 40)).slice(0, 5) !== '%PDF-') fail(400, 'O arquivo não é um PDF');
+    const id = nextId();
+    pdfs.set(id, { name: body.pdf_name || 'ata.pdf', data: body.pdf.slice(28) });
+    db.meetings.push({ id, title, meeting_date, client_id, attendee_ids, other_attendees, pdf_name: body.pdf_name || 'ata.pdf', summary: null,
+      status: 'processing', error: null, created_by: user.id, created_at: now() });
+    simulateReading(id);
+    return { id };
+  });
+  route('GET', '/api/meetings/:id', ({ user, id }) => meetingDetail(user, id));
+  route('GET', '/api/meetings/:id/pdf', ({ user, id }) => {
+    loadMeeting(user, id);
+    if (!pdfs.has(id)) fail(404, 'No protótipo, o PDF fica guardado só até recarregar a página.');
+    return pdfs.get(id);
+  });
+  route('POST', '/api/meetings/:id/process', ({ user, id }) => {
+    const m = loadMeeting(user, id);
+    if (m.status === 'processing') fail(409, 'A ata já está sendo lida');
+    db.meeting_items = db.meeting_items.filter(i => !(i.meeting_id === id && i.status === 'pending'));
+    m.status = 'processing'; simulateReading(id);
+    return meetingDetail(user, id);
+  });
+  route('DELETE', '/api/meetings/:id', ({ user, id }) => {
+    const m = loadMeeting(user, id);
+    if (user.role !== 'admin' && m.created_by !== user.id) fail(403, 'Só quem lançou a reunião ou um administrador pode apagar');
+    db.meetings = db.meetings.filter(x => x.id !== id); db.meeting_items = db.meeting_items.filter(i => i.meeting_id !== id); pdfs.delete(id);
+    return { ok: true };
+  });
+  route('POST', '/api/meetings/:id/items', ({ user, id, body }) => {
+    const m = loadMeeting(user, id);
+    const it = { id: nextId(), meeting_id: id, title: str(body.title, 'título', { max: 200 }), description: '', kind: m.client_id ? 'external' : 'internal',
+      client_id: m.client_id, client_visible: false, assignee_ids: [], client_responsible: '', due_date: null, priority: 'normal', checklist: [], quote: '',
+      status: 'pending', task_id: null, decided_at: null, position: Math.max(0, ...db.meeting_items.filter(i => i.meeting_id === id).map(i => i.position)) + 1 };
+    db.meeting_items.push(it); return it;
+  });
+  route('PATCH', '/api/meeting-items/:id', ({ user, id, body }) => {
+    const it = loadItem(user, id);
+    if (it.status === 'approved') fail(409, 'Esta tarefa já foi lançada; edite no quadro de tarefas');
+    const kind = oneOf(body.kind, 'tipo', ['internal', 'external'], it.kind);
+    const client_id = 'client_id' in body ? (body.client_id ? Number(body.client_id) : null) : it.client_id;
+    if (client_id) checkClient(client_id);
+    if ('title' in body) it.title = str(body.title, 'título', { max: 200 });
+    if ('description' in body) it.description = str(body.description, 'descrição', { max: 10000, required: false });
+    if ('assignee_ids' in body) it.assignee_ids = checkAssignees(body.assignee_ids);
+    if ('client_responsible' in body) it.client_responsible = str(body.client_responsible, 'responsável no cliente', { max: 120, required: false });
+    if ('due_date' in body) it.due_date = date(body.due_date, 'Prazo');
+    if ('priority' in body) it.priority = oneOf(body.priority, 'prioridade', ['low', 'normal', 'high']);
+    if ('checklist' in body) it.checklist = checklistItems(body.checklist);
+    Object.assign(it, { kind, client_id, client_visible: !!clientVisible(kind, client_id, 'client_visible' in body ? body.client_visible : it.client_visible) });
+    return it;
+  });
+  route('POST', '/api/meeting-items/:id/approve', ({ user, id }) => {
+    const it = loadItem(user, id);
+    if (it.status === 'approved') fail(409, 'Esta tarefa já foi lançada');
+    const m = loadMeeting(user, it.meeting_id);
+    const description = [it.description, it.client_responsible ? `Responsável no cliente: ${it.client_responsible}` : '',
+      `Da reunião "${m.title}" de ${m.meeting_date.split('-').reverse().join('/')}.`].filter(Boolean).join('\n\n');
+    const task_id = createTask(user, { kind: it.kind, client_id: it.client_id, client_visible: it.client_visible, title: it.title, description,
+      due_date: it.due_date, priority: it.priority, assignee_ids: it.assignee_ids, checklist: it.checklist });
+    Object.assign(it, { status: 'approved', task_id, decided_at: now() });
+    return { task_id };
+  });
+  route('POST', '/api/meeting-items/:id/discard', ({ user, id }) => {
+    const it = loadItem(user, id);
+    if (it.status === 'approved') fail(409, 'Esta tarefa já foi lançada; cancele no quadro de tarefas');
+    Object.assign(it, { status: 'discarded', decided_at: now() }); return { ok: true };
+  });
+  route('POST', '/api/meeting-items/:id/restore', ({ user, id }) => {
+    const it = loadItem(user, id);
+    if (it.status !== 'discarded') fail(409, 'Só dá para voltar uma tarefa descartada');
+    Object.assign(it, { status: 'pending', decided_at: null }); return { ok: true };
   });
   route('GET', '/api/templates', ({ user }) => { requireStaff(user); return db.templates.slice().sort((a, b) => a.name.localeCompare(b.name)); });
   route('POST', '/api/templates', ({ user, body }) => {

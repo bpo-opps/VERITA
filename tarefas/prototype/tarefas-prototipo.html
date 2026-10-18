@@ -508,6 +508,27 @@ details > summary { cursor: pointer; font-weight: 600; }
 .choice-list { display: grid; gap: 8px; margin-bottom: 12px; }
 .choice-list .btn { justify-content: space-between; text-align: left; width: 100%; }
 
+/* reuniões */
+.sub-h { font-size: 14px; margin: 14px 0 6px; }
+.meeting-head .people { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+.meeting-head .summary { margin: 0 0 12px; color: var(--text); line-height: 1.5; }
+.section-h { margin: 18px 0 6px; align-items: center; }
+.section-h h2 { margin: 0; font-size: 16px; }
+.item-card { border-left: 3px solid var(--accent); }
+.item-card .quote { margin: -4px 0 12px; padding: 8px 12px; border-radius: 8px; background: var(--surface-2); font-size: 13px; line-height: 1.45; }
+.reading { display: flex; gap: 10px; align-items: center; }
+.spinner { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 2.5px solid var(--border); border-top-color: var(--accent); animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+.error-box { border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: var(--late-bg); }
+.add-item { flex-wrap: nowrap; }
+.add-item input { min-width: 0; }
+.plain-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.plain-list li { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.item-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
+.item-grid textarea { min-height: 0; }
+@media (max-width: 860px) { .item-grid { grid-template-columns: 1fr; } }
+
 #demo-bar { position: relative; z-index: 45; background: #0b0f17; color: #ffffff; padding-block: 8px; padding-left: var(--gutter-l); padding-right: var(--gutter-r); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
 #demo-bar strong { margin-right: 4px; }
 @media (min-width: 861px) { .sidebar { height: calc(100dvh - 44px); } }
@@ -674,7 +695,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
   function seed() {
     const OPPS_SYMBOL = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="24" y="6" width="16" height="36" rx="4" fill="#FB4F14"/><rect x="24" y="46" width="16" height="12" rx="4" fill="#FB4F14"/></svg>');
     const db = { seq: 100, org: { id: 1, name: 'Opps Consultoria', accent: '#FB4F14', logo: OPPS_SYMBOL },
-      clients: [], users: [], tasks: [], assignees: [], checklist: [], comments: [], adjustments: [], templates: [], notifications: [] };
+      clients: [], users: [], tasks: [], assignees: [], checklist: [], comments: [], adjustments: [], templates: [], notifications: [], meetings: [], meeting_items: [] };
     db.clients.push(
       { id: 1, name: 'Padaria Exemplo', logo: svgLogo('PE', '#b45309') },
       { id: 2, name: 'Clínica Modelo', logo: svgLogo('CM', '#4338ca') });
@@ -721,6 +742,8 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
   try { db = JSON.parse(localStorage.getItem(KEY)); } catch { db = null; }
   if (!db) db = seed();
   db.notifications = db.notifications || [];
+  db.meetings = db.meetings || [];
+  db.meeting_items = db.meeting_items || [];
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sem armazenamento: fica só na memória */ } };
   let sessionUser = null;
   try { sessionUser = Number(sessionStorage.getItem(KEY + '-user')) || null; } catch { /* idem */ }
@@ -982,7 +1005,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
   });
   route('GET', '/api/tasks', ({ user, query }) => list(user, query));
   route('GET', '/api/alerts', ({ user }) => list(user, {}).filter(t => t.alert).sort((a, b) => a.alert.days - b.alert.days));
-  route('POST', '/api/tasks', ({ user, body }) => {
+  function createTask(user, body) {
     requireStaff(user);
     if (body.kind === undefined) fail(400, 'Escolha se a tarefa é interna ou externa');
     const kind = oneOf(body.kind, 'tipo', ['internal', 'external']);
@@ -1007,8 +1030,9 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     setAssignees(id, assignees);
     checklist.forEach((text, i) => db.checklist.push({ id: nextId(), task_id: id, text, done: 0, position: i }));
     noticeCreated(id, user.id);
-    return { id };
-  });
+    return id;
+  }
+  route('POST', '/api/tasks', ({ user, body }) => ({ id: createTask(user, body) }));
   route('GET', '/api/tasks/:id', ({ user, id }) => detail(user, id));
   const CLIENT_FIELDS = ['status', 'start_date', 'progress'];
   route('PATCH', '/api/tasks/:id', ({ user, body, id }) => {
@@ -1119,6 +1143,127 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     completeTask(t, S.today(), null);
     db.comments.push({ id: nextId(), task_id: t.id, user_id: user.id, body: 'Entrega aprovada.', visible_to_client: 1, created_at: now() });
     return detail(user, id);
+  });
+  // Reuniões. No protótipo a leitura da ata é simulada: as sugestões são de exemplo, montadas com
+  // quem estava presente. O PDF fica só na memória desta aba (não cabe no armazenamento do navegador).
+  const pdfs = new Map();
+  const loadMeeting = (user, mid) => { requireStaff(user); const m = db.meetings.find(x => x.id === mid); if (!m) fail(404, 'Reunião não encontrada'); return m; };
+  const loadItem = (user, iid) => { const it = db.meeting_items.find(x => x.id === iid); if (!it) fail(404, 'Tarefa sugerida não encontrada'); loadMeeting(user, it.meeting_id); return it; };
+  const meetingDetail = (user, mid) => ({ ...loadMeeting(user, mid), ai: true,
+    items: db.meeting_items.filter(i => i.meeting_id === mid).sort((a, b) => a.position - b.position || a.id - b.id) });
+  function simulateReading(mid) {
+    setTimeout(() => {
+      const m = db.meetings.find(x => x.id === mid); if (!m) return;
+      const people = m.attendee_ids.map(uid => db.users.find(u => u.id === uid)).filter(Boolean);
+      const staff = people.filter(u => u.role !== 'client'), cli = people.find(u => u.role === 'client');
+      const s1 = staff[0], s2 = staff[1] || staff[0];
+      const first = u => (u ? u.name.split(' ')[0] : 'A equipe');
+      const c = db.clients.find(x => x.id === m.client_id);
+      const plus = n => S.addDays(m.meeting_date, n);
+      const sug = [
+        { title: 'Enviar o resumo da reunião com os próximos passos', kind: c ? 'external' : 'internal', who: s1, due: plus(1), priority: 'normal',
+          quote: `${first(s1)} fica de mandar o resumo amanhã.` },
+        c && { title: `Revisar a conciliação bancária da ${c.name}`, kind: 'external', who: s2, due: plus(7), priority: 'high',
+          checklist: ['Conferir os extratos', 'Apontar as divergências', 'Enviar o relatório'], quote: `${first(s2)} revisa a conciliação até a próxima semana.` },
+        c && { title: 'Receber os extratos bancários do mês', kind: 'external', who: s1, due: plus(3), priority: 'normal', cr: cli ? cli.name : 'Financeiro do cliente',
+          quote: `${cli ? first(cli) : 'O cliente'} manda os extratos até ${S.addDays(m.meeting_date, 3).split('-').reverse().slice(0, 2).join('/')}.` },
+        { title: 'Agendar a próxima reunião de acompanhamento', kind: 'internal', who: s1, due: null, priority: 'low', quote: 'Marcar a próxima conversa em um mês.' },
+      ].filter(Boolean);
+      sug.forEach((t, i) => db.meeting_items.push({ id: nextId(), meeting_id: mid, title: t.title, description: 'Combinado na reunião.', kind: t.kind,
+        client_id: m.client_id, client_visible: false, assignee_ids: t.who ? [t.who.id] : [], client_responsible: t.cr || '', due_date: t.due,
+        priority: t.priority, checklist: t.checklist || [], quote: t.quote, status: 'pending', task_id: null, decided_at: null, position: i + 1 }));
+      Object.assign(m, { status: 'ready', error: null,
+        summary: 'Protótipo: leitura simulada, com sugestões de exemplo montadas a partir de quem estava presente. No sistema instalado, a IA lê o PDF da ata e sugere as tarefas que estão nele.' });
+      persist();
+    }, 1800);
+  }
+  route('GET', '/api/meetings', ({ user }) => {
+    requireStaff(user);
+    return db.meetings.slice().sort((a, b) => b.meeting_date.localeCompare(a.meeting_date) || b.id - a.id).map(m => {
+      const its = db.meeting_items.filter(i => i.meeting_id === m.id), n = st => its.filter(i => i.status === st).length;
+      return { ...m, client_name: (db.clients.find(c => c.id === m.client_id) || {}).name || null, pending: n('pending'), approved: n('approved'), discarded: n('discarded') };
+    });
+  });
+  route('POST', '/api/meetings', ({ user, body }) => {
+    requireStaff(user);
+    const title = str(body.title, 'título', { max: 200 });
+    const meeting_date = date(body.meeting_date, 'Data da reunião'); if (!meeting_date) fail(400, 'Informe a data da reunião');
+    const client_id = body.client_id ? Number(body.client_id) : null; if (client_id) checkClient(client_id);
+    const attendee_ids = [...new Set((body.attendee_ids || []).map(Number))];
+    attendee_ids.forEach(uid => { if (!db.users.some(u => u.id === uid)) fail(400, 'Participante inválido'); });
+    const other_attendees = str(body.other_attendees, 'outros participantes', { max: 1000, required: false });
+    if (!attendee_ids.length && !other_attendees) fail(400, 'Marque quem estava presente');
+    if (typeof body.pdf !== 'string' || !body.pdf.startsWith('data:application/pdf;base64,')) fail(400, 'Anexe o PDF da reunião');
+    if (atob(body.pdf.slice(28, 40)).slice(0, 5) !== '%PDF-') fail(400, 'O arquivo não é um PDF');
+    const id = nextId();
+    pdfs.set(id, { name: body.pdf_name || 'ata.pdf', data: body.pdf.slice(28) });
+    db.meetings.push({ id, title, meeting_date, client_id, attendee_ids, other_attendees, pdf_name: body.pdf_name || 'ata.pdf', summary: null,
+      status: 'processing', error: null, created_by: user.id, created_at: now() });
+    simulateReading(id);
+    return { id };
+  });
+  route('GET', '/api/meetings/:id', ({ user, id }) => meetingDetail(user, id));
+  route('GET', '/api/meetings/:id/pdf', ({ user, id }) => {
+    loadMeeting(user, id);
+    if (!pdfs.has(id)) fail(404, 'No protótipo, o PDF fica guardado só até recarregar a página.');
+    return pdfs.get(id);
+  });
+  route('POST', '/api/meetings/:id/process', ({ user, id }) => {
+    const m = loadMeeting(user, id);
+    if (m.status === 'processing') fail(409, 'A ata já está sendo lida');
+    db.meeting_items = db.meeting_items.filter(i => !(i.meeting_id === id && i.status === 'pending'));
+    m.status = 'processing'; simulateReading(id);
+    return meetingDetail(user, id);
+  });
+  route('DELETE', '/api/meetings/:id', ({ user, id }) => {
+    const m = loadMeeting(user, id);
+    if (user.role !== 'admin' && m.created_by !== user.id) fail(403, 'Só quem lançou a reunião ou um administrador pode apagar');
+    db.meetings = db.meetings.filter(x => x.id !== id); db.meeting_items = db.meeting_items.filter(i => i.meeting_id !== id); pdfs.delete(id);
+    return { ok: true };
+  });
+  route('POST', '/api/meetings/:id/items', ({ user, id, body }) => {
+    const m = loadMeeting(user, id);
+    const it = { id: nextId(), meeting_id: id, title: str(body.title, 'título', { max: 200 }), description: '', kind: m.client_id ? 'external' : 'internal',
+      client_id: m.client_id, client_visible: false, assignee_ids: [], client_responsible: '', due_date: null, priority: 'normal', checklist: [], quote: '',
+      status: 'pending', task_id: null, decided_at: null, position: Math.max(0, ...db.meeting_items.filter(i => i.meeting_id === id).map(i => i.position)) + 1 };
+    db.meeting_items.push(it); return it;
+  });
+  route('PATCH', '/api/meeting-items/:id', ({ user, id, body }) => {
+    const it = loadItem(user, id);
+    if (it.status === 'approved') fail(409, 'Esta tarefa já foi lançada; edite no quadro de tarefas');
+    const kind = oneOf(body.kind, 'tipo', ['internal', 'external'], it.kind);
+    const client_id = 'client_id' in body ? (body.client_id ? Number(body.client_id) : null) : it.client_id;
+    if (client_id) checkClient(client_id);
+    if ('title' in body) it.title = str(body.title, 'título', { max: 200 });
+    if ('description' in body) it.description = str(body.description, 'descrição', { max: 10000, required: false });
+    if ('assignee_ids' in body) it.assignee_ids = checkAssignees(body.assignee_ids);
+    if ('client_responsible' in body) it.client_responsible = str(body.client_responsible, 'responsável no cliente', { max: 120, required: false });
+    if ('due_date' in body) it.due_date = date(body.due_date, 'Prazo');
+    if ('priority' in body) it.priority = oneOf(body.priority, 'prioridade', ['low', 'normal', 'high']);
+    if ('checklist' in body) it.checklist = checklistItems(body.checklist);
+    Object.assign(it, { kind, client_id, client_visible: !!clientVisible(kind, client_id, 'client_visible' in body ? body.client_visible : it.client_visible) });
+    return it;
+  });
+  route('POST', '/api/meeting-items/:id/approve', ({ user, id }) => {
+    const it = loadItem(user, id);
+    if (it.status === 'approved') fail(409, 'Esta tarefa já foi lançada');
+    const m = loadMeeting(user, it.meeting_id);
+    const description = [it.description, it.client_responsible ? `Responsável no cliente: ${it.client_responsible}` : '',
+      `Da reunião "${m.title}" de ${m.meeting_date.split('-').reverse().join('/')}.`].filter(Boolean).join('\n\n');
+    const task_id = createTask(user, { kind: it.kind, client_id: it.client_id, client_visible: it.client_visible, title: it.title, description,
+      due_date: it.due_date, priority: it.priority, assignee_ids: it.assignee_ids, checklist: it.checklist });
+    Object.assign(it, { status: 'approved', task_id, decided_at: now() });
+    return { task_id };
+  });
+  route('POST', '/api/meeting-items/:id/discard', ({ user, id }) => {
+    const it = loadItem(user, id);
+    if (it.status === 'approved') fail(409, 'Esta tarefa já foi lançada; cancele no quadro de tarefas');
+    Object.assign(it, { status: 'discarded', decided_at: now() }); return { ok: true };
+  });
+  route('POST', '/api/meeting-items/:id/restore', ({ user, id }) => {
+    const it = loadItem(user, id);
+    if (it.status !== 'discarded') fail(409, 'Só dá para voltar uma tarefa descartada');
+    Object.assign(it, { status: 'pending', decided_at: null }); return { ok: true };
   });
   route('GET', '/api/templates', ({ user }) => { requireStaff(user); return db.templates.slice().sort((a, b) => a.name.localeCompare(b.name)); });
   route('POST', '/api/templates', ({ user, body }) => {
@@ -1382,6 +1527,7 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
   filter: '<path d="M4 5h16l-6 8v5l-4 2v-7z"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  meet: '<rect x="3" y="6" width="12.5" height="12" rx="2"/><path d="M15.5 10.5l5-3v9l-5-3"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
   moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
@@ -1428,7 +1574,7 @@ function renderLogin(message) {
 // Estrutura: menu lateral (gaveta no celular) + barra superior com o título e a ação da página.
 function shell(content, { title, sub } = {}) {
   const nav = isStaff()
-    ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/alertas', 'Alertas', 'bell'],
+    ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/reunioes', 'Reuniões', 'meet'], ['#/alertas', 'Alertas', 'bell'],
       ['#/clientes', 'Clientes', 'building'], ['#/modelos', 'Modelos', 'copy'], ['#/relatorio', 'Relatório', 'chart'], ['#/equipe', 'Pessoas', 'users'],
       ...(isAdmin() ? [['#/avisos', 'Avisos', 'mail']] : []),
       ['#/config', 'Configurações', 'settings']]
@@ -1487,7 +1633,7 @@ async function boot() {
 }
 
 const ROUTES = {
-  '#/avisos': viewNotifications, '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
+  '#/avisos': viewNotifications, '#/reunioes': viewMeetings, '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
   '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings,
 };
 
@@ -1498,6 +1644,12 @@ async function route() {
   const deep = /^#\/tarefa\/(\d+)$/.exec(key);
   if (deep) { history.replaceState(null, '', '#/tarefas'); await route(); openTask(Number(deep[1])); return; }
   if (key === '#/avisos' && !isAdmin()) { location.hash = '#/painel'; return; }
+  const meeting = /^#\/reuniao\/(\d+)$/.exec(key);
+  if (meeting) {
+    if (!isStaff()) { location.hash = '#/painel'; return; }
+    await guard(() => viewMeeting(Number(meeting[1])))();
+    return;
+  }
   const fallback = '#/painel';
   const clientPages = ['#/painel', '#/tarefas', '#/recorrentes', '#/alertas', '#/config'];
   const view = ROUTES[key];
@@ -2564,6 +2716,220 @@ async function viewTemplates() {
       t.checklist.length ? h('ul', {}, t.checklist.map(i => h('li', {}, i))) : null))
       : h('div', { class: 'card-box empty' }, 'Nenhum modelo ainda.'),
   ]);
+}
+
+// ---------- reuniões: ata em PDF, triagem e OK ----------
+const readFileData = file => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = () => reject(new Error('Não deu para ler o arquivo'));
+  reader.readAsDataURL(file);
+});
+const MEETING_STATUS = m => m.status === 'processing' ? ['Lendo a ata…', 'warn']
+  : m.status === 'error' ? ['Precisa de atenção', 'late']
+  : m.pending ? [`${m.pending} para revisar`, 'warn'] : ['Revisada', 'ok'];
+
+function attendeePicker(prefix, clientId, selected = []) {
+  const box = h('div', {});
+  const paint = cid => {
+    const keep = [...box.querySelectorAll('input:checked')].map(i => Number(i.value));
+    const sel = new Set([...selected, ...keep]);
+    const staff = staffUsers();
+    const clients = state.users.filter(u => u.role === 'client' && u.active && (!cid || u.client_id === Number(cid)));
+    const group = (label, users) => users.length ? h('div', { class: 'field' }, h('span', { class: 'label' }, label),
+      h('div', { class: 'checks', role: 'group', 'aria-label': label },
+        users.map(u => h('label', {}, h('input', { type: 'checkbox', name: `${prefix}-who`, value: u.id, checked: sel.has(u.id) }), u.name,
+          !cid && u.client_name ? h('span', { class: 'muted small' }, ` (${u.client_name})`) : null)))) : null;
+    box.replaceChildren(group('Equipe Opps', staff), group(cid ? 'Do cliente' : 'Clientes', clients) ||
+      (cid ? h('p', { class: 'muted small' }, 'Esta empresa ainda não tem acesso de cliente cadastrado; quem esteve presente pode ir em "Outros participantes".') : null));
+  };
+  paint(clientId);
+  return { el: box, repaint: paint, value: () => [...box.querySelectorAll('input:checked')].map(i => Number(i.value)) };
+}
+
+async function viewMeetings() {
+  const list = await api('GET', '/api/meetings');
+  const err = h('p', { class: 'error', role: 'alert' });
+  const clientSel = h('select', { id: 'm-client', name: 'client_id' }, h('option', { value: '' }, `${state.org.name} (reunião interna)`),
+    state.clients.map(c => h('option', { value: c.id }, c.name)));
+  const who = attendeePicker('m', '');
+  clientSel.addEventListener('change', () => who.repaint(clientSel.value));
+  const fileInfo = h('span', { class: 'muted small' }, 'Nenhum arquivo escolhido');
+  const file = h('input', { id: 'm-pdf', type: 'file', accept: 'application/pdf,.pdf', class: 'sr-only', required: true,
+    onchange: e => { fileInfo.textContent = e.target.files[0] ? e.target.files[0].name : 'Nenhum arquivo escolhido'; } });
+  const submit = h('button', { class: 'btn primary', type: 'submit' }, 'Enviar para a triagem');
+  const form = h('form', { class: 'card-box', onsubmit: async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const f = file.files[0];
+    if (!f) { err.textContent = 'Anexe o PDF da reunião'; return; }
+    if (f.size > 15 * 1024 * 1024) { err.textContent = 'PDF grande demais (máximo 15 MB)'; return; }
+    submit.disabled = true; submit.textContent = 'Enviando…';
+    try {
+      const { id } = await api('POST', '/api/meetings', { title: fd.get('title'), meeting_date: fd.get('meeting_date'),
+        client_id: clientSel.value ? Number(clientSel.value) : null, attendee_ids: who.value(), other_attendees: fd.get('others'),
+        pdf: (await readFileData(f)).replace(/^data:[^,]*,/, 'data:application/pdf;base64,'), pdf_name: f.name });
+      location.hash = `#/reuniao/${id}`;
+    } catch (ex) { err.textContent = ex.message; submit.disabled = false; submit.textContent = 'Enviar para a triagem'; }
+  } },
+    h('h2', {}, 'Nova reunião'),
+    h('p', { class: 'muted' }, 'Anexe o PDF da ata do Google Meet e marque quem estava presente. A IA lê a ata e separa as tarefas; nada vai para o quadro antes do seu OK.'),
+    h('div', { class: 'grid2' },
+      h('div', { class: 'field' }, h('label', { for: 'm-title' }, 'Reunião'), h('input', { id: 'm-title', name: 'title', required: true, maxlength: 200, placeholder: 'Ex.: Alinhamento mensal' })),
+      h('div', { class: 'field' }, h('label', { for: 'm-date' }, 'Data'), h('input', { id: 'm-date', name: 'meeting_date', type: 'date', required: true, value: today() }))),
+    h('div', { class: 'field' }, h('label', { for: 'm-client' }, 'Empresa'), clientSel),
+    h('h3', { class: 'sub-h' }, 'Quem estava presente'),
+    who.el,
+    h('div', { class: 'field' }, h('label', { for: 'm-others' }, 'Outros participantes (opcional)'), h('input', { id: 'm-others', name: 'others', maxlength: 1000, placeholder: 'Ex.: Paulo (contador do cliente)' })),
+    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Ata da reunião (PDF)'),
+      h('div', { class: 'row' }, h('label', { class: 'btn file-btn', for: 'm-pdf' }, file, 'Escolher PDF'), fileInfo)),
+    err, submit);
+  shell([
+    form,
+    h('div', { class: 'card-box table-wrap' }, h('h2', {}, 'Reuniões lançadas'),
+      list.length ? h('table', { class: 'tasks' },
+        h('thead', {}, h('tr', {}, ['Data', 'Reunião', 'Empresa', 'Situação', 'Lançadas'].map(x => h('th', {}, x)))),
+        h('tbody', {}, list.map(m => {
+          const [label, cls] = MEETING_STATUS(m);
+          return h('tr', { class: 'row-link', onclick: () => { location.hash = `#/reuniao/${m.id}`; } },
+            h('td', { class: 'num' }, fmtDate(m.meeting_date)),
+            h('td', { 'data-label': 'Reunião' }, h('a', { href: `#/reuniao/${m.id}` }, m.title)),
+            h('td', { 'data-label': 'Empresa' }, m.client_name || `${state.org.name} (interna)`),
+            h('td', { 'data-label': 'Situação' }, h('span', { class: 'tag ' + cls }, label)),
+            h('td', { 'data-label': 'Lançadas', class: 'num' }, `${m.approved}` + (m.discarded ? ` · ${m.discarded} descartada${m.discarded > 1 ? 's' : ''}` : '')));
+        })))
+        : h('p', { class: 'muted' }, 'Nenhuma reunião lançada ainda.')),
+  ], { sub: 'Ata do Google Meet → tarefas, com o seu OK' });
+}
+
+let meetingPoll = null;
+async function viewMeeting(meetingId) {
+  clearTimeout(meetingPoll);
+  const m = await api('GET', `/api/meetings/${meetingId}`);
+  const here = location.hash;
+  if (m.status === 'processing') meetingPoll = setTimeout(() => { if (location.hash === here) route(); }, 2500);
+  const people = m.attendee_ids.map(uid => state.users.find(u => u.id === uid)).filter(Boolean);
+  const client = state.clients.find(c => c.id === m.client_id);
+  const pending = m.items.filter(i => i.status === 'pending');
+  const approved = m.items.filter(i => i.status === 'approved');
+  const discarded = m.items.filter(i => i.status === 'discarded');
+
+  const openPdf = guard(async () => {
+    const f = await api('GET', `/api/meetings/${meetingId}/pdf`);
+    const bytes = Uint8Array.from(atob(f.data), c => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    const a = h('a', { href: url, download: f.name, target: '_blank', rel: 'noopener' });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  });
+  const header = h('div', { class: 'card-box meeting-head' },
+    h('div', { class: 'row', style: 'align-items:flex-start' },
+      h('div', { class: 'grow' },
+        h('p', { class: 'muted small', style: 'margin:0' }, `${fmtDate(m.meeting_date)} · ${client ? client.name : `${state.org.name} (interna)`}`),
+        h('h2', { style: 'margin:2px 0 8px' }, m.title)),
+      h('a', { class: 'btn small', href: '#/reunioes' }, 'Voltar')),
+    h('div', { class: 'people' }, h('span', { class: 'muted small' }, 'Presentes: '),
+      people.map(u => h('span', { class: 'tag' }, u.name, u.role === 'client' ? ' (cliente)' : '')),
+      m.other_attendees ? h('span', { class: 'tag' }, m.other_attendees) : null),
+    m.summary ? h('p', { class: 'summary' }, m.summary) : null,
+    h('div', { class: 'row' },
+      m.pdf_name ? h('button', { class: 'btn small', type: 'button', onclick: openPdf }, `Abrir PDF (${m.pdf_name})`) : null,
+      m.status !== 'processing' && m.ai !== false ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
+        if (pending.length && !(await ask('Ler a ata de novo? As tarefas que ainda estão para revisar serão trocadas pela nova leitura. As já lançadas ficam.', { ok: 'Ler de novo' }))) return;
+        await api('POST', `/api/meetings/${meetingId}/process`); route();
+      }) }, 'Ler de novo') : null,
+      h('button', { class: 'btn small danger', type: 'button', onclick: guard(async () => {
+        if (!(await ask('Apagar esta reunião, o PDF e as sugestões? As tarefas já lançadas continuam no quadro.', { ok: 'Apagar reunião', danger: true }))) return;
+        await api('DELETE', `/api/meetings/${meetingId}`); toast('Reunião apagada'); location.hash = '#/reunioes';
+      }) }, 'Apagar')));
+
+  const status = m.status === 'processing'
+    ? h('div', { class: 'card-box reading', role: 'status' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'A IA está lendo a ata. Isso leva de alguns segundos a um ou dois minutos; esta tela atualiza sozinha.')
+    : m.status === 'error' ? h('div', { class: 'card-box error-box', role: 'alert' }, h('strong', {}, 'Não deu para ler a ata. '), m.error) : null;
+
+  const addForm = h('form', { class: 'row add-item', onsubmit: guard(async e => {
+    e.preventDefault();
+    const input = e.target.elements['mi-new'];
+    if (!input.value.trim()) return;
+    await api('POST', `/api/meetings/${meetingId}/items`, { title: input.value.trim() }); route();
+  }) },
+    h('label', { class: 'sr-only', for: 'mi-new' }, 'Tarefa que faltou'),
+    h('input', { id: 'mi-new', class: 'grow', maxlength: 200, placeholder: 'Faltou alguma? Escreva o título e adicione' }),
+    h('button', { class: 'btn', type: 'submit' }, icon('plus'), 'Adicionar'));
+
+  const approveAll = pending.length > 1 ? h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
+    if (!(await ask(`Lançar as ${pending.length} tarefas no quadro, como estão?`, { ok: `Lançar ${pending.length} tarefas` }))) return;
+    let ok = 0;
+    for (const it of pending) {
+      try { await api('POST', `/api/meeting-items/${it.id}/approve`); ok++; } catch (ex) { toast(`"${it.title}": ${ex.message}`, 6000); }
+    }
+    if (ok) toast(`${ok} tarefa${ok > 1 ? 's' : ''} lançada${ok > 1 ? 's' : ''}`);
+    route();
+  }) }, icon('check'), `Lançar todas (${pending.length})`) : null;
+
+  shell([
+    header, status,
+    m.status !== 'processing' ? h('section', { 'aria-labelledby': 'mi-h' },
+      h('div', { class: 'row section-h' }, h('h2', { id: 'mi-h', class: 'grow' }, pending.length ? `Para revisar (${pending.length})` : 'Para revisar'), approveAll),
+      pending.length ? h('p', { class: 'muted small' }, 'Confira cada tarefa: o que você muda fica salvo na hora. "OK, lançar" leva para o quadro e avisa os responsáveis.') : null,
+      pending.map(meetingItemCard),
+      !pending.length && m.status === 'ready' ? h('div', { class: 'card-box empty' }, approved.length ? 'Tudo revisado.' : 'A IA não encontrou tarefas nesta ata. Se faltou alguma, adicione abaixo.') : null,
+      h('div', { class: 'card-box' }, addForm)) : null,
+    approved.length ? h('section', { class: 'card-box' }, h('h2', {}, `Lançadas (${approved.length})`),
+      h('ul', { class: 'plain-list' }, approved.map(it => h('li', {}, h('span', { class: 'tag ok' }, 'Lançada'), ' ',
+        it.task_id ? h('a', { href: `#/tarefa/${it.task_id}` }, it.title) : h('span', {}, it.title, h('span', { class: 'muted small' }, ' (tarefa apagada)')))))) : null,
+    discarded.length ? h('details', { class: 'card-box' }, h('summary', {}, `Descartadas (${discarded.length})`),
+      h('ul', { class: 'plain-list' }, discarded.map(it => h('li', {}, h('span', { class: 'grow' }, it.title),
+        h('button', { class: 'btn small', type: 'button', onclick: guard(async () => { await api('POST', `/api/meeting-items/${it.id}/restore`); route(); }) }, 'Voltar para revisão'))))) : null,
+  ], { title: 'Reunião', sub: m.title });
+}
+
+function meetingItemCard(it) {
+  const p = `mi${it.id}`;
+  const saved = h('span', { class: 'muted small', role: 'status' });
+  let timer, last = Promise.resolve();
+  // Salva cada mudança na hora, uma depois da outra; o OK espera a última terminar.
+  const save = patch => (last = last.then(async () => {
+    try {
+      await api('PATCH', `/api/meeting-items/${it.id}`, patch);
+      saved.textContent = 'Salvo'; clearTimeout(timer); timer = setTimeout(() => { saved.textContent = ''; }, 1500);
+    } catch (ex) { toast(ex.message, 5000); }
+  }));
+  const kc = kindClientFields(p, it.kind, it.client_id, it.client_visible, v => save(v));
+  const field = (label, id, input) => h('div', { class: 'field' }, h('label', { for: id }, label), input);
+  const who = h('div', { class: 'checks', role: 'group', 'aria-label': 'Responsáveis' },
+    staffUsers().map(u => h('label', {}, h('input', { type: 'checkbox', value: u.id, checked: it.assignee_ids.includes(u.id),
+      onchange: () => save({ assignee_ids: [...who.querySelectorAll('input:checked')].map(i => Number(i.value)) }) }), u.name)));
+  const card = h('article', { class: 'card-box item-card', 'aria-label': it.title },
+    field('Tarefa', `${p}-title`, h('input', { id: `${p}-title`, value: it.title, maxlength: 200, required: true,
+      onchange: e => e.target.value.trim() && save({ title: e.target.value.trim() }) })),
+    it.quote ? h('blockquote', { class: 'quote' }, h('span', { class: 'muted small' }, 'Na ata: '), `“${it.quote}”`) : null,
+    h('div', { class: 'item-grid' },
+      h('div', {}, kc.el,
+        field('Responsável no cliente (opcional)', `${p}-cr`, h('input', { id: `${p}-cr`, value: it.client_responsible, maxlength: 120, placeholder: 'Quem do cliente ficou de fazer',
+          onchange: e => save({ client_responsible: e.target.value }) }))),
+      h('div', {},
+        h('div', { class: 'field' }, h('span', { class: 'label' }, 'Responsáveis (equipe)'), who),
+        h('div', { class: 'grid2' },
+          field('Prazo', `${p}-due`, h('input', { id: `${p}-due`, type: 'date', value: it.due_date || '', onchange: e => save({ due_date: e.target.value || null }) })),
+          field('Prioridade', `${p}-pri`, h('select', { id: `${p}-pri`, onchange: e => save({ priority: e.target.value }) },
+            Object.entries(PRIORITY).map(([v, l]) => h('option', { value: v, selected: v === it.priority }, l)))))),
+      field('Descrição', `${p}-desc`, h('textarea', { id: `${p}-desc`, rows: 2, onchange: e => save({ description: e.target.value }) }, it.description)),
+      field('Checklist (um item por linha)', `${p}-ck`, h('textarea', { id: `${p}-ck`, rows: Math.max(2, it.checklist.length),
+        onchange: e => save({ checklist: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) }) }, it.checklist.join('\n')))),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
+        // Garante que o que foi digitado por último (sem sair do campo) também vai.
+        document.activeElement?.blur?.();
+        await new Promise(r => setTimeout(r, 0));
+        await last;
+        const r = await api('POST', `/api/meeting-items/${it.id}/approve`);
+        toast('Tarefa lançada no quadro', 4000); route();
+        return r;
+      }) }, icon('check'), 'OK, lançar'),
+      h('button', { class: 'btn', type: 'button', onclick: guard(async () => { await api('POST', `/api/meeting-items/${it.id}/discard`); route(); }) }, 'Descartar'),
+      saved));
+  return card;
 }
 
 // ---------- relatório ----------
