@@ -31,7 +31,7 @@ A senha temporária aparece uma vez no terminal; troque em Configurações. O ba
 ## O que faz
 
 - **Interna ou externa.** Externa exige um cliente e aparece para ele e para a equipe toda. Interna é da consultoria e só quem criou e os responsáveis veem (uma interna do administrador sem outros responsáveis só ele vê). Ligada a um cliente, a interna pode ser marcada como "Visível para o cliente"; ligada à própria consultoria, nunca.
-- **Quadro com 7 colunas:** A fazer, Em andamento, Em revisão, Atrasada, Concluída no prazo, Cancelada, Concluída fora do prazo. Cancelar exige motivo; cancelada não gera alerta nem a próxima repetição, e pode ser reaberta. "Atrasada" é automática quando o prazo passa. Ao concluir, informa-se a data de término, e ela decide entre no prazo e fora do prazo.
+- **Quadro com 7 colunas:** A fazer, Em andamento, Em revisão, Atrasada, Concluída no prazo, Concluída fora do prazo, Cancelada. Cancelar exige motivo; cancelada não gera alerta nem a próxima repetição, e pode ser reaberta. "Atrasada" é automática quando o prazo passa. Ao concluir, informa-se a data de término, e ela decide entre no prazo e fora do prazo.
 - **Datas:** prazo (ao criar), início (quando a pessoa começou: preenchido sozinho ao ir para Em andamento, e informar o início de uma tarefa a fazer já a leva para Em andamento) e término (a data real, pedida ao concluir).
 - **Card com Salvar e Sair.** As alterações ficam pendentes até Salvar; Sair com alterações pendentes pede confirmação. No topo do card: nome, empresa, início, checklist, % de execução, prazo, prioridade e responsáveis; depois descrição, alertas, repetição, ajustes e comentários.
 - **% de execução:** informado à mão; se a tarefa tem checklist, segue os itens marcados.
@@ -43,9 +43,14 @@ A senha temporária aparece uma vez no terminal; troque em Configurações. O ba
 - **Visões:** Kanban, Lista (agrupada por situação, empresa, responsável, prazo ou tipo) e Calendário (pelo prazo; no celular vira agenda). Filtros por tipo, empresa, responsável, prazo e recorrência (só recorrentes ou só únicas).
 - **Também:** ajustes internos e do cliente, comentários (visíveis ao cliente só quando marcados, e nunca em interna), modelos com checklist, relatório por empresa com % no prazo.
 
+## Painel e Recorrentes
+
+- **Painel** (tela inicial): saudação com a data e quatro números (executadas na semana, atrasadas, vencem hoje, próximas 7 dias); filtros de período e empresa; produtividade (concluídas, % no prazo, tempo médio do início ao término, canceladas), tarefas por situação, concluídas por semana (8 semanas), carga do time por responsável, em aberto por empresa e a lista das atrasadas. Passar o mouse ou tocar numa barra mostra o valor. Tudo sai das tarefas que a pessoa pode ver, então o cliente tem o painel só das dele.
+- **Recorrentes**: só as tarefas que se repetem, agrupadas por frequência, com o próximo prazo de cada uma e o botão "Nova recorrente" (a repetição já vem obrigatória). "Mostrar concluídas e canceladas" traz o histórico.
+
 ## Visual
 
-Menu lateral com ícones, barra superior com o título e a ação da página, indicadores no topo das tarefas (em aberto, atrasadas, vencem em 7 dias, % no prazo), cards com cantos arredondados. Tema claro e escuro conforme o aparelho. Fonte Plus Jakarta Sans (Google Fonts; sem internet, cai na fonte do sistema).
+Menu lateral claro com ícones, barra superior com o título e a ação da página, indicadores no topo das tarefas (em aberto, atrasadas, vencem em 7 dias, % no prazo), cards com cantos arredondados. Tema claro e escuro conforme o aparelho. Fonte Plus Jakarta Sans (Google Fonts; sem internet, cai na fonte do sistema).
 
 No celular: o menu vira gaveta, a nova tarefa vira botão flutuante, os filtros recolhem atrás de "Filtros", o quadro rola de lado coluna a coluna, a lista vira cards, o card de tarefa ocupa a tela com Salvar e Sair fixos embaixo e os diálogos sobem de baixo.
 

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
 <style>
-/* Layout: menu lateral escuro fixo + área de trabalho clara; no celular o menu vira gaveta,
+/* Layout: menu lateral claro fixo + área de trabalho em cinza bem leve; no celular o menu vira gaveta,
    a nova tarefa vira botão flutuante e o card de tarefa ocupa a tela. */
 :root {
   --bg: #f4f6fa;
@@ -145,25 +145,24 @@ label, .label { display: block; font-weight: 600; font-size: 13px; margin: 0 0 6
 
 /* ---------- estrutura: menu lateral + conteúdo ---------- */
 .app { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); min-height: 100%; }
-.sidebar { position: sticky; top: 0; height: 100vh; height: 100dvh; background: var(--side-bg); color: var(--side-text);
+.sidebar { position: sticky; top: 0; height: 100vh; height: 100dvh; background: var(--surface); color: var(--text-muted); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; padding: 18px 12px; padding-left: max(12px, env(safe-area-inset-left, 0px)); gap: 4px; overflow-y: auto; z-index: 30; }
-.brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 18px; font-weight: 700; font-size: 15px; color: #fff; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 18px; font-weight: 700; font-size: 15px; color: var(--text); }
 .brand .logo { width: 32px; height: 32px; border-radius: 9px; border: 0; }
 .brand .logo.fallback { background: var(--accent); color: var(--on-accent); }
-.nav-label { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--side-muted); padding: 12px 12px 6px; }
-.nav-link { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 9px; color: var(--side-text); text-decoration: none; font-weight: 500; }
-.nav-link:hover { background: var(--side-hover); color: #fff; }
-.nav-link[aria-current="page"] { background: color-mix(in srgb, var(--accent) 28%, var(--side-bg)); color: #fff; }
-.nav-link[aria-current="page"] svg { color: color-mix(in srgb, var(--accent) 40%, #fff); }
+.nav-label { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: 12px 12px 6px; opacity: .8; }
+.nav-link { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 10px; color: var(--text-muted); text-decoration: none; font-weight: 600; }
+.nav-link:hover { background: var(--surface-2); color: var(--text); }
+.nav-link[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
 .badge { margin-left: auto; display: inline-flex; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: #f04438; color: #fff;
   font-size: 11px; font-weight: 700; align-items: center; justify-content: center; }
-.side-user { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 12px; border-top: 1px solid #1d2939; }
-.side-user .who-name { font-weight: 600; color: #fff; font-size: 13px; line-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side-user .who-role { font-size: 12px; color: var(--side-muted); }
-.side-user .avatar { width: 34px; height: 34px; font-size: 12px; background: #344054; color: #fff; border: 0; }
-.side-user .icon-btn { background: transparent; border-color: #344054; color: var(--side-text); margin-left: auto; }
+.side-user { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 12px; border-top: 1px solid var(--border); }
+.side-user .who-name { font-weight: 600; color: var(--text); font-size: 13px; line-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-user .who-role { font-size: 12px; color: var(--text-muted); }
+.side-user .avatar { width: 34px; height: 34px; font-size: 12px; background: var(--accent-soft); color: var(--accent); border: 0; margin: 0; }
+.side-user .icon-btn { margin-left: auto; }
 .content { min-width: 0; display: flex; flex-direction: column; }
-.topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; min-height: 64px; background: color-mix(in srgb, var(--bg) 88%, transparent);
+.topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; min-height: 64px; background: color-mix(in srgb, var(--surface) 90%, transparent);
   backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); padding-block: 10px; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); }
 .topbar .menu-btn { display: none; }
 .topbar .page-sub { color: var(--text-muted); font-size: 13px; }
@@ -357,20 +356,82 @@ details > summary { cursor: pointer; font-weight: 600; }
 @keyframes pop { from { transform: scale(.98); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
+/* ---------- painel ---------- */
+.dash { display: flex; flex-direction: column; gap: 16px; }
+.hello { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 20px 22px; border-radius: 16px; border: 1px solid var(--border);
+  background: linear-gradient(120deg, var(--accent-soft), transparent 60%), var(--surface); box-shadow: var(--shadow); }
+.hello-date { margin: 0; color: var(--text-muted); font-size: 13px; }
+.hello-title { font-size: 22px; line-height: 30px; margin: 2px 0 0; letter-spacing: -.01em; }
+.hello-chips { display: grid; grid-template-columns: repeat(4, minmax(0, auto)); gap: 8px; }
+.hchip { display: flex; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; min-width: 128px; }
+.hchip-icon { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; background: var(--surface-2); color: var(--text-muted); flex: none; }
+.hchip-icon svg { width: 18px; height: 18px; }
+.hchip.good .hchip-icon { background: var(--s-ontime-bg); color: var(--s-ontime); }
+.hchip.bad .hchip-icon { background: var(--s-overdue-bg); color: var(--s-overdue); }
+.hchip.warn .hchip-icon { background: var(--high-bg); color: var(--warning); }
+.hchip-label { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); }
+.hchip-value { font-size: 20px; line-height: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hchip.bad .hchip-value { color: var(--danger); }
+.hchip-sub { font-size: 11px; color: var(--text-muted); }
+.dash-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.dash-filters select { width: auto; }
+.dash-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px; box-shadow: var(--shadow); min-width: 0; }
+.panel-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
+.panel-head h2 { margin: 0; }
+.panel-head p { margin: 2px 0 0; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.stat { border: 1px solid var(--border); border-radius: 12px; padding: 14px 10px; text-align: center; background: var(--surface-2); }
+.stat-value { font-size: 24px; line-height: 30px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.stat.good .stat-value { color: var(--success); }
+.stat.bad .stat-value { color: var(--danger); }
+.stat-label { font-size: 12px; color: var(--text-muted); font-weight: 600; margin-top: 2px; }
+.stat-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.hbars { display: flex; flex-direction: column; gap: 10px; }
+.hbar { display: grid; grid-template-columns: minmax(90px, 38%) minmax(0, 1fr) 44px; gap: 10px; align-items: center; border-radius: 6px; }
+.hbar:focus-visible { outline-offset: 4px; }
+.hbar-label { display: flex; gap: 6px; align-items: center; font-size: 13px; min-width: 0; }
+.hbar-label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar-track { height: 14px; background: var(--col); border-radius: 0 4px 4px 0; overflow: hidden; display: block; }
+.hbar-fill { display: block; height: 100%; background: var(--accent); border-radius: 0 4px 4px 0; min-width: 2px; }
+.hbar-fill.col-todo { background: var(--s-todo); }
+.hbar-fill.col-doing { background: var(--s-doing); }
+.hbar-fill.col-review { background: var(--s-review); }
+.hbar-fill.col-overdue { background: var(--s-overdue); }
+.hbar-fill.col-done_on_time { background: var(--s-ontime); }
+.hbar-fill.col-done_late { background: var(--s-late); }
+.hbar-fill.col-cancelled { background: var(--s-cancel); }
+.hbar-value { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 13px; }
+.cols-chart { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; height: 190px; align-items: end; border-bottom: 1px solid var(--border); padding-bottom: 0; }
+.colc { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; position: relative; padding-bottom: 20px; }
+.colc-bar { width: min(24px, 70%); background: var(--accent); border-radius: 4px 4px 0 0; display: block; }
+.colc-value { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.colc-label { position: absolute; bottom: 2px; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.load { display: flex; flex-direction: column; gap: 10px; }
+.load-row { display: grid; grid-template-columns: 28px minmax(80px, 30%) minmax(0, 1fr) auto; gap: 10px; align-items: center; border-radius: 6px; }
+.load-row .avatar { margin: 0; width: 28px; height: 28px; }
+.load-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.load-nums { display: flex; gap: 10px; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart-tip { position: fixed; z-index: 90; background: var(--toast-bg); color: var(--toast-fg); font-size: 12px; line-height: 16px; padding: 6px 10px; border-radius: 8px;
+  pointer-events: none; max-width: 280px; box-shadow: var(--shadow-lg); }
+.card-box h2 .with-logo svg { width: 18px; height: 18px; color: var(--accent); }
+
 /* ---------- tablet ---------- */
 @media (max-width: 1100px) {
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-grid { grid-template-columns: minmax(0, 1fr); }
+  .hello-chips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* ---------- celular ---------- */
 @media (max-width: 860px) {
   .app { grid-template-columns: minmax(0, 1fr); }
-  .sidebar { position: fixed; inset: 0 auto 0 0; width: min(290px, 84vw); transform: translateX(-102%); transition: transform .2s ease-out; box-shadow: var(--shadow-lg);
+  .sidebar { position: fixed; inset: 0 auto 0 0; border-right: 0; width: min(290px, 84vw); transform: translateX(-102%); transition: transform .2s ease-out; box-shadow: var(--shadow-lg);
     padding-top: max(18px, env(safe-area-inset-top, 0px)); }
   .app.nav-open .sidebar { transform: none; }
   .app.nav-open .scrim { display: block; position: fixed; inset: 0; background: var(--scrim); z-index: 25; }
   /* Sem desfoque no celular: backdrop-filter faria o botão flutuante se posicionar pela barra, não pela tela. */
-  .topbar { min-height: 56px; padding-left: var(--gutter-l); padding-right: var(--gutter-r); top: env(safe-area-inset-top, 0px); backdrop-filter: none; background: var(--bg); }
+  .topbar { min-height: 56px; padding-left: var(--gutter-l); padding-right: var(--gutter-r); top: env(safe-area-inset-top, 0px); backdrop-filter: none; background: var(--surface); }
   .topbar .menu-btn { display: inline-flex; }
   .topbar h1 { font-size: 17px; }
   .topbar .new-task { position: fixed; right: max(18px, env(safe-area-inset-right, 0px)); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 40;
@@ -405,6 +466,16 @@ details > summary { cursor: pointer; font-weight: 600; }
   table.tasks td:first-child::before { content: none; }
   table.tasks .progress { min-width: 140px; }
   .card-box { padding: 14px; }
+}
+@media (max-width: 640px) {
+  .hello { padding: 16px; }
+  .hello-chips { width: 100%; }
+  .hchip { min-width: 0; padding: 8px 10px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .load-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
+  .load-row .hbar-track { grid-column: 2 / -1; grid-row: 2; }
+  .cols-chart { gap: 4px; }
+  .colc-label { font-size: 10px; }
 }
 @media (max-width: 420px) {
   .grid2, .grid3 { grid-template-columns: 1fr; }
@@ -447,8 +518,8 @@ details > summary { cursor: pointer; font-weight: 600; }
     { key: 'review', name: 'Em revisão' },
     { key: 'overdue', name: 'Atrasada' },
     { key: 'done_on_time', name: 'Concluída no prazo' },
-    { key: 'cancelled', name: 'Cancelada' },
     { key: 'done_late', name: 'Concluída fora do prazo' },
+    { key: 'cancelled', name: 'Cancelada' },
   ];
 
   const ALERTS = [
@@ -1171,6 +1242,10 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
   filter: '<path d="M4 5h16l-6 8v5l-4 2v-7z"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  home: '<rect x="3.5" y="3.5" width="7" height="8" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="5" rx="1.5"/><rect x="13.5" y="11.5" width="7" height="9" rx="1.5"/><rect x="3.5" y="14.5" width="7" height="6" rx="1.5"/>',
+  repeat: '<path d="M17 3l3 3-3 3"/><path d="M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3"/><path d="M20 13v2a3 3 0 0 1-3 3H4"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
 };
 function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1210,16 +1285,20 @@ function renderLogin(message) {
 // Estrutura: menu lateral (gaveta no celular) + barra superior com o título e a ação da página.
 function shell(content, { title, sub } = {}) {
   const nav = isStaff()
-    ? [['#/tarefas', 'Tarefas', 'board'], ['#/alertas', 'Alertas', 'bell'], ['#/clientes', 'Clientes', 'building'], ['#/modelos', 'Modelos', 'copy'],
-      ['#/relatorio', 'Relatório', 'chart'], ['#/equipe', 'Pessoas', 'users'], ['#/config', 'Configurações', 'settings']]
-    : [['#/tarefas', 'Minhas entregas', 'board'], ['#/alertas', 'Alertas', 'bell'], ['#/config', 'Minha conta', 'settings']];
+    ? [['#/painel', 'Painel', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/alertas', 'Alertas', 'bell'],
+      ['#/clientes', 'Clientes', 'building'], ['#/modelos', 'Modelos', 'copy'], ['#/relatorio', 'Relatório', 'chart'], ['#/equipe', 'Pessoas', 'users'],
+      ['#/config', 'Configurações', 'settings']]
+    : [['#/painel', 'Painel', 'home'], ['#/tarefas', 'Minhas entregas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/alertas', 'Alertas', 'bell'],
+      ['#/config', 'Minha conta', 'settings']];
   const current = location.hash.split('?')[0] || nav[0][0];
   const page = nav.find(n => n[0] === current) || nav[0];
   document.title = `${title || page[1]} · ${state.org.name}`;
   const shellEl = h('div', { class: 'app' });
   const toggleNav = open => shellEl.classList.toggle('nav-open', open);
-  const newTask = isStaff() && current === '#/tarefas'
-    ? h('button', { class: 'btn primary new-task', type: 'button', 'aria-label': 'Nova tarefa', onclick: () => newTaskModal() }, icon('plus'), h('span', { class: 'label-text' }, 'Nova tarefa'))
+  const recurringPage = current === '#/recorrentes';
+  const newTask = isStaff() && ['#/tarefas', '#/painel', '#/recorrentes'].includes(current)
+    ? h('button', { class: 'btn primary new-task', type: 'button', 'aria-label': recurringPage ? 'Nova tarefa recorrente' : 'Nova tarefa',
+      onclick: () => newTaskModal({ recurring: recurringPage }) }, icon('plus'), h('span', { class: 'label-text' }, recurringPage ? 'Nova recorrente' : 'Nova tarefa'))
     : null;
   shellEl.append(
     h('aside', { class: 'sidebar', 'aria-label': 'Menu' },
@@ -1259,15 +1338,15 @@ async function boot() {
 }
 
 const ROUTES = {
-  '#/tarefas': viewTasks, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
+  '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
   '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings,
 };
 
 async function route() {
   if (!state.me) return;
   const key = location.hash.split('?')[0];
-  const fallback = '#/tarefas';
-  const clientPages = ['#/tarefas', '#/alertas', '#/config'];
+  const fallback = '#/painel';
+  const clientPages = ['#/painel', '#/tarefas', '#/recorrentes', '#/alertas', '#/config'];
   const view = ROUTES[key];
   if (!view || (!isStaff() && !clientPages.includes(key))) { location.hash = fallback; return; }
   try { await refreshAlerts(); } catch { /* segue sem o contador */ }
@@ -1518,6 +1597,172 @@ function calendarView(tasks) {
     noDue.length ? h('details', { class: 'no-due' }, h('summary', {}, `Sem prazo (${noDue.length})`), h('div', { class: 'chips' }, noDue.map(chip))) : null);
 }
 
+// ---------- painel (dashboard) ----------
+// Tudo calculado das tarefas que a pessoa pode ver, então cada visão tem o próprio painel.
+const dash = { period: 30, client: '' };
+let tipEl = null;
+// Dica ao passar o mouse (ou tocar) em barras e linhas do painel: lê data-tip.
+function wireTips(root) {
+  if (!tipEl) { tipEl = h('div', { class: 'chart-tip', role: 'tooltip', hidden: true }); document.body.append(tipEl); }
+  const show = (el, x, y) => {
+    tipEl.textContent = el.dataset.tip; tipEl.hidden = false;
+    const w = tipEl.offsetWidth, ht = tipEl.offsetHeight;
+    tipEl.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, x - w / 2)) + 'px';
+    tipEl.style.top = Math.max(8, y - ht - 12) + 'px';
+  };
+  root.addEventListener('pointermove', e => { const el = e.target.closest('[data-tip]'); if (el) show(el, e.clientX, e.clientY); else tipEl.hidden = true; });
+  root.addEventListener('pointerleave', () => { tipEl.hidden = true; });
+  root.addEventListener('focusin', e => { const el = e.target.closest('[data-tip]'); if (el) { const r = el.getBoundingClientRect(); show(el, r.left + r.width / 2, r.top); } });
+  root.addEventListener('focusout', () => { tipEl.hidden = true; });
+}
+const fmtNum = n => n.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+const pctText = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '–');
+
+// Barras horizontais: rótulo, barra (uma cor, ou a cor da situação), valor na ponta.
+function hbars(rows, { colorOf, unit = '' } = {}) {
+  const max = Math.max(1, ...rows.map(r => r.value));
+  if (!rows.length) return h('p', { class: 'empty' }, 'Sem dados no período.');
+  return h('div', { class: 'hbars' }, rows.map(r => h('div', { class: 'hbar', tabindex: '0', 'data-tip': r.tip || `${r.label}: ${fmtNum(r.value)}${unit}` },
+    h('span', { class: 'hbar-label' }, r.icon || null, h('span', {}, r.label)),
+    h('span', { class: 'hbar-track' }, h('span', { class: 'hbar-fill' + (colorOf ? ` col-${colorOf(r)}` : ''), style: `width:${(r.value / max) * 100}%` })),
+    h('span', { class: 'hbar-value' }, fmtNum(r.value) + unit))));
+}
+// Colunas por semana: uma série, valor no topo de cada coluna.
+function columns(rows) {
+  const max = Math.max(1, ...rows.map(r => r.value));
+  return h('div', { class: 'cols-chart' }, rows.map(r => h('div', { class: 'colc', tabindex: '0', 'data-tip': r.tip },
+    h('span', { class: 'colc-value' }, r.value || ''),
+    h('span', { class: 'colc-bar', style: `height:${Math.max(r.value ? 4 : 0, (r.value / max) * 100)}%` }),
+    h('span', { class: 'colc-label' }, r.label))));
+}
+const greet = () => { const hr = new Date().getHours(); return hr < 12 ? 'Bom dia' : hr < 18 ? 'Boa tarde' : 'Boa noite'; };
+function weekStart(iso) { const d = new Date(iso + 'T12:00'); const dow = (d.getDay() + 6) % 7; return S.addDays(iso, -dow); }
+
+async function viewDashboard() {
+  const all = (await api('GET', '/api/tasks')).filter(t => !dash.client || String(t.client_id ?? 'org') === dash.client);
+  const now = today();
+  const since = S.addDays(now, -dash.period);
+  const open = all.filter(t => !['done', 'cancelled'].includes(t.status));
+  const done = all.filter(t => t.status === 'done' && t.completed_on >= since);
+  const onTime = done.filter(t => t.column === 'done_on_time').length;
+  const cancelled = all.filter(t => t.status === 'cancelled' && t.cancelled_on >= since).length;
+  const withStart = done.filter(t => t.start_date);
+  const avgDays = withStart.length ? withStart.reduce((n, t) => n + Math.max(0, S.daysBetween(t.start_date, t.completed_on)), 0) / withStart.length : null;
+  const weekDone = all.filter(t => t.status === 'done' && t.completed_on >= weekStart(now)).length;
+  const overdue = all.filter(t => t.column === 'overdue');
+  const dueToday = open.filter(t => t.due_date === now).length;
+  const next7 = open.filter(t => t.due_date > now && t.due_date <= S.addDays(now, 7)).length;
+
+  const chip = (ic, label, value, sub, cls = '') => h('div', { class: 'hchip ' + cls }, h('span', { class: 'hchip-icon' }, icon(ic)),
+    h('div', {}, h('div', { class: 'hchip-label' }, label), h('div', { class: 'hchip-value' }, value), h('div', { class: 'hchip-sub' }, sub)));
+  const stat = (label, value, sub, cls = '') => h('div', { class: 'stat ' + cls }, h('div', { class: 'stat-value' }, value), h('div', { class: 'stat-label' }, label), sub ? h('div', { class: 'stat-sub' }, sub) : null);
+
+  // Concluídas por semana, últimas 8 semanas.
+  const weeks = [];
+  for (let i = 7; i >= 0; i--) {
+    const start = S.addDays(weekStart(now), -7 * i);
+    const end = S.addDays(start, 6);
+    const n = all.filter(t => t.status === 'done' && t.completed_on >= start && t.completed_on <= end).length;
+    weeks.push({ label: fmtShort(start), value: n, tip: `Semana de ${fmtDate(start)}: ${n} concluída${n === 1 ? '' : 's'}` });
+  }
+  const byStatus = S.COLUMNS.map(c => ({ key: c.key, label: c.name, value: all.filter(t => t.column === c.key && (!['done_on_time', 'done_late', 'cancelled'].includes(c.key) || (t.completed_on || t.cancelled_on) >= since)).length }));
+
+  const filterRow = h('div', { class: 'dash-filters' },
+    select('d-period', 'Período', dash.period, [[7, 'Últimos 7 dias'], [30, 'Últimos 30 dias'], [90, 'Últimos 90 dias'], [365, 'Últimos 12 meses']], x => { dash.period = Number(x); route(); }),
+    isStaff() ? select('d-client', 'Empresa', dash.client, [['', 'Todas as empresas'], ['org', `${state.org.name} (própria)`], ...state.clients.map(c => [c.id, c.name])], x => { dash.client = x; route(); }) : null);
+
+  const panel = (title, sub, body, extra) => h('section', { class: 'panel' }, h('div', { class: 'panel-head' }, h('div', {}, h('h2', {}, title), sub ? h('p', { class: 'muted small' }, sub) : null), extra || null), body);
+
+  const people = isStaff() ? state.users.filter(u => u.role !== 'client' && u.active).map(u => {
+    const mine = all.filter(t => t.assignees.some(a => a.id === u.id));
+    const mineDone = mine.filter(t => t.status === 'done' && t.completed_on >= since);
+    return { u, open: mine.filter(t => !['done', 'cancelled'].includes(t.status)).length, late: mine.filter(t => t.column === 'overdue').length,
+      done: mineDone.length, onTime: mineDone.filter(t => t.column === 'done_on_time').length };
+  }).sort((a, b) => b.late - a.late || b.open - a.open) : [];
+  const maxLoad = Math.max(1, ...people.map(p => p.open));
+
+  const companies = isStaff() ? (() => {
+    const m = new Map();
+    for (const t of open) {
+      const key = t.client_id || 'org';
+      const r = m.get(key) || { label: where(t), value: 0, late: 0, logo: taskLogo(t, 'xs') };
+      r.value++; if (t.column === 'overdue') r.late++;
+      m.set(key, r);
+    }
+    return [...m.values()].sort((a, b) => b.value - a.value).slice(0, 8)
+      .map(r => ({ ...r, icon: r.logo, tip: `${r.label}: ${r.value} em aberto, ${r.late} atrasada${r.late === 1 ? '' : 's'}` }));
+  })() : [];
+
+  const content = h('div', { class: 'dash' },
+    h('div', { class: 'hello' },
+      h('div', {}, h('p', { class: 'hello-date' }, (d => d[0].toUpperCase() + d.slice(1))(new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }))),
+        h('h2', { class: 'hello-title' }, `${greet()}, ${state.me.name.split(' ')[0]}!`)),
+      h('div', { class: 'hello-chips' },
+        chip('check', 'Executadas', weekDone, 'esta semana', 'good'),
+        chip('alert', 'Atrasadas', overdue.length, 'pedem atenção', overdue.length ? 'bad' : ''),
+        chip('clock', 'Hoje', dueToday, 'vencendo', dueToday ? 'warn' : ''),
+        chip('calendar', 'Próximas', next7, '7 dias'))),
+    filterRow,
+    h('div', { class: 'dash-grid' },
+      panel('Indicador de produtividade', `Concluídas nos últimos ${dash.period} dias`, h('div', { class: 'stats' },
+        stat('Concluídas', fmtNum(done.length), null),
+        stat('Concluídas no prazo', pctText(onTime, done.length), done.length ? `${onTime} de ${done.length}` : null, done.length ? (onTime / done.length >= 0.8 ? 'good' : 'bad') : ''),
+        stat('Tempo médio de execução', avgDays === null ? '–' : `${fmtNum(avgDays)} d`, withStart.length ? 'do início ao término' : 'sem datas de início'),
+        stat('Canceladas', fmtNum(cancelled), null))),
+      panel('Tarefas por situação', 'Abertas agora; concluídas e canceladas no período',
+        hbars(byStatus, { colorOf: r => r.key })),
+      panel('Concluídas por semana', 'Últimas 8 semanas', columns(weeks)),
+      isStaff() ? panel('Carga do time', 'Em aberto e atrasadas por responsável',
+        people.length ? h('div', { class: 'load' }, people.map(p => h('div', { class: 'load-row', tabindex: '0',
+          'data-tip': `${p.u.name}: ${p.open} em aberto, ${p.late} atrasada${p.late === 1 ? '' : 's'}, ${p.done} concluída${p.done === 1 ? '' : 's'} no período (${pctText(p.onTime, p.done)} no prazo)` },
+          h('span', { class: 'avatar' }, initials(p.u.name)),
+          h('span', { class: 'load-name' }, p.u.name),
+          h('span', { class: 'hbar-track' }, h('span', { class: 'hbar-fill', style: `width:${(p.open / maxLoad) * 100}%` })),
+          h('span', { class: 'load-nums' }, h('span', { class: p.late ? 'danger' : 'muted' }, `${p.late} atras.`), h('span', {}, `${p.open} em and.`)))))
+          : h('p', { class: 'empty' }, 'Ninguém na equipe ainda.')) : null,
+      isStaff() ? panel('Em aberto por empresa', 'As 8 com mais tarefas abertas', hbars(companies)) : null,
+      overdue.length ? panel('Atrasadas', 'Da mais antiga para a mais recente', h('div', {},
+        overdue.sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 6).map(t => h('button', { class: 'alert-row', type: 'button', onclick: () => openTask(t.id) },
+          taskLogo(t), h('span', { class: 'grow' }, h('strong', {}, t.title), h('span', { class: 'muted small' }, ` · ${where(t)}`)),
+          h('span', { class: 'tag late' }, S.alertText(t.alert)))))) : null));
+  shell(content, { title: 'Painel' });
+  wireTips(document.querySelector('.dash'));
+}
+
+// ---------- recorrentes ----------
+const recView = { history: false };
+async function viewRecurring() {
+  const tasks = await api('GET', '/api/tasks?recurring=1');
+  const shown = recView.history ? tasks : tasks.filter(t => !['done', 'cancelled'].includes(t.status));
+  const order = Object.keys(S.RECURRENCE);
+  const groups = order.filter(k => k !== 'none').map(k => ({ k, items: shown.filter(t => t.recurrence === k) })).filter(g => g.items.length);
+  const freq = t => S.RECURRENCE[t.recurrence].replace(/ \(.*/, '') + (t.recurrence === 'custom' ? ` (a cada ${t.recurrence_every} dias)` : '');
+  shell([
+    h('div', { class: 'toolbar' },
+      h('p', { class: 'muted', style: 'margin:0;flex:1;min-width:220px' }, 'Lance aqui o que se repete. Cada linha é a repetição atual; ao concluir, a próxima é criada com o prazo avançado.'),
+      h('label', { class: 'check inline', for: 'r-hist' }, h('input', { type: 'checkbox', id: 'r-hist', checked: recView.history, onchange: e => { recView.history = e.target.checked; route(); } }), 'Mostrar concluídas e canceladas')),
+    h('div', { class: 'kpis' },
+      h('div', { class: 'kpi' }, h('span', { class: 'kpi-label' }, 'Recorrentes em aberto'), h('span', { class: 'kpi-value' }, tasks.filter(t => !['done', 'cancelled'].includes(t.status)).length)),
+      h('div', { class: 'kpi ' + (tasks.some(t => t.column === 'overdue') ? 'alert' : '') }, h('span', { class: 'kpi-label' }, 'Atrasadas'), h('span', { class: 'kpi-value' }, tasks.filter(t => t.column === 'overdue').length)),
+      h('div', { class: 'kpi' }, h('span', { class: 'kpi-label' }, 'Vencem em 7 dias'), h('span', { class: 'kpi-value' }, tasks.filter(t => !['done', 'cancelled'].includes(t.status) && t.due_date && t.due_date >= today() && t.due_date <= S.addDays(today(), 7)).length)),
+      h('div', { class: 'kpi' }, h('span', { class: 'kpi-label' }, 'Frequências em uso'), h('span', { class: 'kpi-value' }, new Set(tasks.map(t => t.recurrence)).size))),
+    groups.length ? groups.map(g => h('div', { class: 'card-box' },
+      h('h2', {}, h('span', { class: 'with-logo' }, icon('repeat'), `${S.RECURRENCE[g.k].replace(/ \(.*/, '')} (${g.items.length})`)),
+      h('div', { class: 'table-wrap' }, h('table', { class: 'tasks' },
+        h('thead', {}, h('tr', {}, ['Tarefa', 'Empresa', 'Frequência', 'Responsáveis', 'Próximo prazo', 'Situação', 'Execução'].map(x => h('th', {}, x)))),
+        h('tbody', {}, g.items.sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999')).map(t => h('tr', { class: 'row-link', onclick: () => openTask(t.id) },
+          h('td', {}, h('button', { class: 'link', type: 'button', onclick: e => { e.stopPropagation(); openTask(t.id); } }, t.title),
+            t.alert ? h('div', { class: 'small ' + (t.alert.kind === 'overdue' ? 'danger' : 'warn') }, '⏰ ' + S.alertText(t.alert)) : null),
+          h('td', { 'data-label': 'Empresa' }, h('span', { class: 'with-logo' }, taskLogo(t), where(t)), internalTag(t)),
+          h('td', { 'data-label': 'Frequência' }, freq(t)),
+          h('td', { 'data-label': 'Responsáveis' }, t.assignees.map(a => a.name).join(', ') || '–'),
+          h('td', { class: 'num', 'data-label': 'Próximo prazo' }, fmtDate(t.due_date) || '–'),
+          h('td', { 'data-label': 'Situação' }, h('span', { class: `pill col-${t.column}` }, colName(t.column))),
+          h('td', { 'data-label': 'Execução' }, progressBar(t.progress)))))))))
+      : h('div', { class: 'card-box empty' }, isStaff() ? 'Nenhuma tarefa recorrente ainda. Use "Nova recorrente" para lançar a primeira.' : 'Nenhuma tarefa recorrente.'),
+  ], { title: 'Recorrentes' });
+}
+
 // ---------- alertas ----------
 async function viewAlerts() {
   document.title = 'Alertas';
@@ -1699,22 +1944,22 @@ function checklistBuilder(initial = []) {
     value: () => { const pending = input.value.trim(); return pending ? [...items, pending] : items; },
   };
 }
-function recurrenceFields(prefix, rec = 'none', every = '') {
+function recurrenceFields(prefix, rec = 'none', every = '', { required = false } = {}) {
   const n = h('input', { id: `${prefix}-every`, type: 'number', min: 1, max: 3650, value: every || 30, style: 'width:90px' });
   const wrap = h('span', { class: 'row', hidden: rec !== 'custom' }, 'a cada', n, 'dias');
   const sel = h('select', { id: `${prefix}-rec`, onchange: () => { wrap.hidden = sel.value !== 'custom'; } },
-    Object.entries(S.RECURRENCE).map(([v, l]) => h('option', { value: v, selected: v === rec }, l)));
+    Object.entries(S.RECURRENCE).filter(([v]) => !required || v !== 'none').map(([v, l]) => h('option', { value: v, selected: v === rec }, l)));
   return {
     el: h('div', { class: 'field' }, h('label', { for: `${prefix}-rec` }, 'Repetição'), h('div', { class: 'row' }, h('div', { class: 'grow' }, sel), wrap)),
     sel, n, value: () => ({ recurrence: sel.value, recurrence_every: sel.value === 'custom' ? Number(n.value) : null }),
   };
 }
 
-function newTaskModal() {
+function newTaskModal({ recurring = false } = {}) {
   modal(close => {
     const err = h('p', { class: 'error', role: 'alert' });
     const kc = kindClientFields('n', state.clients.length ? 'external' : 'internal', state.view.client && state.view.client !== 'org' ? Number(state.view.client) : null, false);
-    const rec = recurrenceFields('n');
+    const rec = recurrenceFields('n', recurring ? 'monthly' : 'none', '', { required: recurring });
     const ck = checklistBuilder();
     const tplSel = h('select', { id: 'n-tpl', name: 'template_id', onchange: e => {
       const tpl = state.templates.find(x => String(x.id) === e.target.value);
@@ -1734,8 +1979,10 @@ function newTaskModal() {
         close(); toast('Tarefa criada'); await route(); openTask(id);
       } catch (ex) { err.textContent = ex.message; }
     } },
-      h('h2', {}, 'Nova tarefa'),
+      h('h2', {}, recurring ? 'Nova tarefa recorrente' : 'Nova tarefa'),
+      recurring ? h('p', { class: 'muted small', style: 'margin-top:-4px' }, 'Lance uma vez: ao concluir cada repetição, a próxima é criada com o prazo avançado.') : null,
       kc.el,
+      recurring ? rec.el : null,
       h('div', { class: 'field' }, h('label', { for: 'n-tpl' }, 'Modelo (opcional)'), tplSel),
       h('div', { class: 'field' }, h('label', { for: 'n-title' }, 'Título'), h('input', { id: 'n-title', name: 'title', maxlength: 200, placeholder: 'Se vazio, usa o título do modelo' })),
       h('div', { class: 'field' }, h('label', { for: 'n-desc' }, 'Descrição'), h('textarea', { id: 'n-desc', name: 'description' })),
@@ -1745,7 +1992,7 @@ function newTaskModal() {
         h('div', { class: 'field' }, h('label', { for: 'n-pri' }, 'Prioridade'),
           h('select', { id: 'n-pri', name: 'priority' }, Object.entries(PRIORITY).map(([v, l]) => h('option', { value: v, selected: v === 'normal' }, l))))),
       h('div', { class: 'field' }, h('span', { class: 'label' }, 'Alertas do prazo'), alertChecks([1])),
-      rec.el,
+      recurring ? null : rec.el,
       h('div', { class: 'field' }, h('span', { class: 'label' }, 'Responsáveis'), assigneeChecks([state.me.id])),
       err,
       h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, 'Criar tarefa'),

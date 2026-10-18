@@ -66,7 +66,7 @@ test('regras compartilhadas: meses, colunas, alertas, %', () => {
   assert.equal(S.column({ status: 'done', due_date: '2026-10-17', completed_on: '2026-10-18' }, now), 'done_late');
   assert.equal(S.column({ status: 'done', due_date: null, completed_on: '2026-10-18' }, now), 'done_on_time');
   assert.equal(S.column({ status: 'cancelled', due_date: '2026-10-01' }, now), 'cancelled', 'cancelada não vira atrasada');
-  assert.deepEqual(S.COLUMNS.map(c => c.key), ['todo', 'doing', 'review', 'overdue', 'done_on_time', 'cancelled', 'done_late']);
+  assert.deepEqual(S.COLUMNS.map(c => c.key), ['todo', 'doing', 'review', 'overdue', 'done_on_time', 'done_late', 'cancelled']);
   assert.equal(S.alert({ status: 'cancelled', due_date: '2026-10-01', alerts: [1] }, now), null);
   const admin = { id: 1, role: 'admin' }, member = { id: 2, role: 'member' };
   const own = { kind: 'internal', created_by: 1, client_id: null };
