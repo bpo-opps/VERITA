@@ -315,8 +315,8 @@
     bar.querySelector('[data-as=admin]').addEventListener('click', () => as('admin@demo.local'));
     bar.querySelector('[data-as=member]').addEventListener('click', () => as('equipe@demo.local'));
     bar.querySelector('[data-as=client]').addEventListener('click', () => as('cliente@demo.local'));
-    bar.querySelector('[data-reset]').addEventListener('click', () => {
-      if (!confirm('Apagar tudo o que foi feito neste protótipo e voltar aos dados iniciais?')) return;
+    bar.querySelector('[data-reset]').addEventListener('click', async () => {
+      if (!(await window.askConfirm('Apagar tudo o que foi feito neste protótipo e voltar aos dados iniciais?', { ok: 'Restaurar dados', danger: true }))) return;
       try { localStorage.removeItem(KEY); } catch { /* idem */ }
       db = seed(); persist(); location.hash = ''; window.boot();
     });

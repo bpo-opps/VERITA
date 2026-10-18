@@ -54,3 +54,5 @@ Depois de mudar `public/` ou `prototype/mock-api.js`, gere de novo:
 ```bash
 node prototype/build.js
 ```
+
+`node prototype/build.js` também gera `prototype/tarefas-pagina.html`, a mesma página sem o esqueleto HTML, publicada como página privada no claude.ai para abrir no celular. Ali não existem `confirm()` nem `prompt()`, por isso a interface usa diálogos próprios (`ask` e `askText` em `public/main.js`).

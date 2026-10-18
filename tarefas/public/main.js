@@ -13,7 +13,7 @@ function h(tag, attrs = {}, ...children) {
     else if (k === 'checked' || k === 'selected' || k === 'disabled') el[k] = !!v;
     else el.setAttribute(k, v === true ? '' : v);
   }
-  for (const c of children.flat()) {
+  for (const c of children.flat(Infinity)) {
     if (c === null || c === undefined || c === false) continue;
     el.append(c instanceof Node ? c : document.createTextNode(String(c)));
   }
@@ -307,6 +307,31 @@ function newTaskModal() {
   });
 }
 
+// Confirmações dentro da página (algumas telas onde o app roda não mostram confirm() nem prompt()).
+function ask(message, { ok = 'Confirmar', danger = false } = {}) {
+  return new Promise(resolve => {
+    modal(close => h('div', {},
+      h('p', { class: 'confirm-text' }, message),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), type: 'button', onclick: () => { resolve(true); close(); } }, ok),
+        h('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Cancelar'))),
+    { onclose: () => resolve(false) });
+  });
+}
+function askText(label, value = '') {
+  return new Promise(resolve => {
+    modal(close => {
+      const input = h('input', { id: 'ask-text', value, maxlength: 120, required: true });
+      return h('form', { onsubmit: e => { e.preventDefault(); resolve(input.value.trim() || null); close(); } },
+        h('div', { class: 'field' }, h('label', { for: 'ask-text' }, label), input),
+        h('div', { class: 'row' },
+          h('button', { class: 'btn primary', type: 'submit' }, 'Salvar'),
+          h('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Cancelar')));
+    }, { onclose: () => resolve(null) });
+  });
+}
+window.askConfirm = ask;
+
 // ---------- detalhe da tarefa ----------
 let drawerClose = null;
 async function openTask(id) {
@@ -370,7 +395,7 @@ async function openTask(id) {
       commentsSection(staff),
 
       isAdmin() ? h('div', { class: 'section' }, h('button', { class: 'btn danger', onclick: guard(async () => {
-        if (!confirm('Apagar esta tarefa? Isso não pode ser desfeito.')) return;
+        if (!(await ask('Apagar esta tarefa? Isso não pode ser desfeito.', { ok: 'Apagar tarefa', danger: true }))) return;
         await api('DELETE', `/api/tasks/${t.id}`); dirty = true; close(); toast('Tarefa apagada');
       }) }, 'Apagar tarefa')) : null,
     ].filter(Boolean));
@@ -494,7 +519,7 @@ async function viewClients() {
         h('td', { style: 'text-align:right' },
           h('button', { class: 'btn small', onclick: () => { state.filters.client_id = String(c.id); location.hash = '#/quadro'; } }, 'Ver quadro'), ' ',
           isAdmin() ? h('button', { class: 'btn small', onclick: guard(async () => {
-            const name = prompt('Novo nome do cliente', c.name);
+            const name = await askText('Novo nome do cliente', c.name);
             if (name && name.trim()) { await api('PATCH', `/api/clients/${c.id}`, { name }); route(); }
           }) }, 'Renomear') : null)))))
       : h('p', { class: 'empty' }, 'Nenhum cliente ainda.')),
@@ -568,7 +593,7 @@ async function viewTemplates() {
       err, h('button', { class: 'btn primary', type: 'submit' }, 'Salvar modelo')),
     state.templates.length ? state.templates.map(t => h('div', { class: 'card-box' },
       h('div', { class: 'row' }, h('h2', { class: 'grow', style: 'margin:0' }, t.name),
-        h('button', { class: 'btn small danger', onclick: guard(async () => { if (confirm(`Apagar o modelo "${t.name}"?`)) { await api('DELETE', `/api/templates/${t.id}`); route(); } }) }, 'Apagar')),
+        h('button', { class: 'btn small danger', onclick: guard(async () => { if (await ask(`Apagar o modelo "${t.name}"?`, { ok: 'Apagar modelo', danger: true })) { await api('DELETE', `/api/templates/${t.id}`); route(); } }) }, 'Apagar')),
       h('p', { class: 'muted' }, `Cria: "${t.title}"` + (t.checklist.length ? ` com ${t.checklist.length} itens` : '')),
       t.checklist.length ? h('ul', {}, t.checklist.map(i => h('li', {}, i))) : null))
       : h('div', { class: 'card-box empty' }, 'Nenhum modelo ainda.'),
