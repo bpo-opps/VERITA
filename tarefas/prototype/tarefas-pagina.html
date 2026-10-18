@@ -1132,6 +1132,26 @@ const state = {
   view: { layout: 'kanban', kind: '', client: '', assignee: '', due: '', rec: '', q: '', group: 'column', archived: false, month: '' },
 };
 const VIEW_KEY = 'tarefas-visao';
+
+// Tema: claro (padrão), escuro ou automático (segue o aparelho). Guardado neste aparelho.
+const THEME_KEY = 'tarefas-tema';
+let themePref = 'light';
+try { themePref = localStorage.getItem(THEME_KEY) || 'light'; } catch { /* sem armazenamento: fica no claro */ }
+const isDarkNow = () => themePref === 'dark' || (themePref === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+function applyTheme() {
+  const root = document.documentElement;
+  const want = themePref === 'auto' ? null : themePref;
+  if (want && root.getAttribute('data-theme') !== want) root.setAttribute('data-theme', want);
+  if (!want && root.hasAttribute('data-theme')) root.removeAttribute('data-theme');
+}
+function setTheme(pref) {
+  themePref = pref;
+  try { localStorage.setItem(THEME_KEY, pref); } catch { /* idem */ }
+  applyTheme();
+}
+applyTheme();
+// Se a página onde o sistema roda trocar o tema por conta própria, a escolha da pessoa prevalece.
+new MutationObserver(() => { if (themePref !== 'auto') applyTheme(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 try { Object.assign(state.view, JSON.parse(localStorage.getItem(VIEW_KEY)) || {}, { q: '', archived: false }); } catch { /* sem armazenamento */ }
 const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(state.view)); } catch { /* idem */ } };
 
@@ -1282,6 +1302,8 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
   filter: '<path d="M4 5h16l-6 8v5l-4 2v-7z"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
   home: '<rect x="3.5" y="3.5" width="7" height="8" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="5" rx="1.5"/><rect x="13.5" y="11.5" width="7" height="9" rx="1.5"/><rect x="3.5" y="14.5" width="7" height="6" rx="1.5"/>',
   repeat: '<path d="M17 3l3 3-3 3"/><path d="M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3"/><path d="M20 13v2a3 3 0 0 1-3 3H4"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
@@ -1357,6 +1379,10 @@ function shell(content, { title, sub } = {}) {
       h('header', { class: 'topbar' },
         h('button', { class: 'icon-btn menu-btn', type: 'button', 'aria-label': 'Abrir menu', onclick: () => toggleNav(true) }, icon('menu')),
         h('div', { class: 'grow' }, h('h1', {}, title || page[1]), sub ? h('div', { class: 'page-sub' }, sub) : null),
+        h('button', { class: 'icon-btn theme-btn', type: 'button', title: isDarkNow() ? 'Usar tema claro' : 'Usar tema escuro',
+          'aria-label': isDarkNow() ? 'Usar tema claro' : 'Usar tema escuro',
+          onclick: e => { setTheme(isDarkNow() ? 'light' : 'dark'); const btn = e.currentTarget; btn.replaceChildren(icon(isDarkNow() ? 'sun' : 'moon'));
+            btn.title = btn.ariaLabel = isDarkNow() ? 'Usar tema claro' : 'Usar tema escuro'; } }, icon(isDarkNow() ? 'sun' : 'moon')),
         newTask),
       h('main', {}, content)));
   app().replaceChildren(shellEl);
@@ -2448,7 +2474,14 @@ async function viewSettings() {
   document.title = 'Configurações';
   const msg = h('p', { role: 'status' });
   const pwErr = h('p', { class: 'error', role: 'alert' });
+  const themes = [['light', 'Claro', 'sun'], ['dark', 'Escuro', 'moon'], ['auto', 'Automático', 'settings']];
   shell([
+    h('div', { class: 'card-box' },
+      h('h2', {}, 'Aparência'),
+      h('p', { class: 'muted' }, 'Vale para este aparelho. Automático segue o tema do celular ou do computador.'),
+      h('div', { class: 'seg', role: 'group', 'aria-label': 'Tema' },
+        themes.map(([v, l, ic]) => h('button', { type: 'button', class: 'seg-btn', 'aria-pressed': String(themePref === v),
+          onclick: () => { setTheme(v); route(); } }, icon(ic), l)))),
     isAdmin() ? h('form', { class: 'card-box', onsubmit: async e => {
       e.preventDefault();
       const fd = new FormData(e.target);

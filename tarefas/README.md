@@ -53,7 +53,7 @@ A senha temporária aparece uma vez no terminal; troque em Configurações. O ba
 Identidade da Opps (manual de marca): laranja #FB4F14 e degradê #FBD200 → #FF6A00, logo colorido no claro e branco no escuro (`public/brand/`), símbolo "!" nos espaços pequenos. Botões e links usam um tom derivado da cor da marca que passa no contraste de leitura; a cor pode ser trocada em Configurações e o tom é recalculado.
 
 
-Menu lateral claro com ícones, barra superior com o título e a ação da página, indicadores no topo das tarefas (em aberto, atrasadas, vencem em 7 dias, % no prazo), cards com cantos arredondados. Tema claro e escuro conforme o aparelho. Fonte Plus Jakarta Sans (Google Fonts; sem internet, cai na fonte do sistema).
+Menu lateral claro com ícones, barra superior com o título e a ação da página, indicadores no topo das tarefas (em aberto, atrasadas, vencem em 7 dias, % no prazo), cards com cantos arredondados. Abre no tema claro; o botão de sol e lua na barra superior alterna para o escuro, e Configurações → Aparência oferece Claro, Escuro ou Automático (segue o aparelho). A escolha fica guardada em cada aparelho. Fonte Plus Jakarta Sans (Google Fonts; sem internet, cai na fonte do sistema).
 
 No celular: o menu vira gaveta, a nova tarefa vira botão flutuante, os filtros recolhem atrás de "Filtros", o quadro rola de lado coluna a coluna, a lista vira cards, o card de tarefa ocupa a tela com Salvar e Sair fixos embaixo e os diálogos sobem de baixo.
 
