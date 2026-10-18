@@ -1,0 +1,1101 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tarefas (protótipo)</title>
+<style>
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --border: #e2e5e9;
+  --border-input: #858d97;
+  --text: #15181d;
+  --text-muted: #5a636e;
+  --accent: #0f766e;
+  --on-accent: #ffffff;
+  --danger: #b42318;
+  --warning: #92400e;
+  --success: #166534;
+  --radius: 8px;
+  --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.1);
+  --font: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/20px var(--font); }
+h1 { font-size: 20px; line-height: 28px; margin: 0; }
+h2 { font-size: 16px; line-height: 24px; margin: 0 0 8px; }
+a { color: var(--accent); }
+button, input, select, textarea { font: inherit; color: inherit; }
+input, select, textarea {
+  border: 1px solid var(--border-input); border-radius: 6px; padding: 6px 8px; background: var(--surface); min-height: 32px; width: 100%;
+}
+textarea { min-height: 72px; resize: vertical; }
+label { display: block; font-weight: 500; margin: 0 0 4px; }
+.field { margin-bottom: 12px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row > .grow { flex: 1; min-width: 160px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.btn { border: 1px solid var(--border-input); background: var(--surface); border-radius: 6px; padding: 6px 12px; min-height: 32px; cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--bg); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.primary:hover { filter: brightness(.95); }
+.btn.danger { color: var(--danger); border-color: var(--danger); }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.small { padding: 2px 8px; min-height: 26px; font-size: 13px; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+header.top { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 16px; display: flex; align-items: center; gap: 16px; min-height: 52px; flex-wrap: wrap; }
+.brand { font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.brand .dot { width: 14px; height: 14px; border-radius: 4px; background: var(--accent); }
+nav.main { display: flex; gap: 2px; flex-wrap: wrap; flex: 1; }
+nav.main a { text-decoration: none; color: var(--text-muted); padding: 6px 10px; border-radius: 6px; }
+nav.main a[aria-current="page"] { color: var(--text); background: var(--bg); font-weight: 600; }
+.who { color: var(--text-muted); display: flex; gap: 8px; align-items: center; }
+
+main { padding: 16px; max-width: 1600px; margin: 0 auto; }
+.toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.toolbar select, .toolbar input { width: auto; min-width: 140px; }
+.card-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+.muted { color: var(--text-muted); }
+.empty { color: var(--text-muted); text-align: center; padding: 24px 8px; }
+
+.board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(210px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.col { background: #eceef1; border-radius: var(--radius); padding: 8px; min-height: 200px; display: flex; flex-direction: column; gap: 8px; }
+.col.over { outline: 2px dashed var(--accent); }
+.col-head { display: flex; justify-content: space-between; font-weight: 600; padding: 4px 4px 0; }
+.col-head .count { color: var(--text-muted); font-weight: 400; }
+.task { display: block; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; box-shadow: var(--shadow); cursor: pointer; }
+.task:hover { border-color: var(--border-input); }
+.task.dragging { opacity: .4; }
+.task .title { font-weight: 600; margin-bottom: 6px; overflow-wrap: anywhere; }
+.meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; line-height: 16px; color: var(--text-muted); }
+.tag { border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; background: var(--bg); }
+.tag.late { color: var(--danger); border-color: var(--danger); background: #fff5f4; }
+.tag.high { color: var(--warning); border-color: #f0c78a; background: #fffaf0; }
+.tag.adj { color: #6b21a8; border-color: #d8b4fe; background: #faf5ff; }
+.tag.ok { color: var(--success); border-color: #a7d7b5; background: #f2fbf4; }
+.avatars { margin-left: auto; display: flex; padding-left: 6px; }
+.avatar { width: 22px; height: 22px; border-radius: 50%; background: #d7dbe0; color: var(--text); font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; margin-left: 2px; }
+
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--text-muted); font-weight: 600; font-size: 13px; }
+.table-wrap { overflow-x: auto; }
+
+.overlay { position: fixed; inset: 0; background: rgba(16,24,40,.35); display: flex; justify-content: flex-end; z-index: 10; }
+.overlay.center { justify-content: center; align-items: flex-start; padding-top: 8vh; }
+.drawer { background: var(--surface); width: min(640px, 100%); height: 100%; overflow-y: auto; padding: 20px; box-shadow: -8px 0 24px rgba(16,24,40,.12); }
+.modal { background: var(--surface); width: min(520px, calc(100% - 32px)); border-radius: 12px; padding: 20px; max-height: 84vh; overflow-y: auto; }
+.drawer-head { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 16px; }
+.drawer-head input { font-size: 18px; font-weight: 700; border-color: transparent; }
+.drawer-head input:hover, .drawer-head input:focus { border-color: var(--border-input); }
+.section { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 560px) { .grid2 { grid-template-columns: 1fr; } }
+.check { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
+.check input[type=checkbox] { width: 16px; min-height: 16px; height: 16px; }
+.check .done { text-decoration: line-through; color: var(--text-muted); }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.checks label { font-weight: 400; display: flex; gap: 6px; align-items: center; margin: 0; }
+.checks input { width: 16px; min-height: 16px; }
+.comment { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.comment:last-child { border-bottom: 0; }
+.comment .by { font-weight: 600; }
+.comment .body { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
+.adj-item { padding: 8px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 8px; }
+.adj-item.open { border-color: #d8b4fe; background: #faf5ff; }
+.bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin: 6px 0 0; }
+.bar > span { display: block; height: 100%; background: var(--accent); }
+
+.portal-section { margin-bottom: 24px; }
+.portal-task { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 8px; }
+.portal-task.waiting { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+.login { max-width: 360px; margin: 12vh auto; background: var(--surface); padding: 24px; border-radius: 12px; border: 1px solid var(--border); }
+.error { color: var(--danger); margin: 8px 0; }
+#toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: #fff; padding: 8px 16px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 20; }
+#toast.show { opacity: 1; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+#demo-bar { background: #15181d; color: #fff; padding: 8px 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+#demo-bar strong { margin-right: 4px; }
+#demo-bar span { color: #c5cad1; flex: 1; min-width: 200px; }
+#demo-bar button { background: transparent; color: #fff; border: 1px solid #6b7280; border-radius: 6px; padding: 3px 10px; cursor: pointer; font: inherit; }
+#demo-bar button:hover { background: #2a2f37; }
+</style>
+</head>
+<body>
+<div id="demo-bar" role="region" aria-label="Protótipo">
+  <strong>Protótipo</strong>
+  <span>Dados fictícios, salvos só neste navegador. Senha de todos: demo1234.</span>
+  <button type="button" data-as="admin">Entrar como administrador</button>
+  <button type="button" data-as="member">Entrar como equipe</button>
+  <button type="button" data-as="client">Entrar como cliente</button>
+  <button type="button" data-reset>Restaurar dados</button>
+</div>
+<div id="app" aria-live="polite"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+'use strict';
+// API do protótipo: a mesma interface do servidor (app.js), rodando dentro do navegador.
+// Os dados são fictícios e ficam só neste navegador (localStorage, quando disponível).
+(function () {
+  const KEY = 'tarefas-prototipo-v1';
+  const STAGES = [['A fazer', 'todo'], ['Em andamento', 'doing'], ['Revisão interna', 'review'], ['Com o cliente', 'client'], ['Em ajuste', 'adjust'], ['Concluída', 'done']];
+  const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const day = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+  const today = () => day(0);
+
+  function seed() {
+    const db = { seq: 100, org: { id: 1, name: 'Minha Consultoria', accent: '#0f766e' }, stages: [], clients: [], users: [], tasks: [], assignees: [], checklist: [], comments: [], adjustments: [], templates: [] };
+    STAGES.forEach(([name, kind], i) => db.stages.push({ id: i + 1, name, kind, position: i }));
+    db.clients.push({ id: 1, name: 'Padaria Exemplo', created_at: now() }, { id: 2, name: 'Clínica Modelo', created_at: now() });
+    db.users.push(
+      { id: 1, name: 'Admin Demo', email: 'admin@demo.local', role: 'admin', client_id: null, active: 1 },
+      { id: 2, name: 'Membro Demo', email: 'equipe@demo.local', role: 'member', client_id: null, active: 1 },
+      { id: 3, name: 'Cliente Padaria', email: 'cliente@demo.local', role: 'client', client_id: 1, active: 1 });
+    const st = kind => db.stages.find(s => s.kind === kind).id;
+    const task = (id, client, kind, title, due, who) => {
+      db.tasks.push({ id, client_id: client, stage_id: st(kind), title, description: '', due_date: due, priority: 'normal', position: id, created_by: 1, created_at: now(), updated_at: now(), completed_at: kind === 'done' ? now() : null });
+      who.forEach(u => db.assignees.push({ task_id: id, user_id: u }));
+    };
+    task(1, 1, 'todo', 'Levantar processos do financeiro', day(3), [2]);
+    task(2, 1, 'doing', 'Mapear fluxo de contas a pagar', day(1), [2, 1]);
+    task(3, 1, 'client', 'Relatório de diagnóstico', day(-1), [1]);
+    task(4, 2, 'review', 'Conciliação bancária de setembro', day(2), [2]);
+    task(5, 2, 'done', 'Reunião de kickoff', day(-7), [1]);
+    db.comments.push({ id: 1, task_id: 3, user_id: 1, body: 'Versão 1 enviada para sua revisão.', visible_to_client: 1, created_at: now() });
+    db.templates.push({ id: 1, name: 'Fechamento mensal', title: 'Fechamento do mês', description: '', checklist: ['Conciliar bancos', 'Conferir notas fiscais', 'Enviar relatório ao cliente'] });
+    return db;
+  }
+
+  let db;
+  try { db = JSON.parse(localStorage.getItem(KEY)); } catch { db = null; }
+  if (!db) db = seed();
+  const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sem armazenamento: fica só na memória */ } };
+  let sessionUser = null;
+  try { sessionUser = Number(sessionStorage.getItem(KEY + '-user')) || null; } catch { /* idem */ }
+  const setSession = id => { sessionUser = id; try { id ? sessionStorage.setItem(KEY + '-user', id) : sessionStorage.removeItem(KEY + '-user'); } catch { /* idem */ } };
+  const nextId = () => ++db.seq;
+
+  class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
+  const fail = (s, m) => { throw new HttpError(s, m); };
+  const str = (v, field, { max = 500, required = true } = {}) => {
+    if (v === undefined || v === null || v === '') { if (required) fail(400, `Campo obrigatório: ${field}`); return ''; }
+    if (typeof v !== 'string') fail(400, `Campo inválido: ${field}`);
+    const s = v.trim();
+    if (required && !s) fail(400, `Campo obrigatório: ${field}`);
+    if (s.length > max) fail(400, `Campo muito longo: ${field} (máx. ${max})`);
+    return s;
+  };
+  const date = v => { if (!v) return null; if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) fail(400, 'Data inválida (use AAAA-MM-DD)'); return v; };
+  const oneOf = (v, f, opts, fb) => { if (v === undefined) return fb; if (!opts.includes(v)) fail(400, `Campo inválido: ${f}`); return v; };
+  const isStaff = u => u.role !== 'client';
+  const requireStaff = u => { if (!isStaff(u)) fail(403, 'Sem permissão'); };
+  const requireAdmin = u => { if (u.role !== 'admin') fail(403, 'Só administradores'); };
+
+  const stage = id => db.stages.find(s => s.id === id);
+  const stageByKind = k => db.stages.find(s => s.kind === k).id;
+  const clientOf = id => db.clients.find(c => c.id === id);
+  const userName = id => (db.users.find(u => u.id === id) || {}).name;
+  function loadTask(user, id) {
+    const t = db.tasks.find(x => x.id === id);
+    if (!t || (user.role === 'client' && t.client_id !== user.client_id)) fail(404, 'Tarefa não encontrada');
+    return t;
+  }
+  function checkClient(id) { if (!clientOf(id)) fail(400, 'Cliente inválido'); }
+  function checkAssignees(ids) {
+    if (!Array.isArray(ids)) fail(400, 'Campo inválido: responsáveis');
+    const clean = [...new Set(ids.map(Number))];
+    for (const id of clean) { const u = db.users.find(x => x.id === id); if (!u || u.role === 'client' || !u.active) fail(400, 'Responsável inválido'); }
+    return clean;
+  }
+  const setAssignees = (taskId, ids) => { db.assignees = db.assignees.filter(a => a.task_id !== taskId).concat(ids.map(user_id => ({ task_id: taskId, user_id }))); };
+  const assigneesOf = taskId => db.assignees.filter(a => a.task_id === taskId).map(a => ({ id: a.user_id, name: userName(a.user_id) })).sort((a, b) => a.name.localeCompare(b.name));
+  const touch = t => { t.updated_at = now(); };
+  function moveTo(t, kind) { t.stage_id = stageByKind(kind); t.completed_at = kind === 'done' ? now() : null; touch(t); }
+
+  function summary(user, t) {
+    const adj = db.adjustments.filter(a => a.task_id === t.id);
+    const cl = db.checklist.filter(i => i.task_id === t.id);
+    const r = {
+      id: t.id, client_id: t.client_id, client_name: clientOf(t.client_id).name, stage_id: t.stage_id, stage_kind: stage(t.stage_id).kind,
+      title: t.title, due_date: t.due_date, priority: t.priority, position: t.position, updated_at: t.updated_at, completed_at: t.completed_at,
+      checklist_total: cl.length, checklist_done: cl.filter(i => i.done).length,
+      adjustments_client: adj.filter(a => a.origin === 'client').length, adjustments_internal: adj.filter(a => a.origin === 'internal').length,
+      adjustments_open: adj.filter(a => !a.resolved_at).length, assignees: assigneesOf(t.id),
+    };
+    if (user.role === 'client') delete r.adjustments_internal;
+    return r;
+  }
+  function detail(user, id) {
+    const t = loadTask(user, id);
+    const client = user.role === 'client';
+    return {
+      ...t, stage_kind: stage(t.stage_id).kind, client_name: clientOf(t.client_id).name, assignees: assigneesOf(t.id),
+      checklist: db.checklist.filter(i => i.task_id === t.id).sort((a, b) => a.position - b.position || a.id - b.id).map(({ id, text, done }) => ({ id, text, done })),
+      comments: db.comments.filter(c => c.task_id === t.id && (!client || c.visible_to_client)).map(c => {
+        const u = db.users.find(x => x.id === c.user_id) || {};
+        return { id: c.id, body: c.body, visible_to_client: c.visible_to_client, created_at: c.created_at, author: u.name, author_role: u.role };
+      }),
+      adjustments: db.adjustments.filter(a => a.task_id === t.id && (!client || a.origin === 'client'))
+        .map(a => ({ id: a.id, origin: a.origin, body: a.body, created_at: a.created_at, resolved_at: a.resolved_at, author: userName(a.user_id) })),
+    };
+  }
+
+  const routes = [];
+  const route = (method, pattern, handler, pub = false) => {
+    const re = new RegExp('^' + pattern.replace(/:id/g, '(\\d+)') + '$');
+    routes.push({ method, re, handler, pub });
+  };
+
+  route('POST', '/api/login', ({ body }) => {
+    const email = str(body.email, 'email', { max: 200 }).toLowerCase();
+    str(body.password, 'senha', { max: 200 });
+    const u = db.users.find(x => x.email === email && x.active);
+    // No protótipo, qualquer conta ativa aceita a senha demo1234 (ou a senha definida ao criar o acesso).
+    if (!u || body.password !== (u.password || 'demo1234')) fail(401, 'Email ou senha incorretos');
+    setSession(u.id);
+    return { ok: true };
+  }, true);
+  route('POST', '/api/logout', () => { setSession(null); return { ok: true }; });
+  route('GET', '/api/me', ({ user }) => ({
+    user: { id: user.id, org_id: 1, name: user.name, email: user.email, role: user.role, client_id: user.client_id },
+    org: db.org, stages: db.stages.map(({ id, name, kind }) => ({ id, name, kind })),
+  }));
+  route('POST', '/api/me/password', ({ user, body }) => {
+    const cur = str(body.current, 'senha atual'), next = str(body.password, 'nova senha');
+    if (next.length < 8) fail(400, 'A nova senha precisa ter pelo menos 8 caracteres');
+    if (cur !== (user.password || 'demo1234')) fail(400, 'Senha atual incorreta');
+    user.password = next; return { ok: true };
+  });
+  route('PATCH', '/api/org', ({ user, body }) => {
+    requireAdmin(user);
+    const name = str(body.name, 'nome', { max: 80 }), accent = str(body.accent, 'cor', { max: 7 });
+    if (!/^#[0-9a-fA-F]{6}$/.test(accent)) fail(400, 'Cor inválida (use #RRGGBB)');
+    Object.assign(db.org, { name, accent }); return { ok: true };
+  });
+  route('GET', '/api/clients', ({ user }) => {
+    if (user.role === 'client') return db.clients.filter(c => c.id === user.client_id).map(({ id, name }) => ({ id, name }));
+    return db.clients.map(c => ({ id: c.id, name: c.name, open_tasks: db.tasks.filter(t => t.client_id === c.id && stage(t.stage_id).kind !== 'done').length }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  });
+  route('POST', '/api/clients', ({ user, body }) => {
+    requireAdmin(user);
+    const id = nextId(); db.clients.push({ id, name: str(body.name, 'nome', { max: 120 }), created_at: now() }); return { id };
+  });
+  route('PATCH', '/api/clients/:id', ({ user, body, id }) => { requireAdmin(user); checkClient(id); clientOf(id).name = str(body.name, 'nome', { max: 120 }); return { ok: true }; });
+  route('GET', '/api/users', ({ user }) => {
+    requireStaff(user);
+    const order = { admin: 0, client: 1, member: 2 };
+    return db.users.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, client_id: u.client_id, client_name: u.client_id ? clientOf(u.client_id).name : null, active: u.active }))
+      .sort((a, b) => order[a.role] - order[b.role] || a.name.localeCompare(b.name));
+  });
+  route('POST', '/api/users', ({ user, body }) => {
+    requireAdmin(user);
+    const name = str(body.name, 'nome', { max: 120 });
+    const email = str(body.email, 'email', { max: 200 }).toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'Email inválido');
+    const password = str(body.password, 'senha', { max: 200 });
+    if (password.length < 8) fail(400, 'A senha precisa ter pelo menos 8 caracteres');
+    const role = oneOf(body.role, 'papel', ['admin', 'member', 'client']);
+    let client_id = null;
+    if (role === 'client') { client_id = Number(body.client_id); checkClient(client_id); }
+    if (db.users.some(u => u.email === email)) fail(409, 'Já existe um usuário com esse email');
+    const id = nextId(); db.users.push({ id, name, email, role, client_id, active: 1, password }); return { id };
+  });
+  route('PATCH', '/api/users/:id', ({ user, body, id }) => {
+    requireAdmin(user);
+    const u = db.users.find(x => x.id === id); if (!u) fail(404, 'Usuário não encontrado');
+    if (id === user.id) fail(400, 'Você não pode desativar a própria conta');
+    u.active = body.active ? 1 : 0; return { ok: true };
+  });
+  route('GET', '/api/tasks', ({ user, query }) => {
+    let list = db.tasks.slice();
+    if (user.role === 'client') list = list.filter(t => t.client_id === user.client_id);
+    else if (query.client_id) list = list.filter(t => t.client_id === Number(query.client_id));
+    const has = uid => t => db.assignees.some(a => a.task_id === t.id && a.user_id === uid);
+    if (query.mine === '1') list = list.filter(has(user.id));
+    if (query.assignee) list = list.filter(has(Number(query.assignee)));
+    if (query.q) list = list.filter(t => t.title.toLowerCase().includes(String(query.q).toLowerCase()));
+    return list.sort((a, b) => a.position - b.position || a.id - b.id).map(t => summary(user, t));
+  });
+  route('POST', '/api/tasks', ({ user, body }) => {
+    requireStaff(user);
+    const client_id = Number(body.client_id); checkClient(client_id);
+    let title = str(body.title, 'título', { max: 200, required: !body.template_id });
+    let description = str(body.description, 'descrição', { max: 10000, required: false });
+    let checklist = [];
+    if (body.template_id) {
+      const tpl = db.templates.find(t => t.id === Number(body.template_id)); if (!tpl) fail(400, 'Modelo inválido');
+      title = title || tpl.title; description = description || tpl.description; checklist = tpl.checklist;
+    }
+    const assignees = checkAssignees(body.assignee_ids || []);
+    const id = nextId();
+    db.tasks.push({ id, client_id, stage_id: stageByKind('todo'), title, description, due_date: date(body.due_date),
+      priority: oneOf(body.priority, 'prioridade', ['low', 'normal', 'high'], 'normal'),
+      position: Math.max(0, ...db.tasks.map(t => t.position)) + 1, created_by: user.id, created_at: now(), updated_at: now(), completed_at: null });
+    setAssignees(id, assignees);
+    checklist.forEach((text, i) => db.checklist.push({ id: nextId(), task_id: id, text, done: 0, position: i }));
+    return { id };
+  });
+  route('GET', '/api/tasks/:id', ({ user, id }) => detail(user, id));
+  route('PATCH', '/api/tasks/:id', ({ user, body, id }) => {
+    requireStaff(user);
+    const t = loadTask(user, id);
+    if ('title' in body) t.title = str(body.title, 'título', { max: 200 });
+    if ('description' in body) t.description = str(body.description, 'descrição', { max: 10000, required: false });
+    if ('due_date' in body) t.due_date = date(body.due_date);
+    if ('priority' in body) t.priority = oneOf(body.priority, 'prioridade', ['low', 'normal', 'high']);
+    if ('position' in body) t.position = Number(body.position);
+    if ('client_id' in body) { checkClient(Number(body.client_id)); t.client_id = Number(body.client_id); }
+    if ('assignee_ids' in body) setAssignees(t.id, checkAssignees(body.assignee_ids));
+    if ('stage_id' in body) { const s = stage(Number(body.stage_id)); if (!s) fail(400, 'Etapa inválida'); moveTo(t, s.kind); }
+    touch(t);
+    return detail(user, id);
+  });
+  route('DELETE', '/api/tasks/:id', ({ user, id }) => {
+    requireAdmin(user); loadTask(user, id);
+    db.tasks = db.tasks.filter(t => t.id !== id);
+    ['assignees', 'checklist', 'comments', 'adjustments'].forEach(k => { db[k] = db[k].filter(x => x.task_id !== id); });
+    return { ok: true };
+  });
+  route('POST', '/api/tasks/:id/checklist', ({ user, body, id }) => {
+    requireStaff(user); const t = loadTask(user, id);
+    db.checklist.push({ id: nextId(), task_id: t.id, text: str(body.text, 'item', { max: 300 }), done: 0, position: db.checklist.filter(i => i.task_id === t.id).length });
+    touch(t); return detail(user, id);
+  });
+  const checklistItem = (user, id) => { const i = db.checklist.find(x => x.id === id); if (!i) fail(404, 'Item não encontrado'); loadTask(user, i.task_id); return i; };
+  route('PATCH', '/api/checklist/:id', ({ user, body, id }) => {
+    requireStaff(user); const i = checklistItem(user, id);
+    if ('done' in body) i.done = body.done ? 1 : 0;
+    if ('text' in body) i.text = str(body.text, 'item', { max: 300 });
+    return detail(user, i.task_id);
+  });
+  route('DELETE', '/api/checklist/:id', ({ user, id }) => {
+    requireStaff(user); const i = checklistItem(user, id);
+    db.checklist = db.checklist.filter(x => x.id !== id); return detail(user, i.task_id);
+  });
+  route('POST', '/api/tasks/:id/comments', ({ user, body, id }) => {
+    const t = loadTask(user, id);
+    db.comments.push({ id: nextId(), task_id: t.id, user_id: user.id, body: str(body.body, 'comentário', { max: 5000 }),
+      visible_to_client: user.role === 'client' ? 1 : (body.visible_to_client ? 1 : 0), created_at: now() });
+    touch(t); return detail(user, id);
+  });
+  route('POST', '/api/tasks/:id/adjustments', ({ user, body, id }) => {
+    const t = loadTask(user, id);
+    const text = str(body.body, 'o que ajustar', { max: 5000 });
+    const origin = user.role === 'client' ? 'client' : 'internal';
+    if (origin === 'client' && stage(t.stage_id).kind !== 'client') fail(409, 'Só é possível pedir ajuste quando a tarefa está com você para revisão');
+    db.adjustments.push({ id: nextId(), task_id: t.id, origin, body: text, user_id: user.id, created_at: now(), resolved_at: null });
+    moveTo(t, 'adjust'); return detail(user, id);
+  });
+  route('POST', '/api/adjustments/:id/resolve', ({ user, id }) => {
+    requireStaff(user);
+    const a = db.adjustments.find(x => x.id === id); if (!a) fail(404, 'Ajuste não encontrado');
+    loadTask(user, a.task_id); a.resolved_at = a.resolved_at || now(); return detail(user, a.task_id);
+  });
+  route('POST', '/api/tasks/:id/approve', ({ user, id }) => {
+    if (user.role !== 'client') fail(403, 'Só o cliente aprova a entrega');
+    const t = loadTask(user, id);
+    if (stage(t.stage_id).kind !== 'client') fail(409, 'Esta tarefa não está aguardando sua aprovação');
+    moveTo(t, 'done');
+    db.comments.push({ id: nextId(), task_id: t.id, user_id: user.id, body: 'Entrega aprovada.', visible_to_client: 1, created_at: now() });
+    return detail(user, id);
+  });
+  route('GET', '/api/templates', ({ user }) => { requireStaff(user); return db.templates.slice().sort((a, b) => a.name.localeCompare(b.name)); });
+  route('POST', '/api/templates', ({ user, body }) => {
+    requireStaff(user);
+    const id = nextId();
+    db.templates.push({ id, name: str(body.name, 'nome', { max: 120 }), title: str(body.title, 'título', { max: 200 }),
+      description: str(body.description, 'descrição', { max: 10000, required: false }),
+      checklist: (Array.isArray(body.checklist) ? body.checklist : []).map(x => String(x).trim()).filter(Boolean).slice(0, 100) });
+    return { id };
+  });
+  route('DELETE', '/api/templates/:id', ({ user, id }) => { requireStaff(user); db.templates = db.templates.filter(t => t.id !== id); return { ok: true }; });
+  route('GET', '/api/report/adjustments', ({ user }) => {
+    requireStaff(user);
+    return db.clients.map(c => {
+      const ids = db.tasks.filter(t => t.client_id === c.id).map(t => t.id);
+      const adj = db.adjustments.filter(a => ids.includes(a.task_id));
+      return { id: c.id, name: c.name, tasks: ids.length, internal: adj.filter(a => a.origin === 'internal').length, client: adj.filter(a => a.origin === 'client').length };
+    }).sort((a, b) => b.client - a.client || b.internal - a.internal || a.name.localeCompare(b.name));
+  });
+
+  const realFetch = window.fetch.bind(window);
+  window.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+    if (!url.pathname.startsWith('/api/')) return realFetch(input, init);
+    const method = (init.method || 'GET').toUpperCase();
+    const reply = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+    try {
+      const r = routes.find(x => x.method === method && x.re.test(url.pathname));
+      if (!r) fail(404, 'Rota não encontrada');
+      const m = r.re.exec(url.pathname);
+      const user = db.users.find(u => u.id === sessionUser && u.active) || null;
+      if (!r.pub && !user) fail(401, 'Faça login');
+      const out = r.handler({ user, body: init.body ? JSON.parse(init.body) : {}, id: m[1] ? Number(m[1]) : null, query: Object.fromEntries(url.searchParams) });
+      persist();
+      return reply(method === 'POST' && out && out.id && !out.title ? 201 : 200, out);
+    } catch (err) {
+      return reply(err.status || 500, { error: err.status ? err.message : 'Erro interno' });
+    }
+  };
+
+  // Barra do protótipo: entrar como cada papel e restaurar os dados.
+  window.addEventListener('DOMContentLoaded', () => {
+    const bar = document.getElementById('demo-bar');
+    const as = async email => {
+      await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'demo1234' }) });
+      location.hash = '';
+      window.boot();
+    };
+    bar.querySelector('[data-as=admin]').addEventListener('click', () => as('admin@demo.local'));
+    bar.querySelector('[data-as=member]').addEventListener('click', () => as('equipe@demo.local'));
+    bar.querySelector('[data-as=client]').addEventListener('click', () => as('cliente@demo.local'));
+    bar.querySelector('[data-reset]').addEventListener('click', () => {
+      if (!confirm('Apagar tudo o que foi feito neste protótipo e voltar aos dados iniciais?')) return;
+      try { localStorage.removeItem(KEY); } catch { /* idem */ }
+      db = seed(); persist(); location.hash = ''; window.boot();
+    });
+  });
+})();
+
+</script>
+<script>
+'use strict';
+
+// ---------- utilidades ----------
+const state = { me: null, org: null, stages: [], clients: [], users: [], templates: [], filters: { client_id: '', assignee: '', q: '' } };
+
+function h(tag, attrs = {}, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v === null || v === undefined) continue;
+    if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'class') el.className = v;
+    else if (k === 'value') el.value = v;
+    else if (k === 'checked' || k === 'selected' || k === 'disabled') el[k] = !!v;
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of children.flat()) {
+    if (c === null || c === undefined || c === false) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : undefined,
+    credentials: 'same-origin',
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && path !== '/api/login') { state.me = null; renderLogin(); throw new Error('Faça login'); }
+  if (!res.ok) throw new Error(data.error || 'Algo deu errado');
+  return data;
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+const guard = fn => async (...args) => { try { await fn(...args); } catch (e) { toast(e.message); } };
+
+const today = () => new Date().toISOString().slice(0, 10);
+function fmtDate(d) {
+  if (!d) return '';
+  const [y, m, day] = d.slice(0, 10).split('-');
+  return `${day}/${m}/${y}`;
+}
+function fmtDateTime(s) {
+  const d = new Date(s.replace(' ', 'T') + 'Z');
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+const initials = name => name.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0].toUpperCase()).join('');
+const PRIORITY = { low: 'Baixa', normal: 'Normal', high: 'Alta' };
+const ROLE = { admin: 'Administrador', member: 'Equipe', client: 'Cliente' };
+const isStaff = () => state.me && state.me.role !== 'client';
+const isAdmin = () => state.me && state.me.role === 'admin';
+
+// Cor da marca: escolhe texto branco ou preto sobre ela pelo contraste.
+function applyAccent(hex) {
+  const lum = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+  const L = 0.2126 * lum(r) + 0.7152 * lum(g) + 0.0722 * lum(b);
+  document.documentElement.style.setProperty('--accent', hex);
+  document.documentElement.style.setProperty('--on-accent', (L + 0.05) / 0.05 > 1.05 / (L + 0.05) ? '#000000' : '#ffffff');
+}
+
+// ---------- shell ----------
+const app = () => document.getElementById('app');
+
+function renderLogin(message) {
+  document.title = 'Entrar';
+  const err = h('p', { class: 'error', role: 'alert' }, message || '');
+  const form = h('form', { class: 'login', onsubmit: async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api('POST', '/api/login', { email: fd.get('email'), password: fd.get('password') });
+      await boot();
+    } catch (ex) { err.textContent = ex.message; }
+  } },
+    h('h1', {}, 'Entrar'),
+    h('p', { class: 'muted' }, 'Acesse com o email e a senha que você recebeu.'),
+    h('div', { class: 'field' }, h('label', { for: 'email' }, 'Email'), h('input', { id: 'email', name: 'email', type: 'email', autocomplete: 'username', required: true })),
+    h('div', { class: 'field' }, h('label', { for: 'password' }, 'Senha'), h('input', { id: 'password', name: 'password', type: 'password', autocomplete: 'current-password', required: true })),
+    err,
+    h('button', { class: 'btn primary', type: 'submit' }, 'Entrar'));
+  app().replaceChildren(form);
+  form.querySelector('input').focus();
+}
+
+const NAV_STAFF = [
+  ['#/quadro', 'Quadro'], ['#/minhas', 'Minhas tarefas'], ['#/clientes', 'Clientes'],
+  ['#/modelos', 'Modelos'], ['#/relatorio', 'Ajustes por cliente'], ['#/equipe', 'Pessoas'], ['#/config', 'Configurações'],
+];
+const NAV_CLIENT = [['#/portal', 'Minhas entregas'], ['#/config', 'Minha conta']];
+
+function shell(content) {
+  const nav = isStaff() ? NAV_STAFF : NAV_CLIENT;
+  const current = location.hash.split('?')[0] || nav[0][0];
+  app().replaceChildren(
+    h('header', { class: 'top' },
+      h('div', { class: 'brand' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), state.org.name),
+      h('nav', { class: 'main', 'aria-label': 'Principal' },
+        nav.map(([href, label]) => h('a', { href, 'aria-current': current === href ? 'page' : null }, label))),
+      h('div', { class: 'who' }, `${state.me.name} · ${ROLE[state.me.role]}`,
+        h('button', { class: 'btn small', onclick: guard(async () => { await api('POST', '/api/logout'); state.me = null; renderLogin(); }) }, 'Sair'))),
+    h('main', {}, content));
+}
+
+async function loadCommon() {
+  const me = await api('GET', '/api/me');
+  state.me = me.user; state.org = me.org; state.stages = me.stages;
+  applyAccent(me.org.accent);
+  state.clients = await api('GET', '/api/clients');
+  if (isStaff()) {
+    [state.users, state.templates] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/templates')]);
+  }
+}
+
+async function boot() {
+  try { await loadCommon(); } catch { renderLogin(); return; }
+  route();
+}
+
+const ROUTES = {
+  '#/quadro': viewBoard, '#/minhas': viewMine, '#/clientes': viewClients, '#/modelos': viewTemplates,
+  '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings, '#/portal': viewPortal,
+};
+
+function route() {
+  if (!state.me) return;
+  const key = location.hash.split('?')[0];
+  const fallback = isStaff() ? '#/quadro' : '#/portal';
+  const staffOnly = !['#/portal', '#/config'].includes(key);
+  const view = ROUTES[key];
+  if (!view || (isStaff() && key === '#/portal') || (!isStaff() && staffOnly)) { location.hash = fallback; return; }
+  guard(view)();
+}
+window.addEventListener('hashchange', route);
+
+// ---------- quadro ----------
+function taskCard(t, { draggable = false } = {}) {
+  const late = t.due_date && t.due_date < today() && t.stage_kind !== 'done';
+  const card = h('button', { class: 'task', type: 'button', draggable: draggable ? 'true' : null, 'data-id': t.id,
+    onclick: () => openTask(t.id) },
+    h('div', { class: 'title' }, t.title),
+    h('div', { class: 'meta' },
+      state.filters.client_id ? null : h('span', {}, t.client_name),
+      t.due_date ? h('span', { class: 'tag' + (late ? ' late' : '') }, (late ? 'Atrasada · ' : '') + fmtDate(t.due_date)) : null,
+      t.priority === 'high' ? h('span', { class: 'tag high' }, 'Alta') : null,
+      t.adjustments_open ? h('span', { class: 'tag adj', title: 'Ajustes em aberto' }, `${t.adjustments_open} ajuste${t.adjustments_open > 1 ? 's' : ''}`) : null,
+      t.checklist_total ? h('span', {}, `☑ ${t.checklist_done}/${t.checklist_total}`) : null,
+      h('span', { class: 'avatars' }, t.assignees.map(a => h('span', { class: 'avatar', title: a.name }, initials(a.name))))));
+  return card;
+}
+
+function filterToolbar(extra) {
+  const f = state.filters;
+  const rerender = () => route();
+  return h('div', { class: 'toolbar' },
+    h('label', { class: 'sr-only', for: 'f-client' }, 'Cliente'),
+    h('select', { id: 'f-client', onchange: e => { f.client_id = e.target.value; rerender(); } },
+      h('option', { value: '' }, 'Todos os clientes'),
+      state.clients.map(c => h('option', { value: c.id, selected: String(c.id) === f.client_id }, c.name))),
+    h('label', { class: 'sr-only', for: 'f-who' }, 'Responsável'),
+    h('select', { id: 'f-who', onchange: e => { f.assignee = e.target.value; rerender(); } },
+      h('option', { value: '' }, 'Todos os responsáveis'),
+      state.users.filter(u => u.role !== 'client' && u.active).map(u => h('option', { value: u.id, selected: String(u.id) === f.assignee }, u.name))),
+    h('label', { class: 'sr-only', for: 'f-q' }, 'Buscar'),
+    h('input', { id: 'f-q', type: 'search', placeholder: 'Buscar tarefa', value: f.q,
+      onchange: e => { f.q = e.target.value; rerender(); } }),
+    h('span', { class: 'grow', style: 'flex:1' }),
+    extra);
+}
+
+async function viewBoard() {
+  document.title = 'Quadro';
+  const f = state.filters;
+  const qs = new URLSearchParams(Object.entries({ client_id: f.client_id, assignee: f.assignee, q: f.q }).filter(([, v]) => v));
+  const tasks = await api('GET', '/api/tasks?' + qs);
+  const board = h('div', { class: 'board' });
+  for (const s of state.stages) {
+    const list = tasks.filter(t => t.stage_id === s.id);
+    const col = h('section', { class: 'col', 'aria-label': s.name, 'data-stage': s.id },
+      h('div', { class: 'col-head' }, h('span', {}, s.name), h('span', { class: 'count' }, list.length)),
+      list.length ? list.map(t => taskCard(t, { draggable: true })) : h('p', { class: 'empty' }, 'Nada aqui'));
+    wireDrop(col, s, tasks);
+    board.append(col);
+  }
+  board.addEventListener('dragstart', e => {
+    const card = e.target.closest('.task');
+    if (!card) return;
+    e.dataTransfer.setData('text/plain', card.dataset.id);
+    e.dataTransfer.effectAllowed = 'move';
+    card.classList.add('dragging');
+  });
+  board.addEventListener('dragend', e => e.target.closest('.task')?.classList.remove('dragging'));
+  shell([
+    filterToolbar(h('button', { class: 'btn primary', onclick: () => newTaskModal() }, '+ Nova tarefa')),
+    state.clients.length ? board : h('div', { class: 'card-box empty' }, 'Cadastre um cliente em ', h('a', { href: '#/clientes' }, 'Clientes'), ' para criar a primeira tarefa.'),
+  ]);
+}
+
+function wireDrop(col, stage, tasks) {
+  col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('over'); });
+  col.addEventListener('dragleave', e => { if (!col.contains(e.relatedTarget)) col.classList.remove('over'); });
+  col.addEventListener('drop', guard(async e => {
+    e.preventDefault();
+    col.classList.remove('over');
+    const taskId = Number(e.dataTransfer.getData('text/plain'));
+    const inCol = tasks.filter(t => t.stage_id === stage.id && t.id !== taskId);
+    const target = e.target.closest('.task');
+    let position;
+    if (target && Number(target.dataset.id) !== taskId) {
+      const i = inCol.findIndex(t => t.id === Number(target.dataset.id));
+      const prev = inCol[i - 1];
+      position = prev ? (prev.position + inCol[i].position) / 2 : inCol[i].position - 1;
+    } else {
+      position = inCol.length ? inCol[inCol.length - 1].position + 1 : 1;
+    }
+    await api('PATCH', `/api/tasks/${taskId}`, { stage_id: stage.id, position });
+    route();
+  }));
+}
+
+async function viewMine() {
+  document.title = 'Minhas tarefas';
+  const tasks = (await api('GET', '/api/tasks?mine=1')).filter(t => t.stage_kind !== 'done');
+  tasks.sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'));
+  const groups = [
+    ['Atrasadas', tasks.filter(t => t.due_date && t.due_date < today())],
+    ['Hoje', tasks.filter(t => t.due_date === today())],
+    ['Próximas', tasks.filter(t => t.due_date && t.due_date > today())],
+    ['Sem prazo', tasks.filter(t => !t.due_date)],
+  ];
+  shell([
+    h('div', { class: 'toolbar' }, h('h1', {}, 'Minhas tarefas'), h('span', { style: 'flex:1' }),
+      h('button', { class: 'btn primary', onclick: () => newTaskModal() }, '+ Nova tarefa')),
+    tasks.length ? groups.filter(([, l]) => l.length).map(([name, list]) =>
+      h('div', { class: 'card-box' }, h('h2', {}, `${name} (${list.length})`),
+        h('div', { style: 'display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))' },
+          list.map(t => { const c = taskCard(t); c.querySelector('.meta').prepend(h('span', { class: 'tag' }, stageName(t.stage_id))); return c; }))))
+      : h('div', { class: 'card-box empty' }, 'Nenhuma tarefa aberta com você. Bom sinal.'),
+  ]);
+}
+const stageName = id => (state.stages.find(s => s.id === id) || {}).name || '';
+
+// ---------- nova tarefa ----------
+function modal(content, { onclose } = {}) {
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', esc); onclose && onclose(); };
+  const esc = e => { if (e.key === 'Escape') close(); };
+  const overlay = h('div', { class: 'overlay center', onclick: e => { if (e.target === overlay) close(); } },
+    h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true' }, content(close)));
+  document.addEventListener('keydown', esc);
+  document.body.append(overlay);
+  overlay.querySelector('input, select, textarea, button')?.focus();
+  return close;
+}
+
+function assigneeChecks(selected = []) {
+  return h('div', { class: 'checks', role: 'group', 'aria-label': 'Responsáveis' },
+    state.users.filter(u => u.role !== 'client' && u.active).map(u =>
+      h('label', {}, h('input', { type: 'checkbox', name: 'assignee', value: u.id, checked: selected.includes(u.id) }), u.name)));
+}
+
+function newTaskModal() {
+  if (!state.clients.length) { location.hash = '#/clientes'; toast('Cadastre um cliente primeiro'); return; }
+  modal(close => {
+    const err = h('p', { class: 'error', role: 'alert' });
+    return h('form', { onsubmit: async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        const { id } = await api('POST', '/api/tasks', {
+          client_id: Number(fd.get('client_id')),
+          template_id: fd.get('template_id') ? Number(fd.get('template_id')) : undefined,
+          title: fd.get('title'), description: fd.get('description'),
+          due_date: fd.get('due_date') || null, priority: fd.get('priority'),
+          assignee_ids: fd.getAll('assignee').map(Number),
+        });
+        close(); toast('Tarefa criada'); route(); openTask(id);
+      } catch (ex) { err.textContent = ex.message; }
+    } },
+      h('h2', {}, 'Nova tarefa'),
+      h('div', { class: 'grid2' },
+        h('div', { class: 'field' }, h('label', { for: 'n-client' }, 'Cliente'),
+          h('select', { id: 'n-client', name: 'client_id', required: true },
+            state.clients.map(c => h('option', { value: c.id, selected: String(c.id) === state.filters.client_id }, c.name)))),
+        h('div', { class: 'field' }, h('label', { for: 'n-tpl' }, 'Modelo (opcional)'),
+          h('select', { id: 'n-tpl', name: 'template_id' }, h('option', { value: '' }, 'Nenhum'),
+            state.templates.map(t => h('option', { value: t.id }, t.name))))),
+      h('div', { class: 'field' }, h('label', { for: 'n-title' }, 'Título'),
+        h('input', { id: 'n-title', name: 'title', maxlength: 200, placeholder: 'Se vazio, usa o título do modelo' })),
+      h('div', { class: 'field' }, h('label', { for: 'n-desc' }, 'Descrição'), h('textarea', { id: 'n-desc', name: 'description' })),
+      h('div', { class: 'grid2' },
+        h('div', { class: 'field' }, h('label', { for: 'n-due' }, 'Prazo'), h('input', { id: 'n-due', name: 'due_date', type: 'date' })),
+        h('div', { class: 'field' }, h('label', { for: 'n-pri' }, 'Prioridade'),
+          h('select', { id: 'n-pri', name: 'priority' }, Object.entries(PRIORITY).map(([v, l]) => h('option', { value: v, selected: v === 'normal' }, l))))),
+      h('div', { class: 'field' }, h('label', {}, 'Responsáveis'), assigneeChecks()),
+      err,
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, 'Criar tarefa'),
+        h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
+  });
+}
+
+// ---------- detalhe da tarefa ----------
+let drawerClose = null;
+async function openTask(id) {
+  const t = await api('GET', `/api/tasks/${id}`).catch(e => { toast(e.message); return null; });
+  if (!t) return;
+  if (drawerClose) drawerClose(false);
+  let dirty = false;
+  const overlay = h('div', { class: 'overlay', onclick: e => { if (e.target === overlay) close(); } });
+  const esc = e => { if (e.key === 'Escape') close(); };
+  function close(refresh = true) {
+    overlay.remove(); document.removeEventListener('keydown', esc); drawerClose = null;
+    if (refresh && dirty) route();
+  }
+  drawerClose = close;
+  document.addEventListener('keydown', esc);
+  const drawer = h('div', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': t.title });
+  overlay.append(drawer);
+  document.body.append(overlay);
+
+  const save = guard(async patch => { const nt = await api('PATCH', `/api/tasks/${t.id}`, patch); dirty = true; Object.assign(t, nt); paint(); });
+  const act = guard(async (method, path, body) => { const nt = await api(method, path, body); dirty = true; Object.assign(t, nt); paint(); });
+
+  function paint() {
+    const staff = isStaff();
+    const openAdj = t.adjustments.filter(a => !a.resolved_at);
+    drawer.replaceChildren(...[
+      h('div', { class: 'drawer-head' },
+        staff ? h('input', { 'aria-label': 'Título', value: t.title, maxlength: 200, onchange: e => save({ title: e.target.value }) })
+          : h('h1', { style: 'flex:1' }, t.title),
+        h('button', { class: 'btn ghost', 'aria-label': 'Fechar', onclick: () => close() }, '✕')),
+      h('p', { class: 'muted' }, `${t.client_name} · ${stageName(t.stage_id)}` + (t.completed_at ? ` · concluída em ${fmtDateTime(t.completed_at)}` : '')),
+
+      !staff && t.stage_kind === 'client' ? clientDecision() : null,
+
+      staff ? h('div', { class: 'grid2' },
+        h('div', { class: 'field' }, h('label', { for: 'd-stage' }, 'Etapa'),
+          h('select', { id: 'd-stage', onchange: e => save({ stage_id: Number(e.target.value) }) },
+            state.stages.map(s => h('option', { value: s.id, selected: s.id === t.stage_id }, s.name)))),
+        h('div', { class: 'field' }, h('label', { for: 'd-due' }, 'Prazo'),
+          h('input', { id: 'd-due', type: 'date', value: t.due_date || '', onchange: e => save({ due_date: e.target.value || null }) })),
+        h('div', { class: 'field' }, h('label', { for: 'd-pri' }, 'Prioridade'),
+          h('select', { id: 'd-pri', onchange: e => save({ priority: e.target.value }) },
+            Object.entries(PRIORITY).map(([v, l]) => h('option', { value: v, selected: v === t.priority }, l)))),
+        h('div', { class: 'field' }, h('label', { for: 'd-client' }, 'Cliente'),
+          h('select', { id: 'd-client', onchange: e => save({ client_id: Number(e.target.value) }) },
+            state.clients.map(c => h('option', { value: c.id, selected: c.id === t.client_id }, c.name)))))
+        : h('p', {}, t.due_date ? `Prazo: ${fmtDate(t.due_date)}` : 'Sem prazo definido'),
+
+      staff ? h('div', { class: 'field' }, h('label', {}, 'Responsáveis'),
+        (() => { const g = assigneeChecks(t.assignees.map(a => a.id));
+          g.addEventListener('change', () => save({ assignee_ids: [...g.querySelectorAll('input:checked')].map(i => Number(i.value)) }));
+          return g; })())
+        : (t.assignees.length ? h('p', { class: 'muted' }, 'Responsáveis: ' + t.assignees.map(a => a.name).join(', ')) : null),
+
+      staff ? h('div', { class: 'field' }, h('label', { for: 'd-desc' }, 'Descrição'),
+        h('textarea', { id: 'd-desc', rows: 4, onchange: e => save({ description: e.target.value }) }, t.description))
+        : (t.description ? h('p', { style: 'white-space:pre-wrap' }, t.description) : null),
+
+      checklistSection(staff),
+      adjustmentsSection(staff, openAdj),
+      commentsSection(staff),
+
+      isAdmin() ? h('div', { class: 'section' }, h('button', { class: 'btn danger', onclick: guard(async () => {
+        if (!confirm('Apagar esta tarefa? Isso não pode ser desfeito.')) return;
+        await api('DELETE', `/api/tasks/${t.id}`); dirty = true; close(); toast('Tarefa apagada');
+      }) }, 'Apagar tarefa')) : null,
+    ].filter(Boolean));
+  }
+
+  function clientDecision() {
+    const ta = h('textarea', { id: 'c-adj', placeholder: 'O que precisa mudar?' });
+    return h('div', { class: 'card-box', style: 'border-color:var(--accent)' },
+      h('h2', {}, 'Esta entrega está esperando você'),
+      h('p', { class: 'muted' }, 'Aprove, ou diga o que ajustar e a equipe recebe na hora.'),
+      h('div', { class: 'row', style: 'margin-bottom:12px' },
+        h('button', { class: 'btn primary', onclick: () => act('POST', `/api/tasks/${t.id}/approve`) }, 'Aprovar entrega')),
+      h('label', { for: 'c-adj' }, 'Pedir ajuste'), ta,
+      h('div', { class: 'row', style: 'margin-top:8px' },
+        h('button', { class: 'btn', onclick: () => { if (!ta.value.trim()) { ta.focus(); return; } act('POST', `/api/tasks/${t.id}/adjustments`, { body: ta.value }); } }, 'Enviar pedido de ajuste')));
+  }
+
+  function checklistSection(staff) {
+    if (!staff && !t.checklist.length) return null;
+    const done = t.checklist.filter(i => i.done).length;
+    const input = h('input', { 'aria-label': 'Novo item', placeholder: 'Adicionar item', maxlength: 300 });
+    return h('div', { class: 'section' },
+      h('h2', {}, `Checklist ${t.checklist.length ? `(${done}/${t.checklist.length})` : ''}`),
+      t.checklist.length ? h('div', { class: 'bar', 'aria-hidden': 'true' }, h('span', { style: `width:${Math.round(done / t.checklist.length * 100)}%` })) : null,
+      t.checklist.map(i => h('div', { class: 'check' },
+        h('input', { type: 'checkbox', id: `ck-${i.id}`, checked: !!i.done, disabled: !staff, onchange: e => act('PATCH', `/api/checklist/${i.id}`, { done: e.target.checked }) }),
+        h('label', { for: `ck-${i.id}`, class: i.done ? 'done' : '', style: 'font-weight:400;margin:0;flex:1' }, i.text),
+        staff ? h('button', { class: 'btn ghost small', 'aria-label': `Remover ${i.text}`, onclick: () => act('DELETE', `/api/checklist/${i.id}`) }, '✕') : null)),
+      staff ? h('form', { class: 'row', style: 'margin-top:8px', onsubmit: e => { e.preventDefault(); if (input.value.trim()) act('POST', `/api/tasks/${t.id}/checklist`, { text: input.value }); } },
+        h('div', { class: 'grow' }, input), h('button', { class: 'btn', type: 'submit' }, 'Adicionar')) : null);
+  }
+
+  function adjustmentsSection(staff, openAdj) {
+    if (!staff && !t.adjustments.length) return null;
+    const internal = t.adjustments.filter(a => a.origin === 'internal').length;
+    const client = t.adjustments.filter(a => a.origin === 'client').length;
+    const ta = h('textarea', { 'aria-label': 'Descreva o ajuste interno', placeholder: 'O que a revisão interna pediu?' });
+    return h('div', { class: 'section' },
+      h('h2', {}, 'Ajustes'),
+      staff ? h('p', { class: 'meta' }, h('span', { class: 'tag' }, `${internal} interno${internal === 1 ? '' : 's'}`),
+        h('span', { class: 'tag adj' }, `${client} do cliente`), openAdj.length ? h('span', { class: 'tag late' }, `${openAdj.length} em aberto`) : h('span', { class: 'tag ok' }, 'nenhum em aberto')) : null,
+      t.adjustments.length ? t.adjustments.map(a => h('div', { class: 'adj-item' + (a.resolved_at ? '' : ' open') },
+        h('div', { class: 'meta' }, h('strong', {}, a.origin === 'client' ? 'Pedido do cliente' : 'Interno'), `· ${a.author || ''} · ${fmtDateTime(a.created_at)}`,
+          a.resolved_at ? h('span', { class: 'tag ok' }, 'resolvido') : null),
+        h('div', { class: 'comment' }, h('div', { class: 'body' }, a.body)),
+        staff && !a.resolved_at ? h('button', { class: 'btn small', onclick: () => act('POST', `/api/adjustments/${a.id}/resolve`) }, 'Marcar como resolvido') : null))
+        : h('p', { class: 'muted' }, 'Nenhum ajuste até agora.'),
+      staff ? h('details', {}, h('summary', {}, 'Registrar ajuste interno'),
+        h('div', { style: 'margin-top:8px' }, ta,
+          h('button', { class: 'btn', style: 'margin-top:8px', onclick: () => { if (!ta.value.trim()) { ta.focus(); return; } act('POST', `/api/tasks/${t.id}/adjustments`, { body: ta.value }); } }, 'Registrar e mover para "Em ajuste"'))) : null);
+  }
+
+  function commentsSection(staff) {
+    const ta = h('textarea', { id: 'cm-body', placeholder: staff ? 'Escreva um comentário' : 'Escreva para a equipe' });
+    const vis = h('input', { type: 'checkbox', id: 'cm-vis' });
+    return h('div', { class: 'section' },
+      h('h2', {}, 'Comentários'),
+      t.comments.length ? t.comments.map(c => h('div', { class: 'comment' },
+        h('div', { class: 'meta' }, h('span', { class: 'by' }, c.author || 'Usuário removido'), fmtDateTime(c.created_at),
+          staff ? h('span', { class: 'tag' + (c.visible_to_client ? ' ok' : '') }, c.visible_to_client ? 'cliente vê' : 'só equipe') : null),
+        h('div', { class: 'body' }, c.body))) : h('p', { class: 'muted' }, 'Sem comentários.'),
+      h('form', { style: 'margin-top:8px', onsubmit: e => {
+        e.preventDefault(); if (!ta.value.trim()) return;
+        act('POST', `/api/tasks/${t.id}/comments`, { body: ta.value, visible_to_client: vis.checked });
+      } },
+        h('label', { for: 'cm-body', class: 'sr-only' }, 'Comentário'), ta,
+        h('div', { class: 'row', style: 'margin-top:8px' },
+          h('button', { class: 'btn', type: 'submit' }, 'Comentar'),
+          staff ? h('label', { for: 'cm-vis', class: 'check', style: 'font-weight:400;margin:0' }, vis, 'Visível para o cliente') : null)));
+  }
+
+  paint();
+  drawer.querySelector('input, button')?.focus();
+}
+
+// ---------- portal do cliente ----------
+async function viewPortal() {
+  document.title = 'Minhas entregas';
+  const tasks = await api('GET', '/api/tasks');
+  const waiting = tasks.filter(t => t.stage_kind === 'client');
+  const doing = tasks.filter(t => !['client', 'done'].includes(t.stage_kind));
+  const done = tasks.filter(t => t.stage_kind === 'done').sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || ''));
+  const item = (t, cls = '') => h('div', { class: 'portal-task ' + cls },
+    h('div', { class: 'row' }, h('strong', { class: 'grow' }, t.title),
+      h('button', { class: cls ? 'btn primary' : 'btn', onclick: () => openTask(t.id) }, cls ? 'Revisar' : 'Ver')),
+    h('div', { class: 'meta', style: 'margin-top:6px' }, h('span', { class: 'tag' }, stageLabelForClient(t)),
+      t.due_date ? h('span', {}, `Prazo ${fmtDate(t.due_date)}`) : null,
+      t.completed_at ? h('span', {}, `Concluída ${fmtDateTime(t.completed_at)}`) : null));
+  shell([
+    h('h1', { style: 'margin-bottom:16px' }, 'Minhas entregas'),
+    h('section', { class: 'portal-section' }, h('h2', {}, `Esperando sua aprovação (${waiting.length})`),
+      waiting.length ? waiting.map(t => item(t, 'waiting')) : h('p', { class: 'muted' }, 'Nada esperando você agora.')),
+    h('section', { class: 'portal-section' }, h('h2', {}, `Em andamento (${doing.length})`),
+      doing.length ? doing.map(t => item(t)) : h('p', { class: 'muted' }, 'Nenhuma tarefa em andamento.')),
+    h('section', { class: 'portal-section' }, h('h2', {}, `Concluídas (${done.length})`),
+      done.length ? done.slice(0, 20).map(t => item(t)) : h('p', { class: 'muted' }, 'Ainda nenhuma.')),
+  ]);
+}
+function stageLabelForClient(t) {
+  return { todo: 'Na fila', doing: 'Em andamento', review: 'Em andamento', adjust: 'Em ajuste', client: 'Com você', done: 'Concluída' }[t.stage_kind];
+}
+
+// ---------- clientes ----------
+async function viewClients() {
+  document.title = 'Clientes';
+  state.clients = await api('GET', '/api/clients');
+  const err = h('p', { class: 'error', role: 'alert' });
+  shell([
+    h('h1', { style: 'margin-bottom:16px' }, 'Clientes'),
+    isAdmin() ? h('form', { class: 'card-box row', onsubmit: guard(async e => {
+      e.preventDefault();
+      const input = e.target.elements.name;
+      await api('POST', '/api/clients', { name: input.value }); toast('Cliente cadastrado'); route();
+    }) }, h('div', { class: 'grow' }, h('label', { for: 'cl-name', class: 'sr-only' }, 'Nome do cliente'),
+      h('input', { id: 'cl-name', name: 'name', placeholder: 'Nome do novo cliente', required: true, maxlength: 120 })),
+      h('button', { class: 'btn primary', type: 'submit' }, 'Cadastrar'), err) : null,
+    h('div', { class: 'card-box table-wrap' }, state.clients.length ? h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'Cliente'), h('th', {}, 'Tarefas abertas'), h('th', {}, ''))),
+      h('tbody', {}, state.clients.map(c => h('tr', {},
+        h('td', {}, c.name), h('td', {}, c.open_tasks),
+        h('td', { style: 'text-align:right' },
+          h('button', { class: 'btn small', onclick: () => { state.filters.client_id = String(c.id); location.hash = '#/quadro'; } }, 'Ver quadro'), ' ',
+          isAdmin() ? h('button', { class: 'btn small', onclick: guard(async () => {
+            const name = prompt('Novo nome do cliente', c.name);
+            if (name && name.trim()) { await api('PATCH', `/api/clients/${c.id}`, { name }); route(); }
+          }) }, 'Renomear') : null)))))
+      : h('p', { class: 'empty' }, 'Nenhum cliente ainda.')),
+  ]);
+}
+
+// ---------- pessoas ----------
+async function viewTeam() {
+  document.title = 'Pessoas';
+  state.users = await api('GET', '/api/users');
+  const err = h('p', { class: 'error', role: 'alert' });
+  const roleSel = h('select', { id: 'u-role', name: 'role', onchange: () => { clientField.hidden = roleSel.value !== 'client'; } },
+    Object.entries(ROLE).map(([v, l]) => h('option', { value: v, selected: v === 'member' }, l)));
+  const clientField = h('div', { class: 'field', hidden: true }, h('label', { for: 'u-client' }, 'Cliente'),
+    h('select', { id: 'u-client', name: 'client_id' }, state.clients.map(c => h('option', { value: c.id }, c.name))));
+  const form = isAdmin() ? h('form', { class: 'card-box', onsubmit: async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api('POST', '/api/users', { name: fd.get('name'), email: fd.get('email'), password: fd.get('password'), role: fd.get('role'),
+        client_id: fd.get('role') === 'client' ? Number(fd.get('client_id')) : undefined });
+      toast('Acesso criado. Envie o email e a senha para a pessoa.'); route();
+    } catch (ex) { err.textContent = ex.message; }
+  } },
+    h('h2', {}, 'Dar acesso a alguém'),
+    h('div', { class: 'grid2' },
+      h('div', { class: 'field' }, h('label', { for: 'u-name' }, 'Nome'), h('input', { id: 'u-name', name: 'name', required: true, maxlength: 120 })),
+      h('div', { class: 'field' }, h('label', { for: 'u-email' }, 'Email'), h('input', { id: 'u-email', name: 'email', type: 'email', required: true })),
+      h('div', { class: 'field' }, h('label', { for: 'u-pass' }, 'Senha inicial (mín. 8)'), h('input', { id: 'u-pass', name: 'password', type: 'text', minlength: 8, required: true, autocomplete: 'new-password' })),
+      h('div', { class: 'field' }, h('label', { for: 'u-role' }, 'Papel'), roleSel)),
+    clientField,
+    h('p', { class: 'muted' }, 'Equipe vê todos os clientes. Cliente vê só as próprias tarefas e só os comentários marcados como visíveis.'),
+    err, h('button', { class: 'btn primary', type: 'submit' }, 'Criar acesso')) : null;
+  shell([
+    h('h1', { style: 'margin-bottom:16px' }, 'Pessoas'),
+    form,
+    h('div', { class: 'card-box table-wrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'Nome'), h('th', {}, 'Email'), h('th', {}, 'Papel'), h('th', {}, 'Situação'), h('th', {}, ''))),
+      h('tbody', {}, state.users.map(u => h('tr', {},
+        h('td', {}, u.name), h('td', {}, u.email), h('td', {}, ROLE[u.role] + (u.client_name ? ` · ${u.client_name}` : '')),
+        h('td', {}, u.active ? 'Ativo' : 'Desativado'),
+        h('td', { style: 'text-align:right' }, isAdmin() && u.id !== state.me.id ? h('button', { class: 'btn small', onclick: guard(async () => {
+          await api('PATCH', `/api/users/${u.id}`, { active: !u.active }); route();
+        }) }, u.active ? 'Desativar' : 'Reativar') : null)))))),
+  ]);
+}
+
+// ---------- modelos ----------
+async function viewTemplates() {
+  document.title = 'Modelos';
+  state.templates = await api('GET', '/api/templates');
+  const err = h('p', { class: 'error', role: 'alert' });
+  shell([
+    h('h1', { style: 'margin-bottom:16px' }, 'Modelos de tarefa'),
+    h('form', { class: 'card-box', onsubmit: async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        await api('POST', '/api/templates', { name: fd.get('name'), title: fd.get('title'), description: fd.get('description'),
+          checklist: String(fd.get('checklist')).split('\n').map(s => s.trim()).filter(Boolean) });
+        toast('Modelo salvo'); route();
+      } catch (ex) { err.textContent = ex.message; }
+    } },
+      h('h2', {}, 'Novo modelo'),
+      h('p', { class: 'muted' }, 'Para o trabalho que se repete: fechamento do mês, diagnóstico, onboarding de cliente.'),
+      h('div', { class: 'grid2' },
+        h('div', { class: 'field' }, h('label', { for: 't-name' }, 'Nome do modelo'), h('input', { id: 't-name', name: 'name', required: true, maxlength: 120 })),
+        h('div', { class: 'field' }, h('label', { for: 't-title' }, 'Título da tarefa'), h('input', { id: 't-title', name: 'title', required: true, maxlength: 200 }))),
+      h('div', { class: 'field' }, h('label', { for: 't-desc' }, 'Descrição'), h('textarea', { id: 't-desc', name: 'description' })),
+      h('div', { class: 'field' }, h('label', { for: 't-check' }, 'Checklist (um item por linha)'), h('textarea', { id: 't-check', name: 'checklist', rows: 5 })),
+      err, h('button', { class: 'btn primary', type: 'submit' }, 'Salvar modelo')),
+    state.templates.length ? state.templates.map(t => h('div', { class: 'card-box' },
+      h('div', { class: 'row' }, h('h2', { class: 'grow', style: 'margin:0' }, t.name),
+        h('button', { class: 'btn small danger', onclick: guard(async () => { if (confirm(`Apagar o modelo "${t.name}"?`)) { await api('DELETE', `/api/templates/${t.id}`); route(); } }) }, 'Apagar')),
+      h('p', { class: 'muted' }, `Cria: "${t.title}"` + (t.checklist.length ? ` com ${t.checklist.length} itens` : '')),
+      t.checklist.length ? h('ul', {}, t.checklist.map(i => h('li', {}, i))) : null))
+      : h('div', { class: 'card-box empty' }, 'Nenhum modelo ainda.'),
+  ]);
+}
+
+// ---------- relatório ----------
+async function viewReport() {
+  document.title = 'Ajustes por cliente';
+  const rows = await api('GET', '/api/report/adjustments');
+  shell([
+    h('h1', {}, 'Ajustes por cliente'),
+    h('p', { class: 'muted' }, 'Quantas vezes o trabalho voltou. Ajuste do cliente custa mais caro que o interno: mostra o que passou pela revisão.'),
+    h('div', { class: 'card-box table-wrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'Cliente'), h('th', {}, 'Tarefas'), h('th', {}, 'Ajustes internos'), h('th', {}, 'Ajustes do cliente'), h('th', {}, 'Por tarefa'))),
+      h('tbody', {}, rows.map(r => h('tr', {},
+        h('td', {}, r.name), h('td', {}, r.tasks), h('td', {}, r.internal || 0), h('td', {}, r.client || 0),
+        h('td', {}, r.tasks ? (((r.internal || 0) + (r.client || 0)) / r.tasks).toFixed(1).replace('.', ',') : '–')))))),
+  ]);
+}
+
+// ---------- configurações ----------
+async function viewSettings() {
+  document.title = 'Configurações';
+  const msg = h('p', { role: 'status' });
+  const pwErr = h('p', { class: 'error', role: 'alert' });
+  shell([
+    h('h1', { style: 'margin-bottom:16px' }, isStaff() ? 'Configurações' : 'Minha conta'),
+    isAdmin() ? h('form', { class: 'card-box', onsubmit: async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        await api('PATCH', '/api/org', { name: fd.get('name'), accent: fd.get('accent') });
+        await loadCommon(); toast('Salvo'); route();
+      } catch (ex) { msg.textContent = ex.message; }
+    } },
+      h('h2', {}, 'Sua marca'),
+      h('p', { class: 'muted' }, 'O nome e a cor aparecem para a equipe e para os clientes.'),
+      h('div', { class: 'grid2' },
+        h('div', { class: 'field' }, h('label', { for: 'o-name' }, 'Nome'), h('input', { id: 'o-name', name: 'name', value: state.org.name, required: true, maxlength: 80 })),
+        h('div', { class: 'field' }, h('label', { for: 'o-accent' }, 'Cor principal'), h('input', { id: 'o-accent', name: 'accent', type: 'color', value: state.org.accent }))),
+      msg, h('button', { class: 'btn primary', type: 'submit' }, 'Salvar')) : null,
+    h('form', { class: 'card-box', onsubmit: async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        await api('POST', '/api/me/password', { current: fd.get('current'), password: fd.get('password') });
+        e.target.reset(); pwErr.textContent = ''; toast('Senha alterada');
+      } catch (ex) { pwErr.textContent = ex.message; }
+    } },
+      h('h2', {}, 'Trocar senha'),
+      h('div', { class: 'grid2' },
+        h('div', { class: 'field' }, h('label', { for: 'p-cur' }, 'Senha atual'), h('input', { id: 'p-cur', name: 'current', type: 'password', required: true, autocomplete: 'current-password' })),
+        h('div', { class: 'field' }, h('label', { for: 'p-new' }, 'Nova senha (mín. 8)'), h('input', { id: 'p-new', name: 'password', type: 'password', minlength: 8, required: true, autocomplete: 'new-password' }))),
+      pwErr, h('button', { class: 'btn', type: 'submit' }, 'Trocar senha')),
+  ]);
+}
+
+boot();
+
+</script>
+</body>
+</html>

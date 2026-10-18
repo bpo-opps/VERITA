@@ -44,3 +44,13 @@ A senha temporária aparece uma vez no terminal; troque em Configurações. O ba
 ## Segurança
 
 Senhas com scrypt, sessão em cookie HttpOnly e SameSite, verificação de origem em toda escrita, limite de tentativas de login, toda consulta filtrada por organização e, para cliente, pelo próprio cliente. Os testes em `test/api.test.js` cobrem um cliente tentando ver tarefa de outro e outra organização tentando ver esta.
+
+## Protótipo em um arquivo HTML
+
+`prototype/tarefas-prototipo.html` abre direto no navegador, sem servidor e sem instalar nada. É a mesma interface (`public/`), com uma versão da API rodando no próprio navegador (`prototype/mock-api.js`) e os dados fictícios da demonstração, salvos só naquele navegador. Serve para mostrar o fluxo, não para uso real: não tem senha de verdade nem dados compartilhados entre pessoas.
+
+Depois de mudar `public/` ou `prototype/mock-api.js`, gere de novo:
+
+```bash
+node prototype/build.js
+```
