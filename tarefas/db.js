@@ -3,7 +3,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { hashPassword } = require('./auth');
 const { today, addDays } = require('./shared');
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA = `
 pragma foreign_keys = on;
@@ -42,12 +42,15 @@ create table if not exists tasks (
   org_id integer not null references orgs(id) on delete cascade,
   kind text not null check (kind in ('internal','external')),
   client_id integer references clients(id) on delete cascade,
-  status text not null default 'todo' check (status in ('todo','doing','review','done')),
+  status text not null default 'todo' check (status in ('todo','doing','review','done','cancelled')),
+  client_visible integer not null default 0,
   title text not null,
   description text not null default '',
   start_date text,
   due_date text,
   completed_on text,
+  cancelled_on text,
+  cancel_reason text,
   progress integer not null default 0 check (progress between 0 and 100),
   priority text not null default 'normal' check (priority in ('low','normal','high')),
   alerts text not null default '[1]',
@@ -60,7 +63,8 @@ create table if not exists tasks (
   updated_at text not null default (datetime('now')),
   archived_at text,
   check (kind = 'internal' or client_id is not null),
-  check ((status = 'done') = (completed_on is not null))
+  check ((status = 'done') = (completed_on is not null)),
+  check ((status = 'cancelled') = (cancel_reason is not null))
 );
 create index if not exists tasks_org on tasks (org_id, archived_at, status);
 create index if not exists tasks_client on tasks (client_id);
@@ -167,29 +171,31 @@ function seedDemo(db) {
   let pos = 0;
   const task = (t, who = [], checklist = []) => {
     const id = Number(db.prepare(
-      `insert into tasks (org_id, kind, client_id, status, title, description, start_date, due_date, completed_on, progress,
-                          priority, alerts, recurrence, position, created_by, archived_at)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(orgId, t.kind, t.client ?? null, t.status || 'todo', t.title, t.description || '', t.start ?? null, t.due ?? null,
-      t.done ?? null, t.progress || 0, t.priority || 'normal', JSON.stringify(t.alerts || [1]), t.recurrence || 'none',
-      ++pos, t.by || admin, t.archived ? d(-1) : null).lastInsertRowid);
+      `insert into tasks (org_id, kind, client_id, client_visible, status, title, description, start_date, due_date, completed_on,
+                          cancelled_on, cancel_reason, progress, priority, alerts, recurrence, position, created_by, archived_at)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(orgId, t.kind, t.client ?? null, t.visible ? 1 : 0, t.status || 'todo', t.title, t.description || '', t.start ?? null,
+      t.due ?? null, t.done ?? null, t.cancelled ?? null, t.reason ?? null, t.progress || 0, t.priority || 'normal',
+      JSON.stringify(t.alerts || [1]), t.recurrence || 'none', ++pos, t.by || admin, t.archived ? d(-1) : null).lastInsertRowid);
     for (const u of who) db.prepare('insert into task_assignees values (?, ?)').run(id, u);
     checklist.forEach(([text, done], i) => db.prepare('insert into checklist_items (task_id, text, done, position) values (?, ?, ?, ?)').run(id, text, done ? 1 : 0, i));
     return id;
   };
 
-  task({ kind: 'external', client: padaria, title: 'Levantar processos do financeiro', start: d(0), due: d(5), alerts: [1, 3] }, [ana]);
+  task({ kind: 'external', client: padaria, title: 'Levantar processos do financeiro', due: d(5), alerts: [1, 3] }, [ana]);
   task({ kind: 'external', client: padaria, status: 'doing', title: 'Mapear fluxo de contas a pagar', start: d(-4), due: d(2), progress: 40, alerts: [1] }, [ana, admin]);
   task({ kind: 'external', client: clinica, status: 'doing', title: 'Fechamento contábil de setembro', start: d(-6), due: d(1), alerts: [0, 1, 3], recurrence: 'monthly', priority: 'high' }, [bia],
     [['Conciliar bancos', true], ['Conferir notas fiscais', true], ['Lançar provisões', false], ['Enviar relatório ao cliente', false]]);
   const rev = task({ kind: 'external', client: padaria, status: 'review', title: 'Relatório de diagnóstico', start: d(-10), due: d(3), progress: 90 }, [admin]);
   db.prepare("insert into comments (task_id, user_id, body, visible_to_client) values (?, ?, 'Versão 1 pronta para sua revisão.', 1)").run(rev, admin);
   task({ kind: 'external', client: clinica, status: 'doing', title: 'Conciliação bancária de agosto', start: d(-12), due: d(-2), progress: 70, alerts: [1] }, [ana]);
-  task({ kind: 'external', client: clinica, status: 'done', title: 'Reunião de kickoff', start: d(-20), due: d(-14), done: d(-15) }, [admin]);
-  task({ kind: 'external', client: padaria, status: 'done', title: 'Cadastro de fornecedores', start: d(-18), due: d(-9), done: d(-6) }, [ana]);
-  task({ kind: 'internal', title: 'Planejamento comercial do trimestre', start: d(-2), due: d(10), alerts: [7], recurrence: 'quarterly' }, [admin]);
-  task({ kind: 'internal', client: padaria, status: 'doing', title: 'Revisar proposta de renovação da Padaria', due: d(0), progress: 20, alerts: [0], by: ana }, [ana]);
-  task({ kind: 'internal', status: 'todo', title: 'Atualizar modelo de relatório mensal', due: d(15), by: bia }, [bia]);
+  task({ kind: 'external', client: clinica, status: 'done', title: 'Reunião de kickoff', start: d(-16), due: d(-14), done: d(-15) }, [admin]);
+  task({ kind: 'external', client: padaria, status: 'done', title: 'Cadastro de fornecedores', start: d(-12), due: d(-9), done: d(-6) }, [ana]);
+  task({ kind: 'external', client: clinica, status: 'cancelled', title: 'Treinamento do sistema de ponto', due: d(4), cancelled: d(-1), reason: 'Cliente decidiu trocar de sistema de ponto antes do treinamento.' }, [bia]);
+  task({ kind: 'internal', title: 'Planejamento comercial do trimestre', due: d(10), alerts: [7], recurrence: 'quarterly' }, []);
+  task({ kind: 'internal', client: padaria, visible: true, status: 'doing', title: 'Preparar proposta de renovação da Padaria', start: d(-1), due: d(6), progress: 30, by: ana }, [ana]);
+  task({ kind: 'internal', client: padaria, status: 'doing', title: 'Revisar margem do contrato da Padaria', due: d(0), progress: 20, alerts: [0], by: ana }, [ana]);
+  task({ kind: 'internal', title: 'Atualizar modelo de relatório mensal', due: d(15), by: bia }, [bia]);
   task({ kind: 'external', client: clinica, status: 'done', title: 'Levantamento inicial (antigo)', due: d(-40), done: d(-41), archived: true }, [admin]);
 
   db.prepare("insert into templates (org_id, name, title, checklist) values (?, 'Fechamento mensal', 'Fechamento do mês', ?)")

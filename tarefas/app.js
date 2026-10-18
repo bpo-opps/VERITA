@@ -65,9 +65,6 @@ function recurrence(body, current = {}) {
   }
   return { rec, every };
 }
-function checkDates(start, due) {
-  if (start && due && start > due) fail(400, 'A data de início não pode ser depois do prazo');
-}
 
 // ---------- permissões ----------
 const isStaff = u => u.role === 'admin' || u.role === 'member';
@@ -85,8 +82,9 @@ function loadTask(db, user, taskId) {
 }
 // Filtro SQL equivalente a shared.canSee, para listas.
 function visibility(user) {
-  if (user.role === 'client') return { sql: "t.kind = 'external' and t.client_id = ? and t.archived_at is null", args: [user.client_id] };
-  if (user.role === 'admin') return { sql: '1 = 1', args: [] };
+  if (user.role === 'client') {
+    return { sql: "t.client_id = ? and (t.kind = 'external' or t.client_visible = 1) and t.archived_at is null", args: [user.client_id] };
+  }
   return {
     sql: "(t.kind = 'external' or t.created_by = ? or exists (select 1 from task_assignees a where a.task_id = t.id and a.user_id = ?))",
     args: [user.id, user.id],
@@ -117,23 +115,32 @@ function kindAndClient(db, user, kind, clientId) {
   if (clientId) checkClient(db, user, clientId);
   return clientId || null;
 }
+// "Visível para o cliente" só existe em interna ligada a um cliente.
+const clientVisible = (kind, clientId, flag) => (kind === 'internal' && clientId && flag ? 1 : 0);
+function checklistItems(v) {
+  if (v === undefined) return null;
+  if (!Array.isArray(v)) fail(400, 'Checklist inválido');
+  return v.map(x => str(x, 'item do checklist', { max: 300, required: false })).filter(Boolean).slice(0, 100);
+}
 
 // Concluir: grava o término e, se a tarefa repete, cria a próxima com as datas avançadas.
 function completeTask(db, t, completedOn, userId) {
   if (completedOn > S.today()) fail(400, 'A data de término não pode ser no futuro');
   if (t.start_date && completedOn < t.start_date) fail(400, 'A data de término não pode ser antes do início');
   return tx(db, () => {
-    db.prepare("update tasks set status = 'done', completed_on = ?, progress = 100, updated_at = datetime('now') where id = ?").run(completedOn, t.id);
+    db.prepare(
+      `update tasks set status = 'done', completed_on = ?, cancelled_on = null, cancel_reason = null, progress = 100,
+         updated_at = datetime('now') where id = ?`
+    ).run(completedOn, t.id);
     if (t.recurrence === 'none' || t.next_task_id) return null;
-    const next = d => S.nextDate(d, t.recurrence, t.recurrence_every);
-    const nextStart = t.start_date ? next(t.start_date) : null;
-    const nextDue = t.due_date ? next(t.due_date) : (t.start_date ? null : next(completedOn));
+    // O início fica vazio: ele é preenchido quando alguém começar a próxima.
+    const nextDue = S.nextDate(t.due_date || completedOn, t.recurrence, t.recurrence_every);
     const r = db.prepare(
-      `insert into tasks (org_id, kind, client_id, title, description, start_date, due_date, priority, alerts, recurrence,
+      `insert into tasks (org_id, kind, client_id, client_visible, title, description, due_date, priority, alerts, recurrence,
                           recurrence_every, position, created_by)
        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (select coalesce(max(position), 0) + 1 from tasks where org_id = ?), ?)`
-    ).run(t.org_id, t.kind, t.client_id, t.title, t.description, nextStart, nextDue, t.priority, t.alerts, t.recurrence,
-      t.recurrence_every, t.org_id, userId);
+    ).run(t.org_id, t.kind, t.client_id, t.client_visible, t.title, t.description, nextDue, t.priority, t.alerts, t.recurrence,
+      t.recurrence_every, t.org_id, t.created_by ?? userId);
     const nextId = Number(r.lastInsertRowid);
     setAssignees(db, nextId, assigneeIds(db, t.id));
     db.prepare('insert into checklist_items (task_id, text, position) select ?, text, position from checklist_items where task_id = ?').run(nextId, t.id);
@@ -151,8 +158,9 @@ function decorate(db, user, t, now) {
   ).get(t.id);
   t.alerts = JSON.parse(t.alerts);
   const out = {
-    id: t.id, kind: t.kind, client_id: t.client_id, client_name: t.client_name || null, status: t.status,
+    id: t.id, kind: t.kind, client_id: t.client_id, client_name: t.client_name || null, client_visible: S.clientSees(t), status: t.status,
     column: S.column(t, now), title: t.title, start_date: t.start_date, due_date: t.due_date, completed_on: t.completed_on,
+    cancelled_on: t.cancelled_on, cancel_reason: t.cancel_reason,
     progress: S.progress(t, cl.total, cl.done), progress_from_checklist: cl.total > 0, priority: t.priority,
     alerts: t.alerts, alert: S.alert(t, now), recurrence: t.recurrence, recurrence_every: t.recurrence_every,
     position: t.position, archived_at: t.archived_at, created_by: t.created_by, updated_at: t.updated_at,
@@ -177,7 +185,7 @@ function taskList(db, user, q) {
   }
   const mine = q.mine === '1' ? user.id : (q.assignee ? id(q.assignee, 'responsável') : null);
   if (mine) { where.push('exists (select 1 from task_assignees a where a.task_id = t.id and a.user_id = ?)'); args.push(mine); }
-  if (q.due === 'overdue') { where.push("t.due_date < ? and t.status != 'done'"); args.push(now); }
+  if (q.due === 'overdue') { where.push("t.due_date < ? and t.status not in ('done', 'cancelled')"); args.push(now); }
   if (q.due === 'today') { where.push('t.due_date = ?'); args.push(now); }
   if (q.due === 'week') { where.push('t.due_date between ? and ?'); args.push(now, S.addDays(now, 7)); }
   if (q.due === 'month') { where.push('substr(t.due_date, 1, 7) = ?'); args.push(now.slice(0, 7)); }
@@ -268,8 +276,8 @@ route('GET', '/api/clients', ({ db, user }) => {
   if (user.role === 'client') return db.prepare('select id, name, logo from clients where id = ?').all(user.client_id);
   return db.prepare(
     `select c.id, c.name, c.logo,
-       (select count(*) from tasks t where t.client_id = c.id and t.status != 'done' and t.archived_at is null and t.kind = 'external') as open_external,
-       (select count(*) from tasks t where t.client_id = c.id and t.status != 'done' and t.archived_at is null and t.kind = 'internal') as open_internal
+       (select count(*) from tasks t where t.client_id = c.id and t.status not in ('done', 'cancelled') and t.archived_at is null and t.kind = 'external') as open_external,
+       (select count(*) from tasks t where t.client_id = c.id and t.status not in ('done', 'cancelled') and t.archived_at is null and t.kind = 'internal') as open_internal
        from clients c where c.org_id = ? order by c.name`
   ).all(user.org_id);
 });
@@ -333,27 +341,27 @@ route('POST', '/api/tasks', ({ db, user, body }) => {
   const clientId = kindAndClient(db, user, kind, body.client_id ? id(body.client_id, 'cliente') : null);
   let title = str(body.title, 'título', { max: 200, required: !body.template_id });
   let description = str(body.description, 'descrição', { max: 10000, required: false });
-  let checklist = [];
+  let checklist = checklistItems(body.checklist);
   if (body.template_id) {
     const tpl = db.prepare('select * from templates where id = ? and org_id = ?').get(id(body.template_id, 'modelo'), user.org_id);
     if (!tpl) fail(400, 'Modelo inválido');
     title = title || tpl.title;
     description = description || tpl.description;
-    checklist = JSON.parse(tpl.checklist);
+    checklist = checklist ?? JSON.parse(tpl.checklist);
   }
-  const start = date(body.start_date, 'Início');
+  checklist = checklist || [];
   const due = date(body.due_date, 'Prazo');
-  checkDates(start, due);
   const priority = oneOf(body.priority, 'prioridade', ['low', 'normal', 'high'], 'normal');
   const al = body.alerts === undefined ? [1] : alerts(body.alerts);
   const { rec, every } = recurrence(body);
   const assignees = checkAssignees(db, user, body.assignee_ids || []);
   const newId = tx(db, () => {
     const r = db.prepare(
-      `insert into tasks (org_id, kind, client_id, title, description, start_date, due_date, priority, alerts, recurrence,
+      `insert into tasks (org_id, kind, client_id, client_visible, title, description, due_date, priority, alerts, recurrence,
                           recurrence_every, position, created_by)
        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (select coalesce(max(position), 0) + 1 from tasks where org_id = ?), ?)`
-    ).run(user.org_id, kind, clientId, title, description, start, due, priority, JSON.stringify(al), rec, every, user.org_id, user.id);
+    ).run(user.org_id, kind, clientId, clientVisible(kind, clientId, body.client_visible), title, description, due, priority,
+      JSON.stringify(al), rec, every, user.org_id, user.id);
     const taskId = Number(r.lastInsertRowid);
     setAssignees(db, taskId, assignees);
     const ins = db.prepare('insert into checklist_items (task_id, text, position) values (?, ?, ?)');
@@ -372,19 +380,14 @@ route('PATCH', '/api/tasks/:id', ({ db, user, body, params }) => {
     const set = (col, val) => db.prepare(`update tasks set ${col} = ? where id = ?`).run(val, t.id);
     if ('title' in body) set('title', str(body.title, 'título', { max: 200 }));
     if ('description' in body) set('description', str(body.description, 'descrição', { max: 10000, required: false }));
-    if ('kind' in body || 'client_id' in body) {
+    if ('kind' in body || 'client_id' in body || 'client_visible' in body) {
       const kind = 'kind' in body ? oneOf(body.kind, 'tipo', ['internal', 'external']) : t.kind;
-      const clientId = 'client_id' in body ? (body.client_id ? id(body.client_id, 'cliente') : null) : t.client_id;
-      set('kind', kind);
-      set('client_id', kindAndClient(db, user, kind, clientId));
+      const clientId = kindAndClient(db, user, kind, 'client_id' in body ? (body.client_id ? id(body.client_id, 'cliente') : null) : t.client_id);
+      db.prepare('update tasks set kind = ?, client_id = ?, client_visible = ? where id = ?')
+        .run(kind, clientId, clientVisible(kind, clientId, 'client_visible' in body ? body.client_visible : t.client_visible), t.id);
     }
-    if ('start_date' in body || 'due_date' in body) {
-      const start = 'start_date' in body ? date(body.start_date, 'Início') : t.start_date;
-      const due = 'due_date' in body ? date(body.due_date, 'Prazo') : t.due_date;
-      checkDates(start, due);
-      set('start_date', start);
-      set('due_date', due);
-    }
+    if ('start_date' in body) set('start_date', date(body.start_date, 'Início'));
+    if ('due_date' in body) set('due_date', date(body.due_date, 'Prazo'));
     if ('priority' in body) set('priority', oneOf(body.priority, 'prioridade', ['low', 'normal', 'high']));
     if ('alerts' in body) set('alerts', JSON.stringify(alerts(body.alerts)));
     if ('recurrence' in body || 'recurrence_every' in body) {
@@ -404,9 +407,14 @@ route('PATCH', '/api/tasks/:id', ({ db, user, body, params }) => {
       set('position', p);
     }
     if ('assignee_ids' in body) setAssignees(db, t.id, checkAssignees(db, user, body.assignee_ids));
+    // Concluir e cancelar têm rotas próprias (pedem data e motivo). Voltar a uma situação aberta reabre.
+    // Ao entrar em andamento pela primeira vez, o início é preenchido com hoje.
     if ('status' in body) {
+      if (body.status === 'done') fail(400, 'Para concluir, use Concluir e informe a data de término');
+      if (body.status === 'cancelled') fail(400, 'Para cancelar, use Cancelar e informe o motivo');
       const status = oneOf(body.status, 'situação', ['todo', 'doing', 'review']);
-      db.prepare('update tasks set status = ?, completed_on = null where id = ?').run(status, t.id);
+      db.prepare('update tasks set status = ?, completed_on = null, cancelled_on = null, cancel_reason = null where id = ?').run(status, t.id);
+      if (status !== 'todo' && !('start_date' in body)) db.prepare('update tasks set start_date = coalesce(start_date, ?) where id = ?').run(S.today(), t.id);
     }
     touch(db, t.id);
   });
@@ -418,6 +426,17 @@ route('POST', '/api/tasks/:id/complete', ({ db, user, body, params }) => {
   const t = loadTask(db, user, params.id);
   const nextId = completeTask(db, t, date(body.completed_on, 'Término') || S.today(), user.id);
   return { ...taskDetail(db, user, t.id), created_next_id: nextId };
+});
+
+route('POST', '/api/tasks/:id/cancel', ({ db, user, body, params }) => {
+  requireStaff(user);
+  const t = loadTask(db, user, params.id);
+  const reason = str(body.reason, 'motivo do cancelamento', { max: 1000 });
+  db.prepare(
+    `update tasks set status = 'cancelled', cancel_reason = ?, cancelled_on = ?, completed_on = null, updated_at = datetime('now')
+      where id = ?`
+  ).run(reason, S.today(), t.id);
+  return taskDetail(db, user, t.id);
 });
 
 route('POST', '/api/tasks/:id/archive', ({ db, user, body, params }) => {
@@ -469,7 +488,7 @@ route('DELETE', '/api/checklist/:id', ({ db, user, params }) => {
 route('POST', '/api/tasks/:id/comments', ({ db, user, body, params }) => {
   const t = loadTask(db, user, params.id);
   const text = str(body.body, 'comentário', { max: 5000 });
-  const visible = user.role === 'client' ? 1 : (t.kind === 'external' && body.visible_to_client ? 1 : 0);
+  const visible = user.role === 'client' ? 1 : (S.clientSees(t) && body.visible_to_client ? 1 : 0);
   db.prepare('insert into comments (task_id, user_id, body, visible_to_client) values (?, ?, ?, ?)').run(t.id, user.id, text, visible);
   touch(db, t.id);
   return reply(201, taskDetail(db, user, t.id));
@@ -538,7 +557,7 @@ route('GET', '/api/report/adjustments', ({ db, user }) => {
   const tasks = taskList(db, user, {}).concat(taskList(db, user, { archived: '1' }));
   const org = db.prepare('select name from orgs where id = ?').get(user.org_id).name;
   const rows = new Map();
-  const row = (key, name) => rows.get(key) || rows.set(key, { id: key, name, tasks: 0, internal: 0, client: 0, on_time: 0, late: 0 }).get(key);
+  const row = (key, name) => rows.get(key) || rows.set(key, { id: key, name, tasks: 0, internal: 0, client: 0, on_time: 0, late: 0, cancelled: 0 }).get(key);
   for (const c of db.prepare('select id, name from clients where org_id = ? order by name').all(user.org_id)) row(c.id, c.name);
   for (const t of tasks) {
     const r = row(t.client_id || 'org', t.client_id ? t.client_name : `${org} (interna)`);
@@ -546,6 +565,7 @@ route('GET', '/api/report/adjustments', ({ db, user }) => {
     r.internal += t.adjustments_internal;
     r.client += t.adjustments_client;
     if (t.column === 'done_on_time') r.on_time++;
+    if (t.column === 'cancelled') r.cancelled++;
     if (t.column === 'done_late') r.late++;
   }
   return [...rows.values()].sort((a, b) => b.client - a.client || b.internal - a.internal || a.name.localeCompare(b.name));

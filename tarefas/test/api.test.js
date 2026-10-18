@@ -65,6 +65,15 @@ test('regras compartilhadas: meses, colunas, alertas, %', () => {
   assert.equal(S.column({ status: 'done', due_date: '2026-10-17', completed_on: '2026-10-17' }, now), 'done_on_time');
   assert.equal(S.column({ status: 'done', due_date: '2026-10-17', completed_on: '2026-10-18' }, now), 'done_late');
   assert.equal(S.column({ status: 'done', due_date: null, completed_on: '2026-10-18' }, now), 'done_on_time');
+  assert.equal(S.column({ status: 'cancelled', due_date: '2026-10-01' }, now), 'cancelled', 'cancelada não vira atrasada');
+  assert.equal(S.alert({ status: 'cancelled', due_date: '2026-10-01', alerts: [1] }, now), null);
+  const admin = { id: 1, role: 'admin' }, member = { id: 2, role: 'member' };
+  const own = { kind: 'internal', created_by: 1, client_id: null };
+  assert.equal(S.canSee(admin, own, []), true);
+  assert.equal(S.canSee({ id: 9, role: 'admin' }, own, []), false, 'interna de um admin: outro admin não vê');
+  assert.equal(S.canSee(member, own, [2]), true, 'responsável vê');
+  assert.equal(S.canSee({ id: 5, role: 'client', client_id: 3 }, { kind: 'internal', client_id: 3, client_visible: 1 }, []), true);
+  assert.equal(S.canSee({ id: 5, role: 'client', client_id: 3 }, { kind: 'internal', client_id: 3, client_visible: 0 }, []), false);
   assert.equal(S.alert({ status: 'todo', due_date: '2026-10-21', alerts: [3] }, now).days, 3);
   assert.equal(S.alert({ status: 'todo', due_date: '2026-10-22', alerts: [3] }, now), null);
   assert.equal(S.alert({ status: 'todo', due_date: '2026-10-16', alerts: [] }, now).kind, 'overdue');
@@ -92,7 +101,7 @@ test('externa precisa de cliente; interna pode ser da própria consultoria', asy
   assert.equal((await admin('GET', '/api/tasks?client_id=org')).body.some(t => t.id === own.body.id), true);
 });
 
-test('interna: cliente nunca vê; equipe só se criou ou é responsável; admin vê', async () => {
+test('interna: só quem criou e os responsáveis; cliente só se marcada como visível', async () => {
   const admin = await login('admin@t.local');
   const member = await login('membro@t.local');
   const member2 = await login('membro2@t.local');
@@ -106,10 +115,24 @@ test('interna: cliente nunca vê; equipe só se criou ou é responsável; admin 
   const own = (await member2('POST', '/api/tasks', { kind: 'internal', title: 'Minha interna' })).body.id;
   assert.equal((await member2('GET', `/api/tasks/${own}`)).status, 200, 'quem criou vê');
   assert.equal((await member('GET', `/api/tasks/${own}`)).status, 404);
-  assert.equal((await admin('GET', `/api/tasks/${own}`)).status, 200, 'admin vê');
-  // Virar externa torna visível para o cliente.
-  await admin('PATCH', `/api/tasks/${t}`, { kind: 'external' });
+  assert.equal((await admin('GET', `/api/tasks/${own}`)).status, 404, 'admin não vê interna alheia');
+  const adminOnly = (await admin('POST', '/api/tasks', { kind: 'internal', title: 'Só do admin' })).body.id;
+  assert.equal((await member('GET', `/api/tasks/${adminOnly}`)).status, 404, 'interna só do admin: só ele vê');
+  await admin('PATCH', `/api/tasks/${adminOnly}`, { assignee_ids: [ids.member] });
+  assert.equal((await member('GET', `/api/tasks/${adminOnly}`)).status, 200, 'virou responsável, passa a ver');
+  // Interna ligada ao cliente, marcada como visível: o cliente vê.
+  const shown = await admin('PATCH', `/api/tasks/${t}`, { client_visible: true });
+  assert.equal(shown.body.client_visible, true);
   assert.equal((await cliA('GET', `/api/tasks/${t}`)).status, 200);
+  assert.ok((await cliA('GET', '/api/tasks')).body.some(x => x.id === t));
+  assert.equal((await member2('GET', `/api/tasks/${t}`)).status, 404, 'visível ao cliente não abre para o resto da equipe');
+  // Sem cliente, a marca não vale.
+  const noClient = await admin('PATCH', `/api/tasks/${t}`, { client_id: null });
+  assert.equal(noClient.body.client_visible, false);
+  // Virar externa torna visível para o cliente e para a equipe.
+  await admin('PATCH', `/api/tasks/${t}`, { kind: 'external', client_id: ids.a });
+  assert.equal((await cliA('GET', `/api/tasks/${t}`)).status, 200);
+  assert.equal((await member2('GET', `/api/tasks/${t}`)).status, 200);
 });
 
 test('comentário em tarefa interna nunca fica visível ao cliente', async () => {
@@ -141,7 +164,7 @@ test('colunas: atrasada automática, concluída no prazo e fora do prazo', async
   assert.equal(d.body.completed_on, null);
   assert.equal(d.body.column, 'review');
   assert.equal((await admin('PATCH', `/api/tasks/${ok}`, { status: 'done' })).status, 400, 'concluir só pelo botão, com data');
-  assert.equal((await admin('PATCH', `/api/tasks/${ok}`, { start_date: day(5), due_date: day(1) })).status, 400, 'início depois do prazo');
+  assert.equal((await admin('PATCH', `/api/tasks/${ok}`, { status: 'cancelled' })).status, 400, 'cancelar só com motivo');
 });
 
 test('% de execução: manual sem checklist, automático com checklist', async () => {
@@ -169,7 +192,7 @@ test('recorrência: concluir cria a próxima com datas avançadas e checklist ze
   await admin('PATCH', `/api/checklist/${ck.body.checklist[0].id}`, { done: true });
   const done = await admin('POST', `/api/tasks/${t}/complete`, { completed_on: '2026-01-30' });
   const next = (await admin('GET', `/api/tasks/${done.body.created_next_id}`)).body;
-  assert.equal(next.start_date, '2026-02-25');
+  assert.equal(next.start_date, null, 'início fica para quando começar');
   assert.equal(next.due_date, '2026-02-28');
   assert.equal(next.status, 'todo');
   assert.deepEqual(next.alerts, [0, 3]);
@@ -177,12 +200,55 @@ test('recorrência: concluir cria a próxima com datas avançadas e checklist ze
   assert.deepEqual(next.checklist.map(i => [i.text, i.done]), [['Conciliar', 0]]);
   // Reabrir e concluir de novo não duplica a próxima.
   await admin('PATCH', `/api/tasks/${t}`, { status: 'doing' });
-  const again = await admin('POST', `/api/tasks/${t}/complete`, { completed_on: '2026-01-31' });
+  const again = await admin('POST', `/api/tasks/${t}/complete`, { completed_on: S.today() });
+  assert.equal(again.status, 200);
   assert.equal(again.body.created_next_id, null);
   assert.equal((await admin('POST', '/api/tasks', { kind: 'internal', title: 'x', recurrence: 'custom' })).status, 400, 'livre exige N dias');
   const custom = await admin('POST', '/api/tasks', { kind: 'internal', title: 'x', due_date: '2026-03-01', recurrence: 'custom', recurrence_every: 10 });
   const n = await admin('POST', `/api/tasks/${custom.body.id}/complete`, { completed_on: '2026-03-01' });
   assert.equal((await admin('GET', `/api/tasks/${n.body.created_next_id}`)).body.due_date, '2026-03-11');
+});
+
+test('cancelar exige motivo; vai para Cancelada; reabrir limpa', async () => {
+  const admin = await login('admin@t.local');
+  const cliA = await login('a@t.local');
+  const t = (await admin('POST', '/api/tasks', { kind: 'external', client_id: ids.a, title: 'Cancelar', due_date: day(-3), recurrence: 'monthly' })).body.id;
+  assert.equal((await admin('POST', `/api/tasks/${t}/cancel`, {})).status, 400);
+  assert.equal((await admin('POST', `/api/tasks/${t}/cancel`, { reason: '   ' })).status, 400);
+  const c = await admin('POST', `/api/tasks/${t}/cancel`, { reason: 'Cliente desistiu do projeto' });
+  assert.equal(c.body.column, 'cancelled', 'mesmo com prazo vencido');
+  assert.equal(c.body.cancel_reason, 'Cliente desistiu do projeto');
+  assert.equal(c.body.cancelled_on, S.today());
+  assert.equal(c.body.alert, null);
+  assert.equal(c.body.next_task_id, null, 'cancelada não cria a próxima repetição');
+  assert.equal((await cliA('GET', `/api/tasks/${t}`)).body.cancel_reason, 'Cliente desistiu do projeto');
+  assert.equal((await admin('GET', '/api/alerts')).body.some(x => x.id === t), false);
+  const r = await admin('PATCH', `/api/tasks/${t}`, { status: 'todo' });
+  assert.equal(r.body.cancel_reason, null);
+  assert.equal(r.body.column, 'overdue');
+  assert.equal((await cliA('POST', `/api/tasks/${t}/cancel`, { reason: 'x' })).status, 403);
+});
+
+test('início: vazio ao criar, preenchido ao entrar em andamento, editável', async () => {
+  const admin = await login('admin@t.local');
+  const t = (await admin('POST', '/api/tasks', { kind: 'internal', title: 'Início', start_date: day(-9), due_date: day(2) })).body.id;
+  assert.equal((await admin('GET', `/api/tasks/${t}`)).body.start_date, null, 'criar não define início');
+  let d = await admin('PATCH', `/api/tasks/${t}`, { status: 'doing' });
+  assert.equal(d.body.start_date, S.today());
+  d = await admin('PATCH', `/api/tasks/${t}`, { start_date: day(5) });
+  assert.equal(d.body.start_date, day(5), 'pode começar depois do prazo');
+  d = await admin('PATCH', `/api/tasks/${t}`, { status: 'review' });
+  assert.equal(d.body.start_date, day(5), 'não sobrescreve um início já informado');
+});
+
+test('checklist já na criação; substitui o do modelo quando vem preenchido', async () => {
+  const admin = await login('admin@t.local');
+  const t = (await admin('POST', '/api/tasks', { kind: 'internal', title: 'Com checklist', checklist: ['Um', '  ', 'Dois'] })).body.id;
+  assert.deepEqual((await admin('GET', `/api/tasks/${t}`)).body.checklist.map(i => i.text), ['Um', 'Dois']);
+  const tpl = (await admin('POST', '/api/templates', { name: 'M', title: 'Do modelo', checklist: ['A', 'B'] })).body.id;
+  const fromTpl = (await admin('POST', '/api/tasks', { kind: 'internal', template_id: tpl, checklist: ['A', 'B', 'C'] })).body.id;
+  assert.deepEqual((await admin('GET', `/api/tasks/${fromTpl}`)).body.checklist.map(i => i.text), ['A', 'B', 'C']);
+  assert.equal((await admin('POST', '/api/tasks', { kind: 'internal', title: 'x', checklist: 'A' })).status, 400);
 });
 
 test('alertas: só os escolhidos, mais as atrasadas', async () => {

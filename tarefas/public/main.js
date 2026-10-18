@@ -199,22 +199,32 @@ function progressBar(p, label = true) {
     label ? h('span', { class: 'pct' }, `${p}%`) : null);
 }
 function dateRange(t) {
+  if (t.status === 'cancelled') return `Cancelada ${fmtShort(t.cancelled_on)}`;
   if (t.status === 'done') return `Término ${fmtShort(t.completed_on)}` + (t.due_date ? ` · prazo ${fmtShort(t.due_date)}` : '');
-  if (t.start_date && t.due_date) return `${fmtShort(t.start_date)} → ${fmtShort(t.due_date)}`;
+  if (t.start_date && t.due_date) return `Iniciada ${fmtShort(t.start_date)} · prazo ${fmtShort(t.due_date)}`;
   if (t.due_date) return `Prazo ${fmtShort(t.due_date)}`;
-  if (t.start_date) return `Início ${fmtShort(t.start_date)}`;
+  if (t.start_date) return `Iniciada ${fmtShort(t.start_date)}`;
   return null;
 }
+// No card, cada data numa etiqueta curta: início (quando começou), prazo, término ou cancelamento.
+function dateTags(t) {
+  if (t.status === 'cancelled') return h('span', { class: 'tag' }, `Cancelada ${fmtShort(t.cancelled_on)}`);
+  if (t.status === 'done') return [h('span', { class: 'tag' }, `Término ${fmtShort(t.completed_on)}`), t.due_date ? h('span', { class: 'tag' }, `Prazo ${fmtShort(t.due_date)}`) : null];
+  return [t.start_date ? h('span', { class: 'tag' }, `Início ${fmtShort(t.start_date)}`) : null,
+    t.due_date ? h('span', { class: 'tag' + (t.column === 'overdue' ? ' late' : '') }, `Prazo ${fmtShort(t.due_date)}`) : null];
+}
+const internalTag = t => (t.kind === 'internal' ? h('span', { class: 'tag internal' }, t.client_visible ? 'Interna · cliente vê' : 'Interna') : null);
 function taskCard(t, { draggable = false, showStatus = false } = {}) {
   return h('button', { class: `task col-${t.column}`, type: 'button', draggable: draggable ? 'true' : null, 'data-id': t.id, onclick: () => openTask(t.id) },
     h('div', { class: 'task-head' }, taskLogo(t),
       h('div', { class: 'task-who' }, h('span', { class: 'client' }, where(t)),
-        t.kind === 'internal' ? h('span', { class: 'tag internal' }, 'Interna') : null)),
+        internalTag(t))),
     h('div', { class: 'title' }, t.title),
-    (t.status === 'doing' || (t.progress > 0 && t.status !== 'done')) ? progressBar(t.progress) : null,
+    t.status === 'cancelled' ? h('p', { class: 'cancel-reason' }, 'Motivo: ' + t.cancel_reason) : null,
+    (t.status === 'doing' || (t.progress > 0 && !['done', 'cancelled'].includes(t.status))) ? progressBar(t.progress) : null,
     h('div', { class: 'meta' },
       showStatus || t.column === 'overdue' ? h('span', { class: 'tag' }, S.STATUS_LABEL[t.status]) : null,
-      dateRange(t) ? h('span', { class: 'tag' + (t.column === 'overdue' ? ' late' : '') }, dateRange(t)) : null,
+      dateTags(t),
       t.alert ? h('span', { class: 'tag ' + (t.alert.kind === 'overdue' ? 'late' : 'warn') }, '⏰ ' + S.alertText(t.alert)) : null,
       t.priority === 'high' ? h('span', { class: 'tag high' }, 'Alta') : null,
       t.recurrence !== 'none' ? h('span', { class: 'tag', title: 'Recorrente' }, '↻ ' + S.RECURRENCE[t.recurrence].replace(/ \(.*/, '')) : null,
@@ -299,6 +309,7 @@ function wireDrop(col, key, tasks) {
     if (!task || task.column === key) return;
     if (key === 'overdue') { toast('A coluna Atrasada é automática: a tarefa entra nela quando o prazo passa.'); return; }
     if (key === 'done_on_time' || key === 'done_late') { completeDialog(task); return; }
+    if (key === 'cancelled') { cancelDialog(task); return; }
     const inCol = tasks.filter(t => t.column === key && t.id !== taskId);
     const target = e.target.closest('.task');
     let position;
@@ -319,8 +330,9 @@ function groupKey(t, group) {
   if (group === 'client') return [t.client_id ? 1 : 0, where(t)];
   if (group === 'kind') return [t.kind === 'external' ? 0 : 1, t.kind === 'external' ? 'Externas' : 'Internas'];
   if (group === 'due') {
-    if (!t.due_date) return [5, 'Sem prazo'];
+    if (t.status === 'cancelled') return [5, 'Canceladas'];
     if (t.status === 'done') return [4, 'Concluídas'];
+    if (!t.due_date) return [6, 'Sem prazo'];
     if (t.due_date < now) return [0, 'Atrasadas'];
     if (t.due_date === now) return [1, 'Vencem hoje'];
     if (t.due_date <= S.addDays(now, 7)) return [2, 'Próximos 7 dias'];
@@ -348,7 +360,7 @@ function listView(tasks) {
       h('tbody', {}, g.items.sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999')).map(t => h('tr', { class: 'row-link', onclick: () => openTask(t.id) },
         h('td', {}, h('button', { class: 'link', type: 'button', onclick: e => { e.stopPropagation(); openTask(t.id); } }, t.title),
           t.alert ? h('div', { class: 'small ' + (t.alert.kind === 'overdue' ? 'danger' : 'warn') }, '⏰ ' + S.alertText(t.alert)) : null),
-        h('td', {}, h('span', { class: 'with-logo' }, taskLogo(t), where(t)), t.kind === 'internal' ? h('span', { class: 'tag internal' }, 'Interna') : null),
+        h('td', {}, h('span', { class: 'with-logo' }, taskLogo(t), where(t)), internalTag(t)),
         h('td', {}, t.assignees.map(a => a.name).join(', ') || '–'),
         h('td', { class: 'num' }, fmtDate(t.start_date) || '–'),
         h('td', { class: 'num' }, fmtDate(t.due_date) || '–'),
@@ -484,6 +496,31 @@ function completeDialog(t, after) {
   });
 }
 
+// Cancelar: o motivo é obrigatório e fica registrado na tarefa.
+function cancelDialog(t, after) {
+  modal(close => {
+    const err = h('p', { class: 'error', role: 'alert' });
+    const ta = h('textarea', { id: 'x-reason', required: true, maxlength: 1000, placeholder: 'Por que esta tarefa não vai mais ser feita?' });
+    return h('form', { onsubmit: async e => {
+      e.preventDefault();
+      if (!ta.value.trim()) { err.textContent = 'Escreva o motivo do cancelamento.'; ta.focus(); return; }
+      try {
+        const nt = await api('POST', `/api/tasks/${t.id}/cancel`, { reason: ta.value });
+        close(); toast('Tarefa cancelada');
+        after ? after(nt) : route();
+      } catch (ex) { err.textContent = ex.message; }
+    } },
+      h('h2', {}, 'Cancelar tarefa'),
+      h('p', {}, t.title),
+      h('div', { class: 'field' }, h('label', { for: 'x-reason' }, 'Motivo do cancelamento'), ta),
+      t.client_visible ? h('p', { class: 'muted small' }, 'O cliente vê esta tarefa e vai ver o motivo.') : null,
+      t.recurrence !== 'none' ? h('p', { class: 'muted small' }, 'Cancelar não cria a próxima repetição.') : null,
+      err,
+      h('div', { class: 'row' }, h('button', { class: 'btn danger', type: 'submit' }, 'Cancelar tarefa'),
+        h('button', { class: 'btn', type: 'button', onclick: close }, 'Voltar')));
+  });
+}
+
 // ---------- campos de tarefa (nova e detalhe) ----------
 function staffUsers() { return state.users.filter(u => u.role !== 'client' && u.active); }
 function assigneeChecks(selected = []) {
@@ -495,29 +532,60 @@ function alertChecks(selected = []) {
     S.ALERTS.map(a => h('label', {}, h('input', { type: 'checkbox', name: 'alert', value: a.days, checked: selected.includes(a.days) }), a.label)));
 }
 // Tipo e empresa juntos: externa exige cliente; interna aceita a própria consultoria ou um cliente relacionado.
-function kindClientFields(prefix, kind, clientId, onchange) {
+// Interna ligada a um cliente pode ficar visível para ele; sem cliente, só quem criou e os responsáveis veem.
+function kindClientFields(prefix, kind, clientId, visible, onchange) {
   const clientSel = h('select', { id: `${prefix}-client`, name: 'client_id' });
   const hint = h('p', { class: 'muted small' });
+  const vis = h('input', { type: 'checkbox', id: `${prefix}-vis`, checked: !!visible });
+  const visRow = h('label', { class: 'check inline', for: `${prefix}-vis` }, vis, 'Visível para o cliente');
+  const value = () => ({ kind, client_id: clientSel.value ? Number(clientSel.value) : null, client_visible: kind === 'internal' && !!clientSel.value && vis.checked });
+  const refresh = () => {
+    const internalWithClient = kind === 'internal' && !!clientSel.value;
+    visRow.hidden = !internalWithClient;
+    hint.textContent = kind === 'external'
+      ? 'Externa: a equipe toda vê, e o cliente vê no portal dele.'
+      : internalWithClient && vis.checked
+        ? 'Interna visível: o cliente vê; da equipe, só quem criou e os responsáveis.'
+        : 'Interna: só quem criou e os responsáveis veem. O cliente não vê.';
+  };
   const fill = k => {
     const opts = k === 'external'
       ? state.clients.map(c => [c.id, c.name])
       : [['', `${state.org.name} (própria)`], ...state.clients.map(c => [c.id, `${c.name} (relacionado)`])];
     clientSel.replaceChildren(...opts.map(([v, l]) => h('option', { value: v, selected: String(v) === String(clientId ?? '') }, l)));
-    hint.textContent = k === 'external'
-      ? 'Externa: o cliente vê a tarefa no portal dele.'
-      : 'Interna: o cliente não vê. Só administradores, quem criou e os responsáveis.';
+    refresh();
   };
+  const changed = () => { refresh(); onchange && onchange(value()); };
   const radios = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'Tipo' },
     [['external', 'Externa (de cliente)'], ['internal', 'Interna (nossa)']].map(([v, l]) =>
       h('label', { class: 'seg-btn' }, h('input', { type: 'radio', name: `${prefix}-kind`, value: v, checked: v === kind, class: 'sr-only',
-        onchange: () => { kind = v; fill(v); onchange && onchange({ kind: v, client_id: clientSel.value ? Number(clientSel.value) : null }); } }), l)));
-  clientSel.addEventListener('change', () => onchange && onchange({ kind, client_id: clientSel.value ? Number(clientSel.value) : null }));
+        onchange: () => { kind = v; clientId = clientSel.value; fill(v); changed(); } }), l)));
+  clientSel.addEventListener('change', changed);
+  vis.addEventListener('change', changed);
   fill(kind);
   return {
     el: h('div', {},
       h('div', { class: 'field' }, h('span', { class: 'label' }, 'Tipo'), radios),
-      h('div', { class: 'field' }, h('label', { for: `${prefix}-client` }, 'Empresa'), clientSel, hint)),
-    value: () => ({ kind, client_id: clientSel.value ? Number(clientSel.value) : null }),
+      h('div', { class: 'field' }, h('label', { for: `${prefix}-client` }, 'Empresa'), clientSel, visRow, hint)),
+    value,
+  };
+}
+
+// Checklist editável antes de a tarefa existir (nova tarefa).
+function checklistBuilder(initial = []) {
+  let items = [...initial];
+  const list = h('ul', { class: 'cl-builder' });
+  const input = h('input', { id: 'n-ck', placeholder: 'Escreva um item e tecle Enter', maxlength: 300 });
+  const paint = () => list.replaceChildren(...items.map((text, i) => h('li', {}, h('span', { class: 'grow' }, text),
+    h('button', { type: 'button', class: 'btn ghost small', 'aria-label': `Remover ${text}`, onclick: () => { items.splice(i, 1); paint(); } }, '✕'))));
+  const add = () => { const v = input.value.trim(); if (v) { items.push(v); input.value = ''; paint(); } input.focus(); };
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+  paint();
+  return {
+    el: h('div', { class: 'field' }, h('label', { for: 'n-ck' }, 'Checklist (opcional)'), list,
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, input), h('button', { class: 'btn', type: 'button', onclick: add }, 'Adicionar'))),
+    set: next => { items = [...next]; paint(); },
+    value: () => { const pending = input.value.trim(); return pending ? [...items, pending] : items; },
   };
 }
 function recurrenceFields(prefix, rec = 'none', every = '') {
@@ -534,17 +602,22 @@ function recurrenceFields(prefix, rec = 'none', every = '') {
 function newTaskModal() {
   modal(close => {
     const err = h('p', { class: 'error', role: 'alert' });
-    const kc = kindClientFields('n', state.clients.length ? 'external' : 'internal', state.view.client && state.view.client !== 'org' ? Number(state.view.client) : null);
+    const kc = kindClientFields('n', state.clients.length ? 'external' : 'internal', state.view.client && state.view.client !== 'org' ? Number(state.view.client) : null, false);
     const rec = recurrenceFields('n');
+    const ck = checklistBuilder();
+    const tplSel = h('select', { id: 'n-tpl', name: 'template_id', onchange: e => {
+      const tpl = state.templates.find(x => String(x.id) === e.target.value);
+      ck.set(tpl ? tpl.checklist : []);
+    } }, h('option', { value: '' }, 'Nenhum'), state.templates.map(t => h('option', { value: t.id }, t.name)));
     return h('form', { onsubmit: async e => {
       e.preventDefault();
       const fd = new FormData(e.target);
       try {
         const { id } = await api('POST', '/api/tasks', {
-          ...kc.value(), ...rec.value(),
+          ...kc.value(), ...rec.value(), checklist: ck.value(),
           template_id: fd.get('template_id') ? Number(fd.get('template_id')) : undefined,
           title: fd.get('title'), description: fd.get('description'),
-          start_date: fd.get('start_date') || null, due_date: fd.get('due_date') || null, priority: fd.get('priority'),
+          due_date: fd.get('due_date') || null, priority: fd.get('priority'),
           alerts: fd.getAll('alert').map(Number), assignee_ids: fd.getAll('assignee').map(Number),
         });
         close(); toast('Tarefa criada'); await route(); openTask(id);
@@ -552,12 +625,11 @@ function newTaskModal() {
     } },
       h('h2', {}, 'Nova tarefa'),
       kc.el,
-      h('div', { class: 'field' }, h('label', { for: 'n-tpl' }, 'Modelo (opcional)'),
-        h('select', { id: 'n-tpl', name: 'template_id' }, h('option', { value: '' }, 'Nenhum'), state.templates.map(t => h('option', { value: t.id }, t.name)))),
+      h('div', { class: 'field' }, h('label', { for: 'n-tpl' }, 'Modelo (opcional)'), tplSel),
       h('div', { class: 'field' }, h('label', { for: 'n-title' }, 'Título'), h('input', { id: 'n-title', name: 'title', maxlength: 200, placeholder: 'Se vazio, usa o título do modelo' })),
       h('div', { class: 'field' }, h('label', { for: 'n-desc' }, 'Descrição'), h('textarea', { id: 'n-desc', name: 'description' })),
-      h('div', { class: 'grid3' },
-        h('div', { class: 'field' }, h('label', { for: 'n-start' }, 'Início'), h('input', { id: 'n-start', name: 'start_date', type: 'date' })),
+      ck.el,
+      h('div', { class: 'grid2' },
         h('div', { class: 'field' }, h('label', { for: 'n-due' }, 'Prazo'), h('input', { id: 'n-due', name: 'due_date', type: 'date' })),
         h('div', { class: 'field' }, h('label', { for: 'n-pri' }, 'Prioridade'),
           h('select', { id: 'n-pri', name: 'priority' }, Object.entries(PRIORITY).map(([v, l]) => h('option', { value: v, selected: v === 'normal' }, l))))),
@@ -602,13 +674,13 @@ async function openTask(id) {
           : h('h1', { style: 'flex:1' }, t.title),
         h('button', { class: 'btn ghost', 'aria-label': 'Fechar', onclick: () => close() }, '✕')),
       h('p', { class: 'meta' }, h('span', { class: `pill col-${t.column}` }, colName(t.column)),
-        h('span', {}, where(t)), t.kind === 'internal' ? h('span', { class: 'tag internal' }, 'Interna: o cliente não vê') : null,
+        h('span', {}, where(t)), internalTag(t),
         t.alert ? h('span', { class: 'tag ' + (t.alert.kind === 'overdue' ? 'late' : 'warn') }, '⏰ ' + S.alertText(t.alert)) : null,
         t.archived_at ? h('span', { class: 'tag' }, 'Arquivada') : null),
 
       !staff && t.status === 'review' ? clientDecision() : null,
       statusSection(staff),
-      staff ? kindClientFields('d', t.kind, t.client_id, v => save(v)).el : null,
+      staff ? kindClientFields('d', t.kind, t.client_id, t.client_visible, v => save(v)).el : null,
       datesSection(staff),
       staff ? h('div', { class: 'field' }, h('span', { class: 'label' }, 'Responsáveis'),
         (() => { const g = assigneeChecks(t.assignees.map(a => a.id));
@@ -634,6 +706,12 @@ async function openTask(id) {
   function statusSection(staff) {
     const pct = t.progress;
     const showProgress = t.status === 'doing' || t.progress_from_checklist || pct > 0;
+    if (t.status === 'cancelled') {
+      return h('div', { class: 'card-box cancel-box' },
+        h('p', {}, h('strong', {}, `Cancelada em ${fmtDate(t.cancelled_on)}`)),
+        h('p', { class: 'reason' }, 'Motivo: ', t.cancel_reason),
+        staff ? h('button', { class: 'btn small', onclick: () => save({ status: 'todo' }) }, 'Reabrir') : null);
+    }
     if (t.status === 'done') {
       return h('div', { class: 'card-box done-box' },
         h('p', {}, h('strong', {}, `Concluída em ${fmtDate(t.completed_on)}`), t.due_date ? ` · prazo era ${fmtDate(t.due_date)}` : ''),
@@ -649,7 +727,8 @@ async function openTask(id) {
         h('div', { class: 'grow' }, h('label', { for: 'd-status' }, 'Situação'),
           h('select', { id: 'd-status', onchange: e => save({ status: e.target.value }) },
             ['todo', 'doing', 'review'].map(s => h('option', { value: s, selected: s === t.status }, S.STATUS_LABEL[s])))),
-        h('button', { class: 'btn primary', style: 'align-self:flex-end', onclick: () => completeDialog(t, nt => apply(nt)) }, 'Concluir…')) : null,
+        h('button', { class: 'btn primary', style: 'align-self:flex-end', onclick: () => completeDialog(t, nt => apply(nt)) }, 'Concluir…'),
+        h('button', { class: 'btn', style: 'align-self:flex-end', onclick: () => cancelDialog(t, nt => apply(nt)) }, 'Cancelar…')) : null,
       t.column === 'overdue' && staff ? h('p', { class: 'small danger' }, 'Está em Atrasada porque o prazo passou. Ajuste o prazo ou conclua para tirar daqui.') : null,
       showProgress ? h('div', { class: 'field' },
         h('label', { for: 'd-pct' }, '% de execução'),
@@ -659,7 +738,7 @@ async function openTask(id) {
 
   function datesSection(staff) {
     if (!staff) {
-      return h('p', {}, [t.start_date ? `Início ${fmtDate(t.start_date)}` : null, t.due_date ? `Prazo ${fmtDate(t.due_date)}` : 'Sem prazo definido']
+      return h('p', {}, [t.start_date ? `Iniciada em ${fmtDate(t.start_date)}` : null, t.due_date ? `Prazo ${fmtDate(t.due_date)}` : 'Sem prazo definido']
         .filter(Boolean).join(' · '));
     }
     const rec = recurrenceFields('d', t.recurrence, t.recurrence_every);
@@ -669,7 +748,7 @@ async function openTask(id) {
     al.addEventListener('change', () => save({ alerts: [...al.querySelectorAll('input:checked')].map(i => Number(i.value)) }));
     return h('div', {},
       h('div', { class: 'grid3' },
-        h('div', { class: 'field' }, h('label', { for: 'd-start' }, 'Início'),
+        h('div', { class: 'field' }, h('label', { for: 'd-start', title: 'Preenchido sozinho quando a tarefa vai para Em andamento' }, 'Início (quando começou)'),
           h('input', { id: 'd-start', type: 'date', value: t.start_date || '', onchange: e => save({ start_date: e.target.value || null }) })),
         h('div', { class: 'field' }, h('label', { for: 'd-due' }, 'Prazo'),
           h('input', { id: 'd-due', type: 'date', value: t.due_date || '', onchange: e => save({ due_date: e.target.value || null }) })),
@@ -713,7 +792,7 @@ async function openTask(id) {
     return h('div', { class: 'section' },
       h('h2', {}, 'Ajustes'),
       staff ? h('p', { class: 'meta' }, h('span', { class: 'tag' }, `${t.adjustments_internal} interno${t.adjustments_internal === 1 ? '' : 's'}`),
-        t.kind === 'external' ? h('span', { class: 'tag adj' }, `${t.adjustments_client} do cliente`) : null,
+        t.client_visible ? h('span', { class: 'tag adj' }, `${t.adjustments_client} do cliente`) : null,
         open ? h('span', { class: 'tag late' }, `${open} em aberto`) : h('span', { class: 'tag ok' }, 'nenhum em aberto')) : null,
       t.adjustments.length ? t.adjustments.map(a => h('div', { class: 'adj-item' + (a.resolved_at ? '' : ' open') },
         h('div', { class: 'meta' }, h('strong', {}, a.origin === 'client' ? 'Pedido do cliente' : 'Interno'), `· ${a.author || ''} · ${fmtDateTime(a.created_at)}`,
@@ -721,7 +800,7 @@ async function openTask(id) {
         h('div', { class: 'comment' }, h('div', { class: 'body' }, a.body)),
         staff && !a.resolved_at ? h('button', { class: 'btn small', onclick: () => act('POST', `/api/adjustments/${a.id}/resolve`) }, 'Marcar como resolvido') : null))
         : h('p', { class: 'muted' }, 'Nenhum ajuste até agora.'),
-      staff && t.status !== 'done' ? h('details', {}, h('summary', {}, 'Registrar ajuste interno'),
+      staff && !['done', 'cancelled'].includes(t.status) ? h('details', {}, h('summary', {}, 'Registrar ajuste interno'),
         h('div', { style: 'margin-top:8px' }, ta,
           h('button', { class: 'btn', style: 'margin-top:8px', onclick: () => { if (!ta.value.trim()) { ta.focus(); return; } act('POST', `/api/tasks/${t.id}/adjustments`, { body: ta.value }); } }, 'Registrar e voltar para "Em andamento"'))) : null);
   }
@@ -733,7 +812,7 @@ async function openTask(id) {
       h('h2', {}, 'Comentários'),
       t.comments.length ? t.comments.map(c => h('div', { class: 'comment' },
         h('div', { class: 'meta' }, h('span', { class: 'by' }, c.author || 'Cliente'), fmtDateTime(c.created_at),
-          staff && t.kind === 'external' ? h('span', { class: 'tag' + (c.visible_to_client ? ' ok' : '') }, c.visible_to_client ? 'cliente vê' : 'só equipe') : null),
+          staff && t.client_visible ? h('span', { class: 'tag' + (c.visible_to_client ? ' ok' : '') }, c.visible_to_client ? 'cliente vê' : 'só equipe') : null),
         h('div', { class: 'body' }, c.body))) : h('p', { class: 'muted' }, 'Sem comentários.'),
       h('form', { style: 'margin-top:8px', onsubmit: e => {
         e.preventDefault(); if (!ta.value.trim()) return;
@@ -742,7 +821,7 @@ async function openTask(id) {
         h('label', { for: 'cm-body', class: 'sr-only' }, 'Comentário'), ta,
         h('div', { class: 'row', style: 'margin-top:8px' },
           h('button', { class: 'btn', type: 'submit' }, 'Comentar'),
-          staff && t.kind === 'external' ? h('label', { for: 'cm-vis', class: 'check inline' }, vis, 'Visível para o cliente') : null)));
+          staff && t.client_visible ? h('label', { for: 'cm-vis', class: 'check inline' }, vis, 'Visível para o cliente') : null)));
   }
 
   paint();
@@ -758,7 +837,8 @@ async function viewPortal() {
   const item = (t, waiting) => h('div', { class: 'portal-task' + (waiting ? ' waiting' : '') },
     h('div', { class: 'row' }, h('strong', { class: 'grow' }, t.title),
       h('button', { class: waiting ? 'btn primary' : 'btn', onclick: () => openTask(t.id) }, waiting ? 'Revisar' : 'Ver')),
-    t.status !== 'done' && (t.status === 'doing' || t.progress > 0) ? progressBar(t.progress) : null,
+    t.status === 'cancelled' ? h('p', { class: 'cancel-reason' }, 'Motivo: ' + t.cancel_reason) : null,
+    !['done', 'cancelled'].includes(t.status) && (t.status === 'doing' || t.progress > 0) ? progressBar(t.progress) : null,
     h('div', { class: 'meta', style: 'margin-top:6px' }, h('span', { class: `pill col-${t.column}` }, colName(t.column)),
       dateRange(t) ? h('span', {}, dateRange(t)) : null,
       t.alert ? h('span', { class: 'tag ' + (t.alert.kind === 'overdue' ? 'late' : 'warn') }, S.alertText(t.alert)) : null));
@@ -772,6 +852,7 @@ async function viewPortal() {
     section('Em andamento', by('doing'), false, 'Nenhuma tarefa em andamento.'),
     section('A fazer', by('todo'), false, 'Nada na fila.'),
     section('Concluídas', done.slice(0, 30), false, 'Ainda nenhuma.'),
+    by('cancelled').length ? section('Canceladas', by('cancelled'), false, '') : null,
   ]);
 }
 
@@ -835,9 +916,9 @@ async function viewTeam() {
       h('div', { class: 'field' }, h('label', { for: 'u-role' }, 'Visão'), roleSel)),
     clientField,
     h('ul', { class: 'muted small roles' },
-      h('li', {}, h('strong', {}, 'Administrador: '), 'vê todas as tarefas, internas e externas, e gerencia pessoas, clientes e marca.'),
+      h('li', {}, h('strong', {}, 'Administrador: '), 'vê as externas e as internas que criou ou em que é responsável; gerencia pessoas, clientes e marca.'),
       h('li', {}, h('strong', {}, `${roleLabel('member')}: `), 'cria tarefas; vê as externas e as internas que criou ou em que é responsável.'),
-      h('li', {}, h('strong', {}, 'Cliente: '), 'vê só as tarefas externas da empresa dele, aprova entregas e pede ajustes.')),
+      h('li', {}, h('strong', {}, 'Cliente: '), 'vê as externas da empresa dele e as internas marcadas como visíveis; aprova entregas e pede ajustes.')),
     err, h('button', { class: 'btn primary', type: 'submit' }, 'Criar acesso')) : null;
   shell([
     h('h1', { style: 'margin-bottom:16px' }, 'Pessoas'),
@@ -897,10 +978,10 @@ async function viewReport() {
     h('h1', {}, 'Relatório por empresa'),
     h('p', { class: 'muted' }, 'Entregas no prazo e quantas vezes o trabalho voltou. Ajuste do cliente mostra o que passou pela revisão interna.'),
     h('div', { class: 'card-box table-wrap' }, h('table', {},
-      h('thead', {}, h('tr', {}, ['Empresa', 'Tarefas', 'Concluídas no prazo', 'Fora do prazo', '% no prazo', 'Ajustes internos', 'Ajustes do cliente'].map((x, i) => h('th', { class: i ? 'num' : null }, x)))),
+      h('thead', {}, h('tr', {}, ['Empresa', 'Tarefas', 'Concluídas no prazo', 'Fora do prazo', '% no prazo', 'Canceladas', 'Ajustes internos', 'Ajustes do cliente'].map((x, i) => h('th', { class: i ? 'num' : null }, x)))),
       h('tbody', {}, rows.map(r => h('tr', {},
         h('td', {}, r.name), h('td', { class: 'num' }, r.tasks), h('td', { class: 'num' }, r.on_time), h('td', { class: 'num' }, r.late),
-        h('td', { class: 'num' }, pct(r)), h('td', { class: 'num' }, r.internal), h('td', { class: 'num' }, r.client)))))),
+        h('td', { class: 'num' }, pct(r)), h('td', { class: 'num' }, r.cancelled), h('td', { class: 'num' }, r.internal), h('td', { class: 'num' }, r.client)))))),
   ]);
 }
 

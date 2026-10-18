@@ -5,7 +5,7 @@
 // Os dados são fictícios e ficam só neste navegador (localStorage, quando disponível).
 (function () {
   const S = window.Shared;
-  const KEY = 'tarefas-prototipo-v2';
+  const KEY = 'tarefas-prototipo-v3';
   const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
   const d = n => S.addDays(S.today(), n);
 
@@ -30,8 +30,9 @@
     const task = (t, who = [], checklist = []) => {
       const tid = ++id;
       db.tasks.push({
-        id: tid, kind: t.kind, client_id: t.client ?? null, status: t.status || 'todo', title: t.title, description: '',
-        start_date: t.start ?? null, due_date: t.due ?? null, completed_on: t.done ?? null, progress: t.progress || 0,
+        id: tid, kind: t.kind, client_id: t.client ?? null, client_visible: t.visible ? 1 : 0, status: t.status || 'todo', title: t.title, description: '',
+        start_date: t.start ?? null, due_date: t.due ?? null, completed_on: t.done ?? null, cancelled_on: t.cancelled ?? null,
+        cancel_reason: t.reason ?? null, progress: t.progress || 0,
         priority: t.priority || 'normal', alerts: t.alerts || [1], recurrence: t.recurrence || 'none', recurrence_every: null,
         next_task_id: null, position: tid, created_by: t.by || 1, created_at: now(), updated_at: now(), archived_at: t.archived ? now() : null,
       });
@@ -39,17 +40,19 @@
       checklist.forEach(([text, done], i) => db.checklist.push({ id: 1000 + db.checklist.length, task_id: tid, text, done: done ? 1 : 0, position: i }));
       return tid;
     };
-    task({ kind: 'external', client: 1, title: 'Levantar processos do financeiro', start: d(0), due: d(5), alerts: [1, 3] }, [2]);
+    task({ kind: 'external', client: 1, title: 'Levantar processos do financeiro', due: d(5), alerts: [1, 3] }, [2]);
     task({ kind: 'external', client: 1, status: 'doing', title: 'Mapear fluxo de contas a pagar', start: d(-4), due: d(2), progress: 40 }, [2, 1]);
     task({ kind: 'external', client: 2, status: 'doing', title: 'Fechamento contábil de setembro', start: d(-6), due: d(1), alerts: [0, 1, 3], recurrence: 'monthly', priority: 'high' }, [3],
       [['Conciliar bancos', true], ['Conferir notas fiscais', true], ['Lançar provisões', false], ['Enviar relatório ao cliente', false]]);
     const rev = task({ kind: 'external', client: 1, status: 'review', title: 'Relatório de diagnóstico', start: d(-10), due: d(3), progress: 90 }, [1]);
     db.comments.push({ id: 1, task_id: rev, user_id: 1, body: 'Versão 1 pronta para sua revisão.', visible_to_client: 1, created_at: now() });
     task({ kind: 'external', client: 2, status: 'doing', title: 'Conciliação bancária de agosto', start: d(-12), due: d(-2), progress: 70 }, [2]);
-    task({ kind: 'external', client: 2, status: 'done', title: 'Reunião de kickoff', start: d(-20), due: d(-14), done: d(-15) }, [1]);
-    task({ kind: 'external', client: 1, status: 'done', title: 'Cadastro de fornecedores', start: d(-18), due: d(-9), done: d(-6) }, [2]);
-    task({ kind: 'internal', title: 'Planejamento comercial do trimestre', start: d(-2), due: d(10), alerts: [7], recurrence: 'quarterly' }, [1]);
-    task({ kind: 'internal', client: 1, status: 'doing', title: 'Revisar proposta de renovação da Padaria', due: d(0), progress: 20, alerts: [0], by: 2 }, [2]);
+    task({ kind: 'external', client: 2, status: 'done', title: 'Reunião de kickoff', start: d(-16), due: d(-14), done: d(-15) }, [1]);
+    task({ kind: 'external', client: 1, status: 'done', title: 'Cadastro de fornecedores', start: d(-12), due: d(-9), done: d(-6) }, [2]);
+    task({ kind: 'external', client: 2, status: 'cancelled', title: 'Treinamento do sistema de ponto', due: d(4), cancelled: d(-1), reason: 'Cliente decidiu trocar de sistema de ponto antes do treinamento.' }, [3]);
+    task({ kind: 'internal', title: 'Planejamento comercial do trimestre', due: d(10), alerts: [7], recurrence: 'quarterly' }, []);
+    task({ kind: 'internal', client: 1, visible: true, status: 'doing', title: 'Preparar proposta de renovação da Padaria', start: d(-1), due: d(6), progress: 30, by: 2 }, [2]);
+    task({ kind: 'internal', client: 1, status: 'doing', title: 'Revisar margem do contrato da Padaria', due: d(0), progress: 20, alerts: [0], by: 2 }, [2]);
     task({ kind: 'internal', title: 'Atualizar modelo de relatório mensal', due: d(15), by: 3 }, [3]);
     task({ kind: 'external', client: 2, status: 'done', title: 'Levantamento inicial (antigo)', due: d(-40), done: d(-41), archived: true }, [1]);
     db.templates.push({ id: 1, name: 'Fechamento mensal', title: 'Fechamento do mês', description: '',
@@ -115,19 +118,22 @@
     return { rec, every };
   }
   const alerts = v => { const a = S.validAlerts(v); if (!a) fail(400, 'Alertas inválidos'); return a; };
-  const checkDates = (s, due) => { if (s && due && s > due) fail(400, 'A data de início não pode ser depois do prazo'); };
+  const clientVisible = (kind, cid, flag) => (kind === 'internal' && cid && flag ? 1 : 0);
+  const checklistItems = v => {
+    if (v === undefined) return null;
+    if (!Array.isArray(v)) fail(400, 'Checklist inválido');
+    return v.map(x => str(x, 'item do checklist', { max: 300, required: false })).filter(Boolean).slice(0, 100);
+  };
 
   function completeTask(t, completedOn, userId) {
     if (completedOn > S.today()) fail(400, 'A data de término não pode ser no futuro');
     if (t.start_date && completedOn < t.start_date) fail(400, 'A data de término não pode ser antes do início');
-    Object.assign(t, { status: 'done', completed_on: completedOn, progress: 100 }); touch(t);
+    Object.assign(t, { status: 'done', completed_on: completedOn, cancelled_on: null, cancel_reason: null, progress: 100 }); touch(t);
     if (t.recurrence === 'none' || t.next_task_id) return null;
-    const next = x => S.nextDate(x, t.recurrence, t.recurrence_every);
     const nid = nextId();
     db.tasks.push({ ...t, id: nid, status: 'todo', completed_on: null, progress: 0, next_task_id: null, archived_at: null,
-      start_date: t.start_date ? next(t.start_date) : null,
-      due_date: t.due_date ? next(t.due_date) : (t.start_date ? null : next(completedOn)),
-      position: Math.max(0, ...db.tasks.map(x => x.position)) + 1, created_by: userId, created_at: now(), updated_at: now() });
+      start_date: null, due_date: S.nextDate(t.due_date || completedOn, t.recurrence, t.recurrence_every),
+      position: Math.max(0, ...db.tasks.map(x => x.position)) + 1, created_by: t.created_by ?? userId, created_at: now(), updated_at: now() });
     setAssignees(nid, assigneeIds(t.id));
     db.checklist.filter(i => i.task_id === t.id).forEach(i => db.checklist.push({ ...i, id: nextId(), task_id: nid, done: 0 }));
     t.next_task_id = nid;
@@ -138,8 +144,9 @@
     const cl = db.checklist.filter(i => i.task_id === t.id);
     const adj = db.adjustments.filter(a => a.task_id === t.id);
     const out = {
-      id: t.id, kind: t.kind, client_id: t.client_id, client_name: t.client_id ? clientOf(t.client_id).name : null, status: t.status,
+      id: t.id, kind: t.kind, client_id: t.client_id, client_name: t.client_id ? clientOf(t.client_id).name : null, client_visible: S.clientSees(t), status: t.status,
       column: S.column(t), title: t.title, start_date: t.start_date, due_date: t.due_date, completed_on: t.completed_on,
+      cancelled_on: t.cancelled_on, cancel_reason: t.cancel_reason,
       progress: S.progress(t, cl.length, cl.filter(i => i.done).length), progress_from_checklist: cl.length > 0, priority: t.priority,
       alerts: t.alerts, alert: S.alert(t), recurrence: t.recurrence, recurrence_every: t.recurrence_every,
       position: t.position, archived_at: t.archived_at, created_by: t.created_by, updated_at: t.updated_at,
@@ -177,7 +184,7 @@
     }
     const who = q.mine === '1' ? user.id : (q.assignee ? Number(q.assignee) : null);
     if (who) ts = ts.filter(t => assigneeIds(t.id).includes(who));
-    if (q.due === 'overdue') ts = ts.filter(t => t.due_date && t.due_date < today && t.status !== 'done');
+    if (q.due === 'overdue') ts = ts.filter(t => t.due_date && t.due_date < today && !['done', 'cancelled'].includes(t.status));
     if (q.due === 'today') ts = ts.filter(t => t.due_date === today);
     if (q.due === 'week') ts = ts.filter(t => t.due_date && t.due_date >= today && t.due_date <= S.addDays(today, 7));
     if (q.due === 'month') ts = ts.filter(t => t.due_date && t.due_date.slice(0, 7) === today.slice(0, 7));
@@ -220,7 +227,7 @@
   });
   route('GET', '/api/clients', ({ user }) => {
     if (user.role === 'client') return db.clients.filter(c => c.id === user.client_id).map(({ id, name, logo: l }) => ({ id, name, logo: l }));
-    const open = (cid, kind) => db.tasks.filter(t => t.client_id === cid && t.kind === kind && t.status !== 'done' && !t.archived_at).length;
+    const open = (cid, kind) => db.tasks.filter(t => t.client_id === cid && t.kind === kind && !['done', 'cancelled'].includes(t.status) && !t.archived_at).length;
     return db.clients.map(c => ({ id: c.id, name: c.name, logo: c.logo, open_external: open(c.id, 'external'), open_internal: open(c.id, 'internal') }))
       .sort((a, b) => a.name.localeCompare(b.name));
   });
@@ -268,17 +275,18 @@
     const client_id = kindAndClient(kind, body.client_id ? Number(body.client_id) : null);
     let title = str(body.title, 'título', { max: 200, required: !body.template_id });
     let description = str(body.description, 'descrição', { max: 10000, required: false });
-    let checklist = [];
+    let checklist = checklistItems(body.checklist);
     if (body.template_id) {
       const tpl = db.templates.find(t => t.id === Number(body.template_id)); if (!tpl) fail(400, 'Modelo inválido');
-      title = title || tpl.title; description = description || tpl.description; checklist = tpl.checklist;
+      title = title || tpl.title; description = description || tpl.description; checklist = checklist ?? tpl.checklist;
     }
-    const start = date(body.start_date, 'Início'), due = date(body.due_date, 'Prazo');
-    checkDates(start, due);
+    checklist = checklist || [];
+    const due = date(body.due_date, 'Prazo');
     const { rec, every } = recurrence(body);
     const assignees = checkAssignees(body.assignee_ids || []);
     const id = nextId();
-    db.tasks.push({ id, kind, client_id, status: 'todo', title, description, start_date: start, due_date: due, completed_on: null, progress: 0,
+    db.tasks.push({ id, kind, client_id, client_visible: clientVisible(kind, client_id, body.client_visible), status: 'todo', title, description,
+      start_date: null, due_date: due, completed_on: null, cancelled_on: null, cancel_reason: null, progress: 0,
       priority: oneOf(body.priority, 'prioridade', ['low', 'normal', 'high'], 'normal'), alerts: body.alerts === undefined ? [1] : alerts(body.alerts),
       recurrence: rec, recurrence_every: every, next_task_id: null, position: Math.max(0, ...db.tasks.map(t => t.position)) + 1,
       created_by: user.id, created_at: now(), updated_at: now(), archived_at: null });
@@ -294,16 +302,14 @@
     try {
       if ('title' in body) t.title = str(body.title, 'título', { max: 200 });
       if ('description' in body) t.description = str(body.description, 'descrição', { max: 10000, required: false });
-      if ('kind' in body || 'client_id' in body) {
+      if ('kind' in body || 'client_id' in body || 'client_visible' in body) {
         const kind = 'kind' in body ? oneOf(body.kind, 'tipo', ['internal', 'external']) : t.kind;
-        const cid = 'client_id' in body ? (body.client_id ? Number(body.client_id) : null) : t.client_id;
-        t.client_id = kindAndClient(kind, cid); t.kind = kind;
+        const cid = kindAndClient(kind, 'client_id' in body ? (body.client_id ? Number(body.client_id) : null) : t.client_id);
+        t.client_visible = clientVisible(kind, cid, 'client_visible' in body ? body.client_visible : t.client_visible);
+        t.client_id = cid; t.kind = kind;
       }
-      if ('start_date' in body || 'due_date' in body) {
-        const s = 'start_date' in body ? date(body.start_date, 'Início') : t.start_date;
-        const due = 'due_date' in body ? date(body.due_date, 'Prazo') : t.due_date;
-        checkDates(s, due); t.start_date = s; t.due_date = due;
-      }
+      if ('start_date' in body) t.start_date = date(body.start_date, 'Início');
+      if ('due_date' in body) t.due_date = date(body.due_date, 'Prazo');
       if ('priority' in body) t.priority = oneOf(body.priority, 'prioridade', ['low', 'normal', 'high']);
       if ('alerts' in body) t.alerts = alerts(body.alerts);
       if ('recurrence' in body || 'recurrence_every' in body) { const { rec, every } = recurrence(body, t); t.recurrence = rec; t.recurrence_every = every; }
@@ -315,7 +321,13 @@
       }
       if ('position' in body) t.position = Number(body.position);
       if ('assignee_ids' in body) setAssignees(t.id, checkAssignees(body.assignee_ids));
-      if ('status' in body) { t.status = oneOf(body.status, 'situação', ['todo', 'doing', 'review']); t.completed_on = null; }
+      if ('status' in body) {
+        if (body.status === 'done') fail(400, 'Para concluir, use Concluir e informe a data de término');
+        if (body.status === 'cancelled') fail(400, 'Para cancelar, use Cancelar e informe o motivo');
+        t.status = oneOf(body.status, 'situação', ['todo', 'doing', 'review']);
+        Object.assign(t, { completed_on: null, cancelled_on: null, cancel_reason: null });
+        if (t.status !== 'todo' && !('start_date' in body)) t.start_date = t.start_date || S.today();
+      }
     } catch (err) { Object.assign(t, copy); throw err; }
     touch(t);
     return detail(user, id);
@@ -325,6 +337,12 @@
     const t = loadTask(user, id);
     const nid = completeTask(t, date(body.completed_on, 'Término') || S.today(), user.id);
     return { ...detail(user, id), created_next_id: nid };
+  });
+  route('POST', '/api/tasks/:id/cancel', ({ user, body, id }) => {
+    requireStaff(user); const t = loadTask(user, id);
+    const reason = str(body.reason, 'motivo do cancelamento', { max: 1000 });
+    Object.assign(t, { status: 'cancelled', cancel_reason: reason, cancelled_on: S.today(), completed_on: null }); touch(t);
+    return detail(user, id);
   });
   route('POST', '/api/tasks/:id/archive', ({ user, body, id }) => {
     requireStaff(user); const t = loadTask(user, id);
@@ -355,7 +373,7 @@
   route('POST', '/api/tasks/:id/comments', ({ user, body, id }) => {
     const t = loadTask(user, id);
     db.comments.push({ id: nextId(), task_id: t.id, user_id: user.id, body: str(body.body, 'comentário', { max: 5000 }),
-      visible_to_client: user.role === 'client' ? 1 : (t.kind === 'external' && body.visible_to_client ? 1 : 0), created_at: now() });
+      visible_to_client: user.role === 'client' ? 1 : (S.clientSees(t) && body.visible_to_client ? 1 : 0), created_at: now() });
     touch(t); return detail(user, id);
   });
   route('POST', '/api/tasks/:id/adjustments', ({ user, body, id }) => {
@@ -393,12 +411,13 @@
   route('GET', '/api/report/adjustments', ({ user }) => {
     requireStaff(user);
     const rows = new Map();
-    const row = (key, name) => rows.get(key) || rows.set(key, { id: key, name, tasks: 0, internal: 0, client: 0, on_time: 0, late: 0 }).get(key);
+    const row = (key, name) => rows.get(key) || rows.set(key, { id: key, name, tasks: 0, internal: 0, client: 0, on_time: 0, late: 0, cancelled: 0 }).get(key);
     db.clients.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach(c => row(c.id, c.name));
     for (const t of list(user, {}).concat(list(user, { archived: '1' }))) {
       const r = row(t.client_id || 'org', t.client_id ? t.client_name : `${db.org.name} (interna)`);
       r.tasks++; r.internal += t.adjustments_internal; r.client += t.adjustments_client;
       if (t.column === 'done_on_time') r.on_time++;
+      if (t.column === 'cancelled') r.cancelled++;
       if (t.column === 'done_late') r.late++;
     }
     return [...rows.values()].sort((a, b) => b.client - a.client || b.internal - a.internal || a.name.localeCompare(b.name));

@@ -20,22 +20,23 @@ Para uso real, a primeira execução cria a organização e o primeiro administr
 ADMIN_EMAIL=voce@suaempresa.com ORG_NAME="Sua Consultoria" npm start
 ```
 
-A senha temporária aparece uma vez no terminal; troque em Configurações. O banco fica em `tarefas/data/tarefas.db` (fora do git). Um banco da versão anterior não abre: como só tinha dados de teste, apague o arquivo. Variáveis: `PORT` (3000), `DB_FILE`, `COOKIE_SECURE=1` quando estiver atrás de HTTPS.
+A senha temporária aparece uma vez no terminal; troque em Configurações. O banco fica em `tarefas/data/tarefas.db` (fora do git). Um banco de versão anterior não abre: como só tinha dados de teste, apague o arquivo. Variáveis: `PORT` (3000), `DB_FILE`, `COOKIE_SECURE=1` quando estiver atrás de HTTPS.
 
 ## As três visões
 
-- **Administrador:** vê todas as tarefas, internas e externas; gerencia pessoas, clientes, logos e a marca; pode apagar.
+- **Administrador:** vê todas as externas e as internas que criou ou em que é responsável; gerencia pessoas, clientes, logos e a marca; pode apagar.
 - **Equipe Opps:** cria tarefas; vê todas as externas e as internas que criou ou em que é responsável.
-- **Cliente:** vê só as tarefas externas da empresa dele, com % e datas; aprova entregas em revisão ou pede ajuste.
+- **Cliente:** vê as externas da empresa dele e as internas ligadas a ele marcadas como visíveis, com % e datas; aprova entregas em revisão ou pede ajuste.
 
 ## O que faz
 
-- **Interna ou externa.** Externa exige um cliente e aparece para ele. Interna é da consultoria: pode ficar ligada a um cliente relacionado ou à própria consultoria, e o cliente nunca vê.
-- **Quadro com 6 colunas:** A fazer, Em andamento, Em revisão, Atrasada, Concluída no prazo, Concluída fora do prazo. "Atrasada" é automática quando o prazo passa. Ao concluir, informa-se a data de término, e ela decide entre no prazo e fora do prazo.
-- **Datas:** início, prazo e término (a data real, pedida ao concluir).
+- **Interna ou externa.** Externa exige um cliente e aparece para ele e para a equipe toda. Interna é da consultoria e só quem criou e os responsáveis veem (uma interna do administrador sem outros responsáveis só ele vê). Ligada a um cliente, a interna pode ser marcada como "Visível para o cliente"; ligada à própria consultoria, nunca.
+- **Quadro com 7 colunas:** A fazer, Em andamento, Em revisão, Atrasada, Concluída no prazo, Concluída fora do prazo, Cancelada. Cancelar exige motivo; cancelada não gera alerta nem a próxima repetição, e pode ser reaberta. "Atrasada" é automática quando o prazo passa. Ao concluir, informa-se a data de término, e ela decide entre no prazo e fora do prazo.
+- **Datas:** prazo (ao criar), início (preenchido sozinho quando a tarefa vai para Em andamento, editável) e término (a data real, pedida ao concluir).
 - **% de execução:** informado à mão; se a tarefa tem checklist, segue os itens marcados.
 - **Alertas do prazo:** no dia, 1 dia antes, 3 dias antes, 1 semana antes (vários ao mesmo tempo). Aparecem nos cards, na tela Alertas e no contador do menu.
-- **Recorrência:** diária, semanal, quinzenal, mensal, bimestral, trimestral, quadrimestral, semestral, anual ou livre (a cada N dias). Ao concluir, a próxima é criada com as datas avançadas, o checklist zerado e os mesmos responsáveis.
+- **Recorrência:** diária, semanal, quinzenal, mensal, bimestral, trimestral, quadrimestral, semestral, anual ou livre (a cada N dias). Ao concluir, a próxima é criada com o prazo avançado, sem início, com o checklist zerado e os mesmos responsáveis.
+- **Checklist já na criação**, item por item; escolher um modelo preenche os itens, que dá para editar antes de criar.
 - **Arquivar** tira a tarefa das telas sem apagar; "Ver arquivadas" mostra e permite desarquivar.
 - **Logos** dos clientes e da consultoria nos cards (a imagem é reduzida para 128px no navegador).
 - **Visões:** Kanban, Lista (agrupada por situação, empresa, responsável, prazo ou tipo) e Calendário (pelo prazo; no celular vira agenda). Filtros por tipo, empresa, responsável e prazo.
