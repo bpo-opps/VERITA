@@ -495,3 +495,5 @@ details > summary { cursor: pointer; font-weight: 600; }
   .grid2, .grid3 { grid-template-columns: 1fr; }
   .filters.open { grid-template-columns: 1fr; }
 }
+.choice-list { display: grid; gap: 8px; margin-bottom: 12px; }
+.choice-list .btn { justify-content: space-between; text-align: left; width: 100%; }

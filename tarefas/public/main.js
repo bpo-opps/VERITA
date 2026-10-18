@@ -28,8 +28,14 @@ function setTheme(pref) {
 applyTheme();
 // Se a página onde o sistema roda trocar o tema por conta própria, a escolha da pessoa prevalece.
 new MutationObserver(() => { if (themePref !== 'auto') applyTheme(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-try { Object.assign(state.view, JSON.parse(localStorage.getItem(VIEW_KEY)) || {}, { q: '', archived: false }); } catch { /* sem armazenamento */ }
-const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(state.view)); } catch { /* idem */ } };
+// Filtros e visão ficam guardados por pessoa: quem entra depois no mesmo aparelho não herda o filtro de outro.
+const VIEW_DEFAULT = { ...state.view };
+const viewKey = () => `${VIEW_KEY}-${state.me?.id}`;
+function loadView() {
+  state.view = { ...VIEW_DEFAULT };
+  try { Object.assign(state.view, JSON.parse(localStorage.getItem(viewKey())) || {}, { q: '', archived: false }); } catch { /* sem armazenamento */ }
+}
+const saveView = () => { try { localStorage.setItem(viewKey(), JSON.stringify(state.view)); } catch { /* idem */ } };
 
 function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -62,12 +68,12 @@ async function api(method, path, body) {
 }
 
 let toastTimer;
-function toast(msg) {
+function toast(msg, ms = 3200) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
+  toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
 const guard = fn => async (...args) => { try { await fn(...args); } catch (e) { toast(e.message); } };
 
@@ -268,6 +274,7 @@ function shell(content, { title, sub } = {}) {
 
 async function loadCommon() {
   const me = await api('GET', '/api/me');
+  if (state.me?.id !== me.user.id) { state.me = me.user; loadView(); }
   state.me = me.user; state.org = me.org;
   applyAccent(me.org.accent);
   state.clients = await api('GET', '/api/clients');
@@ -343,6 +350,16 @@ function taskCard(t, { draggable = false, showStatus = false } = {}) {
       t.checklist_total ? h('span', {}, `☑ ${t.checklist_done}/${t.checklist_total}`) : null,
       t.archived_at ? h('span', { class: 'tag' }, 'Arquivada') : null,
       h('span', { class: 'avatars' }, t.assignees.map(a => h('span', { class: 'avatar', title: a.name }, initials(a.name))))));
+}
+
+// Diz na hora se o cliente vai ver a tarefa nova, para ninguém achar que ela sumiu.
+function toastCreated({ kind, client_id, client_visible }) {
+  const c = state.clients.find(x => x.id === Number(client_id));
+  if (!c) return toast('Tarefa criada');
+  if (kind === 'internal' && !client_visible) return toast(`Tarefa criada. É interna: ${c.name} não vê. Para mostrar, marque "visível para o cliente".`, 6000);
+  const users = state.users.filter(u => u.role === 'client' && u.client_id === c.id && u.active);
+  if (!users.length) return toast(`Tarefa criada. ${c.name} ainda não tem acesso de cliente: cadastre a pessoa em Pessoas para ela ver.`, 7000);
+  toast(`Tarefa criada. ${users.map(u => u.name).join(', ')} já ${users.length > 1 ? 'veem' : 'vê'} no portal.`, 5000);
 }
 
 // ---------- tarefas: filtros e visões ----------
@@ -765,7 +782,18 @@ function askText(label, value = '') {
     }, { onclose: () => resolve(null) });
   });
 }
+function askChoice(message, options) {
+  return new Promise(resolve => {
+    modal(close => h('div', {},
+      h('p', { class: 'confirm-text' }, message),
+      h('div', { class: 'choice-list' }, options.map(([value, label, sub]) =>
+        h('button', { class: 'btn', type: 'button', onclick: () => { resolve(value); close(); } }, h('strong', {}, label), sub ? h('span', { class: 'muted small' }, sub) : null))),
+      h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Cancelar'))),
+    { onclose: () => resolve(null) });
+  });
+}
 window.askConfirm = ask;
+window.askChoice = askChoice;
 
 // Concluir: pede a data de término e mostra em qual coluna a tarefa vai cair.
 function completeDialog(t, after) {
@@ -846,11 +874,15 @@ function kindClientFields(prefix, kind, clientId, visible, onchange) {
   const refresh = () => {
     const internalWithClient = kind === 'internal' && !!clientSel.value;
     visRow.hidden = !internalWithClient;
-    hint.textContent = kind === 'external'
+    const seen = kind === 'external' || (internalWithClient && vis.checked);
+    const c = state.clients.find(x => x.id === Number(clientSel.value));
+    const noAccess = seen && c && state.users && !state.users.some(u => u.role === 'client' && u.client_id === c.id && u.active);
+    hint.textContent = (kind === 'external'
       ? 'Externa: a equipe toda vê, e o cliente vê no portal dele.'
       : internalWithClient && vis.checked
         ? 'Interna visível: o cliente vê; da equipe, só quem criou e os responsáveis.'
-        : 'Interna: só quem criou e os responsáveis veem. O cliente não vê.';
+        : 'Interna: só quem criou e os responsáveis veem. O cliente não vê.') +
+      (noAccess ? ` Atenção: ${c.name} ainda não tem acesso de cliente; cadastre a pessoa em Pessoas.` : '');
   };
   const fill = k => {
     const opts = k === 'external'
@@ -924,7 +956,7 @@ function newTaskModal({ recurring = false } = {}) {
           due_date: fd.get('due_date') || null, priority: fd.get('priority'),
           alerts: fd.getAll('alert').map(Number), assignee_ids: fd.getAll('assignee').map(Number),
         });
-        close(); toast('Tarefa criada'); await route(); openTask(id);
+        close(); toastCreated(kc.value()); await route(); openTask(id);
       } catch (ex) { err.textContent = ex.message; }
     } },
       h('h2', {}, recurring ? 'Nova tarefa recorrente' : 'Nova tarefa'),

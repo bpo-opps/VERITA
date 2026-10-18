@@ -521,7 +521,15 @@
     };
     bar.querySelector('[data-as=admin]').addEventListener('click', () => as('admin@demo.local'));
     bar.querySelector('[data-as=member]').addEventListener('click', () => as('equipe@demo.local'));
-    bar.querySelector('[data-as=client]').addEventListener('click', () => as('cliente@demo.local'));
+    // Cliente: se houver mais de um acesso de cliente (por exemplo, um criado em Pessoas), pergunta qual.
+    bar.querySelector('[data-as=client]').addEventListener('click', async () => {
+      const cs = db.users.filter(u => u.role === 'client' && u.active);
+      const pick = cs.length > 1 ? await window.askChoice('Entrar como qual cliente?',
+        cs.map(u => [u.id, u.name, (db.clients.find(c => c.id === u.client_id) || {}).name])) : cs[0]?.id;
+      if (!pick) return;
+      document.querySelectorAll('.overlay').forEach(o => o.remove());
+      setSession(pick); location.hash = ''; window.boot();
+    });
     bar.querySelector('[data-reset]').addEventListener('click', async () => {
       if (!(await window.askConfirm('Apagar tudo o que foi feito neste protótipo e voltar aos dados iniciais?', { ok: 'Restaurar dados', danger: true }))) return;
       try { localStorage.removeItem(KEY); } catch { /* idem */ }
