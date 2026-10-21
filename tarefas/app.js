@@ -5,6 +5,8 @@ const { tx, createUser } = require('./db');
 const auth = require('./auth');
 const S = require('./shared');
 const whatsapp = require('./whatsapp');
+const zlib = require('node:zlib');
+const { PdfText } = require('./public/pdftext.js');
 
 const PUBLIC = path.join(__dirname, 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
@@ -383,10 +385,20 @@ async function processMeeting(db, meetingId) {
   const attendees = ids.map(uid => db.prepare('select id, name, role, client_id from users where id = ? and org_id = ?').get(uid, m.org_id)).filter(Boolean);
   const clients = db.prepare('select id, name from clients where org_id = ? order by name').all(m.org_id);
   const meeting = { title: m.title, meeting_date: m.meeting_date, client_id: m.client_id };
-  // Com IA e PDF: a IA lê a ata. Sem IA: o texto colado é lido pelas "Próximas etapas" (shared.parseNextSteps).
+  // Com IA e PDF: a IA lê a ata. Sem IA: o texto colado é lido pelas "Próximas etapas" (shared.parseNextSteps);
+  // sem texto colado, o servidor tira o texto do PDF guardado (public/pdftext.js) e guarda a seção para conferir.
   const useAi = extractor && m.pdf;
+  if (!useAi && !m.notes_text && m.pdf) {
+    try {
+      const text = await PdfText.pdfText(new Uint8Array(m.pdf), { inflate: async b => zlib.inflateSync(b), maxPages: 30, until: S.pastNextSteps });
+      const section = S.nextStepsSection(text);
+      if (section) { m.notes_text = section; db.prepare('update meetings set notes_text = ? where id = ?').run(section, meetingId); }
+    } catch (e) { console.error(`PDF da reunião ${meetingId}:`, e.message); }
+  }
   if (!useAi && !m.notes_text) {
-    setStatus('error', 'Cole o texto das anotações (a parte "Próximas etapas") para o sistema encontrar as tarefas, ou lance à mão aqui embaixo.');
+    setStatus('error', m.pdf
+      ? 'Não encontrei a parte "Próximas etapas" neste PDF. Cole o texto das anotações em "Colar as anotações" e clique em Salvar e ler de novo, ou lance à mão aqui embaixo.'
+      : 'Cole o texto das anotações (a parte "Próximas etapas") para o sistema encontrar as tarefas, ou lance à mão aqui embaixo.');
     return;
   }
   try {
@@ -489,8 +501,12 @@ route('PATCH', '/api/meetings/:id', ({ db, user, params, body }) => {
   const notes = 'notes_text' in body ? str(body.notes_text, 'texto das anotações', { max: 100000, required: false }) || null : m.notes_text;
   db.prepare('update meetings set title = ?, meeting_date = ?, attendee_ids = ?, other_attendees = ?, notes_text = ? where id = ?')
     .run(title, meetingDate, JSON.stringify(attendees), others, notes, params.id);
+  // Anexar (ou trocar) o PDF de uma reunião já lançada.
+  if (body.pdf) db.prepare('update meetings set pdf = ?, pdf_name = ? where id = ?')
+    .run(pdfBuffer(body.pdf), str(body.pdf_name, 'nome do arquivo', { max: 200, required: false }) || 'ata.pdf', params.id);
   return meetingDetail(db, user, params.id);
-});
+}, { maxBody: Math.ceil(MAX_PDF * 1.4) + 256 * 1024 });
+
 
 route('DELETE', '/api/meetings/:id', ({ db, user, params }) => {
   const m = loadMeeting(db, user, params.id);

@@ -236,7 +236,7 @@ test('prazos escritos na frase, a partir da data da reunião (quarta, 21/10/2026
 test('texto de PDF (sem bibliotecas) e leitura das Próximas etapas', async () => {
   global.self = global;
   require('../public/exports.js');
-  require('../public/pdftext.js');
+  const PdfText = require('../public/pdftext.js').PdfText || self.PdfText; // o servidor (app.js) já carregou o módulo
   const zlib = require('node:zlib');
   const S = require('../shared');
   // PDF de teste feito pelo gerador de relatórios: uma "tabela" com as linhas da ata.
@@ -244,9 +244,34 @@ test('texto de PDF (sem bibliotecas) e leitura das Próximas etapas', async () =
     '[Bia Equipe, Dora Cliente] Conferir extratos: no dia 30.', 'Detalhes', 'Texto livre.'].map(t => [t]);
   const blob = self.Exports.pdf({ title: 'Anotações', columns: [{ label: 'Texto' }], rows });
   const bytes = new Uint8Array(await blob.arrayBuffer());
-  const text = await self.PdfText.pdfText(bytes, { inflate: async b => zlib.inflateSync(b) });
+  const text = await PdfText.pdfText(bytes, { inflate: async b => zlib.inflateSync(b) });
   assert.match(text, /Próximas etapas/);
   const people = [{ id: 7, name: 'Bia Equipe' }, { id: 8, name: 'Dora Cliente' }];
   const items = S.parseNextSteps(text, { people, date: '2026-10-21' });
   assert.deepEqual(items.map(i => [i.title, i.assignee_ids, i.due_date]), [['Enviar relatório', [7], '2026-10-23'], ['Conferir extratos', [7, 8], '2026-10-30']]);
+});
+
+test('sem IA: o servidor lê as Próximas etapas do PDF guardado; dá para anexar PDF depois', async () => {
+  global.self = global;
+  require('../public/exports.js');
+  const rows = ['Próximas etapas', '[Bia Equipe] Enviar relatório: até sexta-feira.', 'Detalhes', 'nada'].map(t => [t]);
+  const pdf = 'data:application/pdf;base64,' + Buffer.from(await self.Exports.pdf({ title: 'Anotações', columns: [{ label: 'Texto' }], rows }).arrayBuffer()).toString('base64');
+  const w = world();
+  const { server, login } = await serve(w, null);
+  try {
+    const bia = await login('bia@opps.test');
+    const r = await bia('POST', '/api/meetings', { title: 'Só PDF', meeting_date: '2026-10-21', attendee_ids: [w.bia], pdf, pdf_name: 'ata.pdf' });
+    let m = await settled(bia, r.body.id);
+    assert.equal(m.status, 'ready');
+    assert.deepEqual(m.items.map(i => [i.title, i.assignee_ids, i.due_date]), [['Enviar relatório', [w.bia], '2026-10-23']]);
+    assert.match(m.notes_text, /Próximas etapas/, 'a seção lida fica guardada para conferir e corrigir');
+    // Reunião sem PDF e sem texto: anexa o PDF depois e lê de novo.
+    const r2 = await bia('POST', '/api/meetings', { title: 'Depois', meeting_date: '2026-10-21', attendee_ids: [w.bia], notes_text: 'sem tarefas aqui' });
+    await settled(bia, r2.body.id);
+    await bia('PATCH', `/api/meetings/${r2.body.id}`, { pdf, pdf_name: 'ata.pdf', notes_text: '' });
+    await bia('POST', `/api/meetings/${r2.body.id}/process`);
+    m = await settled(bia, r2.body.id);
+    assert.equal(m.pdf_name, 'ata.pdf');
+    assert.deepEqual(m.items.filter(i => i.status === 'pending').map(i => i.title), ['Enviar relatório']);
+  } finally { server.close(); }
 });

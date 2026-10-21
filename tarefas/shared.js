@@ -281,10 +281,24 @@
     return items;
   }
 
+  // Só a parte "Próximas etapas" de um texto maior (o PDF inteiro das anotações), até a próxima seção.
+  const NS_START = /^\s*(pr[oó]ximas etapas|pr[oó]ximos passos|next steps)\s*:?\s*$/i;
+  const NS_END = /^\s*(detalhes|details|transcri[cç][aã]o|transcript)\s*$/i;
+  function nextStepsSection(text) {
+    const lines = String(text || '').split('\n');
+    const i = lines.findIndex(l => NS_START.test(l));
+    if (i < 0) return null;
+    const rest = lines.slice(i + 1);
+    const end = rest.findIndex(l => NS_END.test(l));
+    return [lines[i].trim(), ...(end >= 0 ? rest.slice(0, end) : rest.slice(0, 200))].join('\n').replace(/\n{2,}/g, '\n').trim();
+  }
+  // Para a leitura do PDF parar logo depois da seção (o resto é a transcrição, com dezenas de páginas).
+  const pastNextSteps = lines => { const i = lines.findIndex(l => NS_START.test(l)); return i >= 0 && lines.slice(i + 1).some(l => NS_END.test(l)); };
+
   function validAlerts(list) {
     if (!Array.isArray(list) || !list.every(n => ALERT_DAYS.includes(Number(n)))) return null;
     return [...new Set(list.map(Number))].sort((a, b) => a - b);
   }
 
-  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, startByChecklist, clientSees, canSee, clientAssignable, boardColumns, boardSort, PRIORITY_RANK, parseNextSteps, dueFromText, validAlerts };
+  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, startByChecklist, clientSees, canSee, clientAssignable, boardColumns, boardSort, PRIORITY_RANK, parseNextSteps, dueFromText, nextStepsSection, pastNextSteps, validAlerts };
 });

@@ -925,14 +925,15 @@ function imageDialog(tasks, opts) {
   const canvas = alertsImage(tasks, opts);
   const url = canvas.toDataURL('image/png');
   const name = `tarefas-${today()}.png`;
+  // O arquivo sai direto do desenho (sem buscar o endereço data:, que a segurança do sistema bloqueia).
+  const pngBlob = () => new Promise((resolve, reject) => canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Não deu para gerar a imagem'))), 'image/png'));
   modal(close => h('div', {},
     h('h2', {}, 'Imagem para o WhatsApp'),
     h('img', { src: url, alt: 'Imagem das tarefas', class: 'wa-img' }),
     h('div', { class: 'row', style: 'margin-top:12px' },
-      h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => Exports.download(await (await fetch(url)).blob(), name)) }, 'Baixar imagem'),
+      h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => Exports.download(await pngBlob(), name)) }, 'Baixar imagem'),
       navigator.canShare ? h('button', { class: 'btn', type: 'button', onclick: guard(async () => {
-        const blob = await (await fetch(url)).blob();
-        const file = new File([blob], name, { type: 'image/png' });
+        const file = new File([await pngBlob()], name, { type: 'image/png' });
         if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file] }); else toast('Este aparelho não compartilha imagens daqui: use Baixar imagem.');
       }) }, 'Compartilhar') : null,
       h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar'))));
@@ -1941,17 +1942,8 @@ async function viewMeetings() {
 // mais a data da reunião quando o PDF diz ("Reunião em 16 de out. de 2026").
 async function notesFromPdf(file) {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const isStart = l => /^\s*(pr[oó]ximas etapas|pr[oó]ximos passos|next steps)\s*:?\s*$/i.test(l);
-  const isEnd = l => /^\s*(detalhes|details|transcri[cç][aã]o|transcript)\s*$/i.test(l);
-  const text = await PdfText.pdfText(bytes, { maxPages: 30, until: ls => { const i = ls.findIndex(isStart); return i >= 0 && ls.slice(i + 1).some(isEnd); } });
-  const lines = text.split('\n');
-  const i = lines.findIndex(isStart);
-  let section = null;
-  if (i >= 0) {
-    const rest = lines.slice(i + 1);
-    const end = rest.findIndex(isEnd);
-    section = [lines[i].trim(), ...(end >= 0 ? rest.slice(0, end) : rest.slice(0, 200))].join('\n').replace(/\n{2,}/g, '\n').trim();
-  }
+  const text = await PdfText.pdfText(bytes, { maxPages: 30, until: S.pastNextSteps });
+  const section = S.nextStepsSection(text);
   const MES = { jan: 1, fev: 2, mar: 3, abr: 4, mai: 5, jun: 6, jul: 7, ago: 8, set: 9, out: 10, nov: 11, dez: 12 };
   const dm = /Reuni[aã]o\s+em\s+(\d{1,2})\s+de\s+([a-zç]{3})[a-zç]*\.?\s+de\s+(\d{4})/i.exec(text);
   const date = dm && MES[dm[2].toLowerCase()] ? `${dm[3]}-${String(MES[dm[2].toLowerCase()]).padStart(2, '0')}-${dm[1].padStart(2, '0')}` : null;
@@ -1988,7 +1980,7 @@ async function viewMeeting(meetingId) {
     m.summary ? h('p', { class: 'summary' }, m.summary) : null,
     h('div', { class: 'row' },
       m.pdf_name ? h('button', { class: 'btn small', type: 'button', onclick: openPdf }, `Abrir PDF (${m.pdf_name})`) : null,
-      m.status !== 'processing' && (m.ai || m.notes_text) ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
+      m.status !== 'processing' && (m.ai || m.notes_text || m.pdf_name) ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
         if (pending.length && !(await ask('Ler a ata de novo? As tarefas que ainda estão para revisar serão trocadas pela nova leitura. As já lançadas ficam.', { ok: 'Ler de novo' }))) return;
         await api('POST', `/api/meetings/${meetingId}/process`); route();
       }) }, 'Ler de novo') : null,
@@ -2002,15 +1994,29 @@ async function viewMeeting(meetingId) {
     : m.status === 'error' ? h('div', { class: 'card-box error-box', role: 'alert' }, h('strong', {}, 'Não deu para ler a ata. '), m.error) : null;
 
   const notesBox = h('textarea', { id: 'mt-notes', rows: 8, 'aria-label': 'Anotações da reunião' }, m.notes_text || '');
+  // Anexar (ou trocar) o PDF das anotações: o navegador tira a parte "Próximas etapas"; se não conseguir, o servidor tenta.
+  const pdfStatus = h('span', { class: 'muted small', role: 'status' });
+  const pdfPick = h('input', { type: 'file', id: 'mt-pdf', accept: 'application/pdf,.pdf', class: 'sr-only', onchange: guard(async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    if (f.size > 15 * 1024 * 1024) { toast('PDF grande demais (máximo 15 MB)'); return; }
+    if (pending.length && !(await ask('Ler o PDF? As tarefas que ainda estão para revisar serão trocadas pela nova leitura. As já lançadas ficam.', { ok: 'Ler o PDF' }))) return;
+    pdfStatus.textContent = 'Lendo o PDF…';
+    let section = null;
+    try { section = (await notesFromPdf(f)).section; } catch { /* o servidor tenta de novo */ }
+    await api('PATCH', `/api/meetings/${meetingId}`, { pdf: (await readFileData(f)).replace(/^data:[^,]*,/, 'data:application/pdf;base64,'), pdf_name: f.name, notes_text: section || '' });
+    await api('POST', `/api/meetings/${meetingId}/process`); toast('PDF anexado'); route();
+  }) });
   const notesSection = m.status !== 'processing' ? h('details', { class: 'card-box notes-box', open: !m.notes_text && m.status === 'error' },
-    h('summary', {}, m.notes_text ? 'Anotações coladas (corrigir e ler de novo)' : 'Colar as anotações da reunião'),
+    h('summary', {}, m.notes_text ? 'Anotações (corrigir e ler de novo)' : 'Colar as anotações ou anexar o PDF'),
     h('p', { class: 'muted small' }, 'As tarefas saem da parte "Próximas etapas". Corrigiu um nome ou um prazo no texto? Salve e o sistema lê de novo; as tarefas já lançadas ficam.'),
     notesBox,
     h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
       if (pending.length && !(await ask('Ler de novo? As tarefas que ainda estão para revisar serão trocadas pela nova leitura. As já lançadas ficam.', { ok: 'Ler de novo' }))) return;
       await api('PATCH', `/api/meetings/${meetingId}`, { notes_text: notesBox.value });
       await api('POST', `/api/meetings/${meetingId}/process`); route();
-    }) }, 'Salvar e ler de novo'))) : null;
+    }) }, 'Salvar e ler de novo'),
+      h('label', { class: 'btn file-btn', for: 'mt-pdf' }, pdfPick, m.pdf_name ? 'Trocar o PDF' : '📎 Anexar PDF das anotações'), pdfStatus)) : null;
   const addForm = h('form', { class: 'row add-item', onsubmit: guard(async e => {
     e.preventDefault();
     const input = e.target.elements['mi-new'];

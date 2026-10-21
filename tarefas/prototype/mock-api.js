@@ -636,8 +636,15 @@
   const meetingDetail = (user, mid) => ({ ...loadMeeting(user, mid), ai: true,
     items: db.meeting_items.filter(i => i.meeting_id === mid).sort((a, b) => a.position - b.position || a.id - b.id) });
   function simulateReading(mid) {
-    setTimeout(() => {
+    setTimeout(async () => {
       const m = db.meetings.find(x => x.id === mid); if (!m) return;
+      // Sem texto colado e com PDF nesta aba: tira a parte "Próximas etapas" do PDF, como o servidor.
+      if (!m.notes_text && pdfs.has(mid) && window.PdfText) {
+        try {
+          const bytes = Uint8Array.from(atob(pdfs.get(mid).data), c => c.charCodeAt(0));
+          m.notes_text = S.nextStepsSection(await window.PdfText.pdfText(bytes, { maxPages: 30, until: S.pastNextSteps }));
+        } catch { /* segue para a leitura simulada */ }
+      }
       const people = m.attendee_ids.map(uid => db.users.find(u => u.id === uid)).filter(Boolean);
       // Com texto colado: a mesma leitura das "Próximas etapas" do sistema (sem IA).
       if (m.notes_text) {
@@ -710,6 +717,10 @@
     const m = loadMeeting(user, id);
     if ('title' in body) m.title = str(body.title, 'título', { max: 200 });
     if ('notes_text' in body) m.notes_text = str(body.notes_text, 'texto das anotações', { max: 100000, required: false }) || null;
+    if (body.pdf) {
+      if (!String(body.pdf).startsWith('data:application/pdf;base64,')) fail(400, 'PDF inválido');
+      pdfs.set(id, { name: body.pdf_name || 'ata.pdf', data: body.pdf.slice(28) }); m.pdf_name = body.pdf_name || 'ata.pdf';
+    }
     return meetingDetail(user, id);
   });
   route('GET', '/api/meetings/:id/pdf', ({ user, id }) => {
