@@ -1865,8 +1865,28 @@ async function viewMeetings() {
   const who = attendeePicker('m', '');
   clientSel.addEventListener('change', () => who.repaint(clientSel.value));
   const fileInfo = h('span', { class: 'muted small' }, 'Nenhum arquivo escolhido');
+  // Ao escolher o PDF das anotações do Gemini, o navegador tira o texto e preenche a parte "Próximas etapas".
+  const pdfNote = h('p', { class: 'muted small', role: 'status' });
   const file = h('input', { id: 'm-pdf', type: 'file', accept: 'application/pdf,.pdf', class: 'sr-only',
-    onchange: e => { fileInfo.textContent = e.target.files[0] ? e.target.files[0].name : 'Nenhum arquivo escolhido'; } });
+    onchange: async e => {
+      const f = e.target.files[0];
+      fileInfo.textContent = f ? f.name : 'Nenhum arquivo escolhido';
+      pdfNote.textContent = '';
+      if (!f) return;
+      pdfNote.textContent = 'Lendo o PDF…';
+      try {
+        const got = await notesFromPdf(f);
+        const box = document.getElementById('m-notes');
+        if (got.section && (!box.value.trim() || box.dataset.fromPdf)) { box.value = got.section; box.dataset.fromPdf = '1'; }
+        const dateBox = document.getElementById('m-date');
+        if (got.date && dateBox.value === today()) dateBox.value = got.date;
+        pdfNote.textContent = got.section
+          ? `Encontrei a parte "Próximas etapas" (${got.items} ${got.items === 1 ? 'item' : 'itens'}) e coloquei nas anotações acima. Confira antes de enviar.`
+          : 'Não encontrei a parte "Próximas etapas" neste PDF. Cole o texto das anotações acima.';
+      } catch {
+        pdfNote.textContent = 'Não deu para ler o texto deste PDF. Cole o texto das anotações acima; o PDF fica guardado mesmo assim.';
+      }
+    } });
   const submit = h('button', { class: 'btn primary', type: 'submit' }, 'Enviar para a triagem');
   const form = h('form', { class: 'card-box', onsubmit: async e => {
     e.preventDefault();
@@ -1896,8 +1916,8 @@ async function viewMeetings() {
     h('div', { class: 'field' }, h('label', { for: 'm-notes' }, 'Anotações da reunião'),
       h('textarea', { id: 'm-notes', name: 'notes', rows: 8, placeholder: 'Próximas etapas\n[Nome da pessoa] O que ficou de fazer: detalhes até sexta-feira\n- Fulano vai enviar o relatório até 25/10' }),
       h('p', { class: 'muted small' }, 'No documento "Anotações do Gemini" que o Meet cria no Google Drive, copie tudo (ou só a parte "Próximas etapas") e cole aqui. Cada linha vira uma sugestão de tarefa, com o responsável pelo nome e o prazo quando estiver escrito ("até sexta", "até 25/10", "semana que vem").')),
-    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Ata em PDF (opcional, fica guardada junto)'),
-      h('div', { class: 'row' }, h('label', { class: 'btn file-btn', for: 'm-pdf' }, file, 'Escolher PDF'), fileInfo)),
+    h('div', { class: 'field' }, h('span', { class: 'label' }, 'PDF das anotações (opcional: o sistema tira a parte "Próximas etapas" e guarda o arquivo)'),
+      h('div', { class: 'row' }, h('label', { class: 'btn file-btn', for: 'm-pdf' }, file, 'Escolher PDF'), fileInfo), pdfNote),
     err, submit);
   shell([
     form,
@@ -1915,6 +1935,28 @@ async function viewMeetings() {
         })))
         : h('p', { class: 'muted' }, 'Nenhuma reunião lançada ainda.')),
   ], { sub: 'Ata do Google Meet → tarefas, com o seu OK' });
+}
+
+// Lê o PDF no navegador (public/pdftext.js) até passar da parte "Próximas etapas" e devolve só ela,
+// mais a data da reunião quando o PDF diz ("Reunião em 16 de out. de 2026").
+async function notesFromPdf(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const isStart = l => /^\s*(pr[oó]ximas etapas|pr[oó]ximos passos|next steps)\s*:?\s*$/i.test(l);
+  const isEnd = l => /^\s*(detalhes|details|transcri[cç][aã]o|transcript)\s*$/i.test(l);
+  const text = await PdfText.pdfText(bytes, { maxPages: 30, until: ls => { const i = ls.findIndex(isStart); return i >= 0 && ls.slice(i + 1).some(isEnd); } });
+  const lines = text.split('\n');
+  const i = lines.findIndex(isStart);
+  let section = null;
+  if (i >= 0) {
+    const rest = lines.slice(i + 1);
+    const end = rest.findIndex(isEnd);
+    section = [lines[i].trim(), ...(end >= 0 ? rest.slice(0, end) : rest.slice(0, 200))].join('\n').replace(/\n{2,}/g, '\n').trim();
+  }
+  const MES = { jan: 1, fev: 2, mar: 3, abr: 4, mai: 5, jun: 6, jul: 7, ago: 8, set: 9, out: 10, nov: 11, dez: 12 };
+  const dm = /Reuni[aã]o\s+em\s+(\d{1,2})\s+de\s+([a-zç]{3})[a-zç]*\.?\s+de\s+(\d{4})/i.exec(text);
+  const date = dm && MES[dm[2].toLowerCase()] ? `${dm[3]}-${String(MES[dm[2].toLowerCase()]).padStart(2, '0')}-${dm[1].padStart(2, '0')}` : null;
+  const items = section ? S.parseNextSteps(section).length : 0;
+  return { section, date, items };
 }
 
 let meetingPoll = null;

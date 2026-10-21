@@ -134,12 +134,13 @@ Cada pessoa informa o celular e marca a autorização em Configurações → Avi
 
 Menu **Reuniões** (equipe e administrador; o cliente não vê):
 
-1. Cole as anotações do Gemini (o documento "Anotações do Gemini" que o Meet cria no Google Drive: tudo, ou só a parte "Próximas etapas"), escolha a empresa e marque **quem estava presente**. O PDF da ata é opcional e fica guardado junto.
+1. Escolha o **PDF das Anotações do Gemini** (Google Drive → o documento da reunião → Arquivo → Fazer download → PDF): o navegador tira o texto do PDF, preenche a parte "Próximas etapas" e a data da reunião, e o PDF fica guardado junto. Ou cole o texto direto. Escolha a empresa e marque **quem estava presente**.
 2. O sistema lê a seção "Próximas etapas" (ou "Próximos passos", "Ações", "Encaminhamentos"; sem seção, os itens em lista) e cada linha vira uma sugestão de tarefa, **sem IA e sem custo**:
    - Responsável: o nome entre colchetes (`[Ana Souza] ...`) ou no começo da frase (`Ana vai ...`), ligado aos participantes. Nome que não é de ninguém do sistema vai para "Responsável no cliente".
    - Prazo, a partir da data da reunião: `até 25/10`, `25/10/2026`, `até o dia 5`, `sexta-feira`, `amanhã`, `em 3 dias`, `semana que vem`, `esta semana`, `fim do mês`.
    - Prioridade alta quando aparece "urgente", "o quanto antes" ou "prioridade alta". Texto depois de dois-pontos vira a descrição.
-   - A regra fica em `shared.js` (`parseNextSteps`), usada pelo servidor e pelo protótipo.
+   - Itens com mais de um nome (`[Ana, Bruno]`) ficam com os dois responsáveis; "[O grupo]"/"[The group]" fica sem responsável. Nome com uma letra de diferença (Eloía/Eloisa) é reconhecido quando não há dúvida.
+   - A regra fica em `shared.js` (`parseNextSteps`), usada pelo servidor e pelo protótipo. O texto do PDF é tirado em `public/pdftext.js`, sem bibliotecas (testado com PDFs do Google Docs).
 3. Na triagem você corrige (salva na hora), descarta, adiciona o que faltou e dá **OK, lançar** ou **Lançar todas**. Só depois do OK a tarefa vai para o quadro. Errou um nome no texto? Corrija em "Anotações coladas" e **Salvar e ler de novo** (as já lançadas ficam).
 
 Com `ANTHROPIC_API_KEY` no servidor e um PDF anexado, a leitura passa a ser feita pela IA (Claude), que entende atas sem o formato de "Próximas etapas". Sem a chave, tudo funciona pela leitura acima.

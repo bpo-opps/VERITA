@@ -43,6 +43,9 @@ ${safe(read('mock-api.js'))}
 ${safe(read('../public/exports.js'))}
 </script>
 <script>
+${safe(read('../public/pdftext.js'))}
+</script>
+<script>
 ${safe(read('../public/main.js'))}
 </script>`;
 

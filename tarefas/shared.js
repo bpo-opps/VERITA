@@ -173,6 +173,10 @@
       if (!m[3] && iso < addDays(base, -30)) iso = `${year + 1}-${pad(mon)}-${pad(day)}`;
       return iso;
     }
+    // "entre os dias 10 e 15 do próximo mês": o último dia citado, no mês seguinte.
+    if ((m = /\bdias?\s+(\d{1,2})(?:\s+(?:e|a|ao)\s+(\d{1,2}))?\s+do\s+(?:proximo mes|mes que vem)/.exec(t))) {
+      return addMonths(`${base.slice(0, 8)}01`, 1).slice(0, 8) + pad(Number(m[2] || m[1]));
+    }
     if ((m = /\b(?:ate|no|para)\s+o?\s*dia\s+(\d{1,2})\b/.exec(t))) {
       const day = Number(m[1]);
       let iso = `${base.slice(0, 8)}${pad(day)}`;
@@ -185,43 +189,78 @@
     if (/\b(proxima semana|semana que vem)\b/.test(t)) return addDays(base, 7);
     if (/\b(fim|final) do mes\b/.test(t)) return addDays(addMonths(`${base.slice(0, 8)}01`, 1), -1);
     if (/\b(esta|essa) semana\b/.test(t)) return weekday(addDays(base, -1), 5);
-    if ((m = /\b(segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.exec(t))) return weekday(base, WEEKDAYS[m[1]]);
+    // Dia da semana só como prazo ("até sexta", "na quarta", "próxima segunda", "quinta-feira"), não "a segunda metade".
+    if ((m = /\b(?:ate|na|nesta|nessa|proxima)\s+(segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.exec(t))
+      || (m = /\b(segunda|terca|quarta|quinta|sexta)-feira\b/.exec(t)) || (m = /\b(?:ate|no|neste|nesse|proximo)\s+(sabado|domingo)\b/.exec(t))) return weekday(base, WEEKDAYS[m[1]]);
     return null;
   }
-  // Pessoas citadas pelo nome (completo, ou primeiro nome quando só uma pessoa tem esse primeiro nome).
+  // Distância de edição pequena (para nomes transcritos com uma letra a mais ou a menos: Eloía/Eloisa).
+  function near(a, b) {
+    if (Math.abs(a.length - b.length) > 1) return false;
+    let i = 0, j = 0, edits = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i] === b[j]) { i++; j++; continue; }
+      if (++edits > 1) return false;
+      if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+    }
+    return edits + (a.length - i) + (b.length - j) <= 1;
+  }
+  // Pessoas citadas pelo nome: completo, ou primeiro nome (exato ou com uma letra de diferença)
+  // quando só uma pessoa tem aquele primeiro nome.
   function findPeople(text, people) {
     const t = ` ${fold(text).replace(/[^a-z0-9]+/g, ' ')} `;
+    const words = t.trim().split(' ');
+    const firstOf = p => fold(p.name).replace(/[^a-z0-9]+/g, ' ').trim().split(' ')[0];
     const firsts = {};
-    for (const p of people) { const f = fold(p.name).split(/\s+/)[0]; firsts[f] = (firsts[f] || 0) + 1; }
-    return people.filter(p => {
+    for (const p of people) firsts[firstOf(p)] = (firsts[firstOf(p)] || 0) + 1;
+    const exact = people.filter(p => {
       const full = fold(p.name).replace(/[^a-z0-9]+/g, ' ').trim();
-      const first = full.split(' ')[0];
+      const first = firstOf(p);
       return t.includes(` ${full} `) || (firsts[first] === 1 && first.length > 2 && t.includes(` ${first} `));
     });
+    if (exact.length) return exact;
+    return people.filter(p => { const f = firstOf(p); return firsts[f] === 1 && f.length >= 4 && words.some(w => w.length >= 4 && near(w, f)); });
   }
+  const GROUP = /^(the group|o grupo|grupo|todos|todas|equipe|time|everyone|all|o time|a equipe)$/i;
+  const ITEM_START = /^(\[|[-•*▪◦●]\s|\d+[.)]\s)/;
   // Devolve as tarefas encontradas: { title, description, assignee_ids, client_responsible, due_date, priority, quote }.
+  // Cada item começa com [Nome] ou um marcador de lista; as linhas seguintes (quebra de linha ou de página)
+  // continuam o mesmo item.
   function parseNextSteps(text, { people = [], date: base = today() } = {}) {
-    const lines = String(text || '').replace(/\r/g, '').split('\n').map(l => l.trim());
-    let start = lines.findIndex(l => SECTION.test(l.replace(/[*_]/g, '')));
-    let chunk;
+    const lines = String(text || '').normalize('NFKC').replace(/\r/g, '').replace(/[​ ]/g, ' ').split('\n').map(l => l.trim());
+    const start = lines.findIndex(l => SECTION.test(l.replace(/[*_]/g, '')));
+    let chunk = [];
     if (start >= 0) {
-      chunk = [];
       for (const l of lines.slice(start + 1)) {
         const plain = l.replace(/[*_]/g, '');
-        if (chunk.length && (SECTION.test(plain) || HEADING.test(plain))) break;
+        if (chunk.some(Boolean) && (SECTION.test(plain) || HEADING.test(plain))) break;
         chunk.push(l);
       }
-    } else chunk = lines.filter(l => /^([-•*▪◦]|\[ ?\]|\d+[.)])\s+/.test(l));
+    } else chunk = lines;
+    const anyStart = chunk.some(l => ITEM_START.test(l));
+    const raws = [];
+    for (const l of chunk) {
+      if (!l) continue;
+      if (!anyStart || ITEM_START.test(l) || !raws.length) raws.push(l);
+      else if (start >= 0 || raws.length) raws[raws.length - 1] += ' ' + l;
+    }
     const items = [];
-    for (let raw of chunk) {
-      let l = raw.replace(/^([-•*▪◦]|\[[ xX]?\]|\d+[.)])\s*/, '').replace(/[*_]{1,2}/g, '').trim();
+    for (const raw of raws) {
+      if (start < 0 && !ITEM_START.test(raw)) continue; // sem a seção, só itens em lista
+      let l = raw.replace(/^([-•*▪◦●]|\[[ xX]?\](?=\s)|\d+[.)])\s*/, '').replace(/[*_]{1,2}/g, '').trim();
       if (l.length < 4) continue;
-      let who = [], named = '';
-      const br = /^\[([^\]]{2,80})\]\s*[:\-–]?\s*(.*)$/.exec(l);
-      if (br) { named = br[1].trim(); l = br[2].trim(); who = findPeople(named, people); }
-      else {
-        const lead = /^([A-ZÀ-Ý][\wÀ-ÿ]+(?:\s+(?:e|de|da|do|dos|das|[A-ZÀ-Ý][\wÀ-ÿ]+))*?)\s+(vai|vão|irá|irão|deve|devem|fica de|ficou de|ficará|ficarão|precisa|precisam|se comprometeu a|vai\s+\w+)\s+(.*)$/.exec(l);
-        if (lead) { named = lead[1]; who = findPeople(named, people); l = lead[3]; }
+      let who = [], named = [];
+      const br = /^\[([^\]]{2,120})\]\s*[:\-–]?\s*(.*)$/.exec(l);
+      if (br) {
+        l = br[2].trim();
+        for (const part of br[1].split(/\s*(?:,|;|\s+e\s+|\s+and\s+|&)\s*/i).map(x => x.trim()).filter(Boolean)) {
+          if (GROUP.test(part)) continue;
+          const found = findPeople(part, people);
+          if (found.length) who.push(...found); else named.push(part);
+        }
+      } else {
+        const lead = /^([A-ZÀ-Ý][\wÀ-ÿ]+(?:\s+(?:e|de|da|do|dos|das|[A-ZÀ-Ý][\wÀ-ÿ]+))*?)\s+(vai|vão|irá|irão|deve|devem|fica de|ficou de|ficará|ficarão|precisa|precisam|se comprometeu a)\s+(.*)$/.exec(l);
+        if (lead) { const f = findPeople(lead[1], people); if (f.length) who = f; else if (!GROUP.test(lead[1])) named = [lead[1]]; l = lead[3]; }
         else who = findPeople(l, people);
       }
       if (!l) continue;
@@ -233,8 +272,8 @@
       items.push({
         title: title.slice(0, 200), description: description.slice(0, 2000),
         assignee_ids: [...new Set(who.map(p => p.id))],
-        client_responsible: named && !who.length ? named.slice(0, 120) : '',
-        due_date: dueFromText(raw, base),
+        client_responsible: named.join(', ').slice(0, 120),
+        due_date: dueFromText(l, base),
         priority: /\b(urgente|prioridade alta|o quanto antes|asap|imediato)\b/.test(fold(raw)) ? 'high' : 'normal',
         quote: raw.slice(0, 1000),
       });

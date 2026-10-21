@@ -223,11 +223,30 @@ test('prazos escritos na frase, a partir da data da reunião (quarta, 21/10/2026
   const base = '2026-10-21';
   const cases = [['até sexta', '2026-10-23'], ['na quarta', '2026-10-28'], ['até 05/11', '2026-11-05'], ['até 10/01/2027', '2027-01-10'],
     ['até o dia 5', '2026-11-05'], ['até o dia 25', '2026-10-25'], ['em 3 dias', '2026-10-24'], ['semana que vem', '2026-10-28'],
-    ['ainda esta semana', '2026-10-23'], ['até o fim do mês', '2026-10-31'], ['hoje mesmo', '2026-10-21'], ['sem prazo combinado', null], ['até 15/09', '2027-09-15']];
+    ['ainda esta semana', '2026-10-23'], ['até o fim do mês', '2026-10-31'], ['hoje mesmo', '2026-10-21'], ['sem prazo combinado', null], ['até 15/09', '2027-09-15'],
+    ['pagar a segunda metade', null], ['entre os dias 10 e 15 do próximo mês', '2026-11-15'], ['até a próxima quarta ou quinta-feira', '2026-10-28'], ['no dia 30', '2026-10-30']];
   for (const [text, want] of cases) assert.equal(S.dueFromText(text, base), want, text);
   // Sem a seção, usa os itens em lista; primeiro nome só quando não há outra pessoa com o mesmo.
   const people = [{ id: 1, name: 'Ana Souza' }, { id: 2, name: 'Ana Lima' }, { id: 3, name: 'Bruno Dias' }];
   const out = S.parseNextSteps('Texto solto\n- Ana vai revisar o contrato\n- Bruno vai ligar para o banco\n- Ana Lima fica de enviar o boleto', { people, date: base });
   assert.deepEqual(out.map(t => t.assignee_ids), [[], [3], [2]]);
   assert.equal(out[0].client_responsible, 'Ana', 'nome ambíguo fica como texto para conferir');
+});
+
+test('texto de PDF (sem bibliotecas) e leitura das Próximas etapas', async () => {
+  global.self = global;
+  require('../public/exports.js');
+  require('../public/pdftext.js');
+  const zlib = require('node:zlib');
+  const S = require('../shared');
+  // PDF de teste feito pelo gerador de relatórios: uma "tabela" com as linhas da ata.
+  const rows = ['Resumo', 'Reunião sobre o fechamento.', 'Próximas etapas', '[Bia Equipe] Enviar relatório: até sexta-feira.',
+    '[Bia Equipe, Dora Cliente] Conferir extratos: no dia 30.', 'Detalhes', 'Texto livre.'].map(t => [t]);
+  const blob = self.Exports.pdf({ title: 'Anotações', columns: [{ label: 'Texto' }], rows });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const text = await self.PdfText.pdfText(bytes, { inflate: async b => zlib.inflateSync(b) });
+  assert.match(text, /Próximas etapas/);
+  const people = [{ id: 7, name: 'Bia Equipe' }, { id: 8, name: 'Dora Cliente' }];
+  const items = S.parseNextSteps(text, { people, date: '2026-10-21' });
+  assert.deepEqual(items.map(i => [i.title, i.assignee_ids, i.due_date]), [['Enviar relatório', [7], '2026-10-23'], ['Conferir extratos', [7, 8], '2026-10-30']]);
 });
