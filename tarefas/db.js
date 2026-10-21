@@ -191,7 +191,9 @@ function open(file) {
       alter table users add column whatsapp_consent_at text;`);
   }
   db.exec(SCHEMA);
-  db.exec(`pragma user_version = ${SCHEMA_VERSION}`);
+  // Nunca rebaixa a versão: se o código voltou para uma versão anterior (rollback), o banco continua
+  // marcado com a versão mais nova e a próxima atualização não repete migrações já feitas.
+  if (version < SCHEMA_VERSION) db.exec(`pragma user_version = ${SCHEMA_VERSION}`);
   return db;
 }
 
@@ -292,4 +294,23 @@ function backup(db, dir, { keep = 14, day = new Date().toLocaleDateString('sv-SE
   return file;
 }
 
-module.exports = { open, tx, backup, createOrg, createUser, seedDemo, sampleLogo, OPPS_SYMBOL };
+// Antes de uma atualização que muda a estrutura do banco, guarda uma cópia do jeito que estava.
+// Devolve o caminho da cópia, ou null se não havia banco ou nada vai mudar.
+function backupBeforeUpgrade(file, dir, { keep = 5, now = new Date() } = {}) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  if (!fs.existsSync(file)) return null;
+  const db = new DatabaseSync(file);
+  try {
+    if (db.prepare('pragma user_version').get().user_version >= SCHEMA_VERSION) return null;
+    fs.mkdirSync(dir, { recursive: true });
+    const stamp = now.toLocaleString('sv-SE').replace(' ', '_').replace(/:/g, '-');
+    const out = path.join(dir, `antes-da-atualizacao-${stamp}.db`);
+    db.exec(`vacuum into '${out.replace(/'/g, "''")}'`);
+    const old = fs.readdirSync(dir).filter(f => f.startsWith('antes-da-atualizacao-')).sort().slice(0, -keep);
+    for (const f of old) fs.unlinkSync(path.join(dir, f));
+    return out;
+  } finally { db.close(); }
+}
+
+module.exports = { open, tx, backup, backupBeforeUpgrade, SCHEMA_VERSION, createOrg, createUser, seedDemo, sampleLogo, OPPS_SYMBOL };

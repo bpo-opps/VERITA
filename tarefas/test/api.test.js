@@ -449,3 +449,22 @@ test('produção: backup diário, senha temporária pelo administrador e verific
   assert.equal(r.status, 200, 'entra com a senha temporária');
   assert.equal((await fetch(base + '/api/health')).status, 200);
 });
+
+test('atualização segura: cópia antes de mudar o banco e versão nunca rebaixada', () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { open: openDb, backupBeforeUpgrade, SCHEMA_VERSION } = require('../db');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'up-'));
+  const file = path.join(dir, 'x.db');
+  assert.equal(backupBeforeUpgrade(file, path.join(dir, 'b')), null, 'sem banco, sem cópia');
+  let db = openDb(file);
+  db.prepare("insert into orgs (name) values ('Org')").run();
+  assert.equal(backupBeforeUpgrade(file, path.join(dir, 'b')), null, 'mesma versão, sem cópia');
+  db.exec(`pragma user_version = ${SCHEMA_VERSION - 1}`); db.close();
+  const copy = backupBeforeUpgrade(file, path.join(dir, 'b'));
+  assert.match(copy, /antes-da-atualizacao-/);
+  assert.equal(openDb(copy).prepare('select name from orgs').get().name, 'Org');
+  // Código mais antigo (rollback) abrindo um banco mais novo: mantém a versão do banco.
+  db = openDb(file); db.exec(`pragma user_version = ${SCHEMA_VERSION + 3}`); db.close();
+  db = openDb(file);
+  assert.equal(db.prepare('pragma user_version').get().user_version, SCHEMA_VERSION + 3);
+});

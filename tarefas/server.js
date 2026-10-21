@@ -5,13 +5,16 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { open, createOrg, createUser, seedDemo, backup, OPPS_SYMBOL } = require('./db');
+const { open, createOrg, createUser, seedDemo, backup, backupBeforeUpgrade, OPPS_SYMBOL } = require('./db');
 const { createHandler } = require('./app');
 const { createNotifier } = require('./notify');
 const meetings = require('./meetings');
 
 const file = process.env.DB_FILE || path.join(__dirname, 'data', 'tarefas.db');
 fs.mkdirSync(path.dirname(file), { recursive: true });
+const backupDir = process.env.BACKUP_DIR || path.join(path.dirname(file), 'backups');
+const pre = backupBeforeUpgrade(file, backupDir);
+if (pre) console.log(`Atualização do banco: cópia de antes guardada em ${pre}`);
 const db = open(file);
 
 // Primeira execução: cria a organização e o primeiro administrador.
@@ -35,7 +38,6 @@ if (!db.prepare('select 1 from orgs').get()) {
 
 // Backup: uma cópia do banco por dia em BACKUP_DIR (padrão: data/backups ao lado do banco), guardando 14 dias.
 // Copie essa pasta para fora do servidor de vez em quando (ou aponte BACKUP_DIR para um disco separado).
-const backupDir = process.env.BACKUP_DIR || path.join(path.dirname(file), 'backups');
 const runBackup = () => { try { const f = backup(db, backupDir); if (f) console.log(`Backup: ${f}`); } catch (e) { console.error('Backup falhou:', e.message); } };
 runBackup();
 setInterval(runBackup, 60 * 60e3).unref();

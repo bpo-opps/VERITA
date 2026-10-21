@@ -144,6 +144,19 @@ O `render.yaml` na raiz do repositório descreve o serviço: Docker (`tarefas/Do
 
 Sem `APP_URL`, os links dos e-mails usam o endereço `.onrender.com`. Para usar `tarefas.oppsconsultoria.com`: em *Settings → Custom Domains* adicione o domínio, crie no DNS o CNAME que o Render mostrar e preencha `APP_URL`.
 
+## Mudanças depois de publicado
+
+O sistema no ar não muda sozinho (`autoDeploy: false` no `render.yaml`). Cada ajuste segue:
+
+1. A mudança é feita e testada aqui (testes automáticos e teste de tela).
+2. O protótipo é atualizado com a mudança: é a prévia para conferir antes, sem tocar nos dados reais.
+3. Com o OK, a mudança é enviada ao GitHub. No ar continua tudo como estava.
+4. No Render, no serviço `tarefas-opps`: **Manual Deploy → Deploy latest commit**. Leva uns 3 a 5 minutos.
+
+Os dados ficam no disco e uma publicação não apaga nada. Proteções:
+- Backup diário (14 dias) e, quando a atualização muda a estrutura do banco, uma cópia de antes (`antes-da-atualizacao-*.db`, últimas 5), em `/app/data/backups`.
+- Se algo der errado: no Render, em **Events**, escolha a publicação anterior e toque em **Rollback**. Volta o sistema como estava; os dados continuam. O banco nunca é "rebaixado", então dá para publicar de novo depois da correção.
+
 ## Segurança
 
 Senhas com scrypt, sessão em cookie HttpOnly e SameSite, verificação de origem em toda escrita, limite de tentativas de login, toda consulta filtrada por organização e, para cliente, pelo próprio cliente. Os testes em `test/api.test.js` cobrem um cliente tentando ver tarefa de outro e outra organização tentando ver esta.
