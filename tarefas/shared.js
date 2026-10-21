@@ -66,13 +66,37 @@
   }
 
   // Coluna do quadro: concluída no prazo ou fora dele pela data de término; atrasada é automática.
+  // Tarefa numa coluna criada pela organização: status "doing" com stage_id (chave "stage-<id>").
   function column(t, now = today()) {
     if (t.status === 'cancelled') return 'cancelled';
     if (t.status === 'done') {
       return !t.due_date || (t.completed_on && t.completed_on <= t.due_date) ? 'done_on_time' : 'done_late';
     }
     if (t.due_date && t.due_date < now) return 'overdue';
+    if (t.status === 'doing' && t.stage_id) return `stage-${t.stage_id}`;
     return t.status;
+  }
+
+  // Colunas do quadro na ordem da organização. A fazer e Em andamento ficam sempre no começo;
+  // as outras (inclusive as criadas) seguem `order`; o que não estiver na ordem entra no fim.
+  const FIXED = ['todo', 'doing'];
+  function boardColumns(stages = [], order = []) {
+    const all = COLUMNS.map(c => ({ ...c, custom: false }))
+      .concat(stages.map(st => ({ key: `stage-${st.id}`, name: st.name, custom: true, stage_id: st.id })));
+    const movable = all.filter(c => !FIXED.includes(c.key));
+    const rank = k => { const i = (order || []).indexOf(k); return i < 0 ? 1e6 + movable.findIndex(c => c.key === k) : i; };
+    return all.filter(c => FIXED.includes(c.key)).concat(movable.sort((a, b) => rank(a.key) - rank(b.key)));
+  }
+
+  // Ordem dos cards: prazo mais próximo primeiro (sem prazo no fim), depois prioridade alta, média, baixa.
+  const PRIORITY_RANK = { high: 0, normal: 1, low: 2 };
+  function boardSort(a, b) {
+    if (a.due_date !== b.due_date) {
+      if (!a.due_date) return 1;
+      if (!b.due_date) return -1;
+      return a.due_date < b.due_date ? -1 : 1;
+    }
+    return (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1) || a.id - b.id;
   }
 
   // Alerta ativo: atrasada, ou dentro da janela de algum aviso escolhido.
@@ -110,12 +134,19 @@
   function clientSees(t) {
     return !!t.client_id && (t.kind === 'external' || !!t.client_visible);
   }
-  // Quem vê a tarefa. Externa: a equipe toda. Interna: só quem criou e os responsáveis
-  // (vale também para administradores). Cliente: as da empresa dele que clientSees permite.
+  // Quem vê a tarefa.
+  // Externa: o administrador, quem criou, os responsáveis e quem da equipe acompanha aquele cliente
+  // (user.client_ids). Interna: só quem criou e os responsáveis (vale também para administradores).
+  // Cliente: as da empresa dele que clientSees permite (responsável ou não).
   function canSee(user, t, assigneeIds) {
     if (user.role === 'client') return t.client_id === user.client_id && clientSees(t);
-    if (t.kind === 'external') return true;
-    return t.created_by === user.id || assigneeIds.includes(user.id);
+    if (t.created_by === user.id || assigneeIds.includes(user.id)) return true;
+    if (t.kind !== 'external') return false;
+    return user.role === 'admin' || (user.client_ids || []).includes(t.client_id);
+  }
+  // Pessoa do cliente pode ser responsável quando a tarefa é da empresa dela e ela vê a tarefa.
+  function clientAssignable(u, t) {
+    return u.role === 'client' && !!t.client_id && u.client_id === Number(t.client_id) && clientSees(t);
   }
 
   function validAlerts(list) {
@@ -123,5 +154,5 @@
     return [...new Set(list.map(Number))].sort((a, b) => a - b);
   }
 
-  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, startByChecklist, clientSees, canSee, validAlerts };
+  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, startByChecklist, clientSees, canSee, clientAssignable, boardColumns, boardSort, PRIORITY_RANK, validAlerts };
 });

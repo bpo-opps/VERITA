@@ -254,6 +254,6 @@ test('banco da versão 3 ganha as colunas de aviso sem perder dados', () => {
   const again = open(file);
   const u = again.prepare('select name, notify_email, notify_whatsapp, phone from users').get();
   assert.deepEqual({ ...u }, { name: 'Velho', notify_email: 1, notify_whatsapp: 0, phone: null });
-  assert.equal(again.prepare('pragma user_version').get().user_version, 5);
+  assert.equal(again.prepare('pragma user_version').get().user_version, require('../db').SCHEMA_VERSION);
   assert.ok(again.prepare("select 1 from sqlite_master where name = 'notifications'").get());
 });

@@ -2,6 +2,7 @@
 // Leitura das atas de reunião (PDF do Google Meet) pela IA da Anthropic (Claude).
 // A IA só sugere: cada tarefa encontrada fica em triagem até alguém da equipe dar o OK.
 // O PDF vai para a API da Anthropic para ser lido; nada é lançado sem aprovação.
+const S = require('./shared');
 const MODEL = 'claude-opus-5-5';
 
 const ITEM = {
@@ -13,7 +14,7 @@ const ITEM = {
     description: { type: 'string', description: 'Contexto da reunião que a pessoa precisa para executar, em 1 a 3 frases' },
     kind: { type: 'string', enum: ['external', 'internal'], description: 'external: trabalho para um cliente, que ele acompanha. internal: trabalho interno da consultoria' },
     client_id: { type: 'integer', description: 'id da empresa cliente da lista, ou 0 se não houver' },
-    responsible_ids: { type: 'array', items: { type: 'integer' }, description: 'ids das pessoas da equipe presentes que ficaram responsáveis; vazio se ninguém da equipe foi definido' },
+    responsible_ids: { type: 'array', items: { type: 'integer' }, description: 'ids dos participantes (da equipe ou do cliente) que ficaram responsáveis; vazio se ninguém foi definido' },
     client_responsible: { type: 'string', description: 'Nome de quem do cliente (ou de fora) ficou responsável, se for o caso; senão vazio' },
     due_date: { type: 'string', description: 'Prazo no formato AAAA-MM-DD, só se foi combinado; senão vazio' },
     priority: { type: 'string', enum: ['low', 'normal', 'high'] },
@@ -35,7 +36,7 @@ const SYSTEM = `Você ajuda uma consultoria a transformar atas de reunião em ta
 Leia a ata em PDF e liste só as ações combinadas: algo que alguém ficou de fazer depois da reunião.
 Não transforme em tarefa assuntos só discutidos, decisões já tomadas sem ação, nem o que já foi feito.
 Junte ações repetidas em uma só. Escreva em português do Brasil.
-Responsáveis: use apenas os ids da lista de participantes da equipe. Se quem ficou responsável é do cliente ou de fora, deixe responsible_ids vazio e escreva o nome em client_responsible.
+Responsáveis: use apenas ids das listas de participantes (equipe ou cliente). Se quem ficou responsável não está nas listas (alguém de fora), deixe responsible_ids sem essa pessoa e escreva o nome em client_responsible.
 Prazos: converta datas relativas ("sexta", "semana que vem", "até o dia 10") usando a data da reunião. Sem prazo combinado, deixe vazio. Não invente prazo.
 Empresa: use o id da lista de empresas; na dúvida, a empresa da reunião.`;
 
@@ -48,7 +49,7 @@ function contextText({ meeting, attendees, others, clients }) {
   return JSON.stringify({
     reuniao: { titulo: meeting.title, data: meeting.meeting_date, empresa_id: meeting.client_id || 0 },
     participantes_equipe: attendees.filter(u => u.role !== 'client').map(u => ({ id: u.id, nome: u.name })),
-    participantes_cliente: attendees.filter(u => u.role === 'client').map(u => ({ nome: u.name, empresa_id: u.client_id })),
+    participantes_cliente: attendees.filter(u => u.role === 'client').map(u => ({ id: u.id, nome: u.name, empresa_id: u.client_id })),
     outros_participantes: others || '',
     empresas: clients.map(c => ({ id: c.id, nome: c.name })),
   }, null, 2);
@@ -96,7 +97,9 @@ function sanitize(t, { meeting, attendees, clients }) {
     title: s(t.title, 200) || 'Tarefa sem título',
     description: s(t.description, 4000),
     kind, client_id: clientId,
-    assignee_ids: [...new Set((t.responsible_ids || []).map(Number))].filter(x => staffIds.has(x)),
+    // Da equipe presente; do cliente presente só se a tarefa for da empresa dele e ele a vê.
+    assignee_ids: [...new Set((t.responsible_ids || []).map(Number))].filter(x => staffIds.has(x) ||
+      attendees.some(u => u.id === x && S.clientAssignable(u, { kind, client_id: clientId, client_visible: 0 }))),
     client_responsible: s(t.client_responsible, 120),
     due_date: due,
     priority: ['low', 'normal', 'high'].includes(t.priority) ? t.priority : 'normal',

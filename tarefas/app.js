@@ -91,23 +91,35 @@ function visibility(user) {
   if (user.role === 'client') {
     return { sql: "t.client_id = ? and (t.kind = 'external' or t.client_visible = 1) and t.archived_at is null", args: [user.client_id] };
   }
+  const own = 't.created_by = ? or exists (select 1 from task_assignees a where a.task_id = t.id and a.user_id = ?)';
+  if (user.role === 'admin') return { sql: `(${own} or t.kind = 'external')`, args: [user.id, user.id] };
   return {
-    sql: "(t.kind = 'external' or t.created_by = ? or exists (select 1 from task_assignees a where a.task_id = t.id and a.user_id = ?))",
-    args: [user.id, user.id],
+    sql: `(${own} or (t.kind = 'external' and exists (select 1 from user_clients uc where uc.user_id = ? and uc.client_id = t.client_id)))`,
+    args: [user.id, user.id, user.id],
   };
 }
 function checkClient(db, user, clientId) {
   if (!db.prepare('select 1 from clients where id = ? and org_id = ?').get(clientId, user.org_id)) fail(400, 'Cliente inválido');
 }
-function checkAssignees(db, user, ids) {
+// Responsáveis: pessoas da equipe e, quando a tarefa aparece para o cliente, pessoas daquele cliente.
+function checkAssignees(db, user, ids, task) {
   if (!Array.isArray(ids)) fail(400, 'Campo inválido: responsáveis');
   const clean = [...new Set(ids.map(x => id(x, 'responsáveis')))];
   for (const uid of clean) {
-    const u = db.prepare("select 1 from users where id = ? and org_id = ? and role != 'client' and active = 1").get(uid, user.org_id);
+    const u = db.prepare('select role, client_id from users where id = ? and org_id = ? and active = 1').get(uid, user.org_id);
     if (!u) fail(400, 'Responsável inválido');
+    if (u.role === 'client' && !(task && S.clientAssignable(u, task))) fail(400, 'A pessoa do cliente só pode ser responsável por tarefa da empresa dela que ela vê');
   }
   return clean;
 }
+// Ao mudar tipo, empresa ou visibilidade, tira de responsável quem do cliente deixou de poder ser.
+function dropInvalidClientAssignees(db, taskId) {
+  const t = db.prepare('select * from tasks where id = ?').get(taskId);
+  for (const u of db.prepare("select u.id, u.role, u.client_id from task_assignees a join users u on u.id = a.user_id where a.task_id = ? and u.role = 'client'").all(taskId)) {
+    if (!S.clientAssignable(u, t)) db.prepare('delete from task_assignees where task_id = ? and user_id = ?').run(taskId, u.id);
+  }
+}
+const clientIdsOf = (db, userId) => db.prepare('select client_id from user_clients where user_id = ?').all(userId).map(r => r.client_id);
 function setAssignees(db, taskId, ids) {
   db.prepare('delete from task_assignees where task_id = ?').run(taskId);
   const ins = db.prepare('insert into task_assignees (task_id, user_id) values (?, ?)');
@@ -135,7 +147,7 @@ function completeTask(db, t, completedOn, userId) {
   if (t.start_date && completedOn < t.start_date) fail(400, 'A data de término não pode ser antes do início');
   return tx(db, () => {
     db.prepare(
-      `update tasks set status = 'done', completed_on = ?, cancelled_on = null, cancel_reason = null, progress = 100,
+      `update tasks set status = 'done', completed_on = ?, cancelled_on = null, cancel_reason = null, progress = 100, stage_id = null,
          updated_at = datetime('now') where id = ?`
     ).run(completedOn, t.id);
     if (t.recurrence === 'none' || t.next_task_id) return null;
@@ -165,14 +177,15 @@ function decorate(db, user, t, now) {
   t.alerts = JSON.parse(t.alerts);
   const out = {
     id: t.id, kind: t.kind, client_id: t.client_id, client_name: t.client_name || null, client_visible: S.clientSees(t), status: t.status,
-    column: S.column(t, now), title: t.title, start_date: t.start_date, due_date: t.due_date, completed_on: t.completed_on,
+    column: S.column(t, now), stage_id: t.stage_id || null, title: t.title, start_date: t.start_date, due_date: t.due_date, completed_on: t.completed_on,
     cancelled_on: t.cancelled_on, cancel_reason: t.cancel_reason,
     progress: S.progress(t, cl.total, cl.done), progress_from_checklist: cl.total > 0, priority: t.priority,
     alerts: t.alerts, alert: S.alert(t, now), recurrence: t.recurrence, recurrence_every: t.recurrence_every,
     position: t.position, archived_at: t.archived_at, created_by: t.created_by, updated_at: t.updated_at,
     checklist_total: cl.total, checklist_done: cl.done,
     adjustments_client: adj.client || 0, adjustments_internal: adj.internal || 0, adjustments_open: adj.open || 0,
-    assignees: db.prepare('select u.id, u.name from task_assignees a join users u on u.id = a.user_id where a.task_id = ? order by u.name').all(t.id),
+    assignees: db.prepare('select u.id, u.name, u.role from task_assignees a join users u on u.id = a.user_id where a.task_id = ? order by u.name').all(t.id),
+    attachments_count: db.prepare(`select count(*) as n from attachments where task_id = ?${user.role === 'client' ? ' and visible_to_client = 1' : ''}`).get(t.id).n,
   };
   if (user.role === 'client') { delete out.adjustments_internal; delete out.created_by; }
   return out;
@@ -201,7 +214,8 @@ function taskList(db, user, q) {
   if (q.recurring === '0') where.push("t.recurrence = 'none'");
   return db.prepare(
     `select t.*, c.name as client_name from tasks t left join clients c on c.id = t.client_id
-      where ${where.join(' and ')} order by t.position, t.id`
+      where ${where.join(' and ')}
+      order by t.due_date is null, t.due_date, case t.priority when 'high' then 0 when 'normal' then 1 else 2 end, t.id`
   ).all(...args).map(t => decorate(db, user, t, now));
 }
 
@@ -218,6 +232,11 @@ function taskDetail(db, user, taskId) {
        from comments c left join users u on u.id = c.user_id
       where c.task_id = ? ${client ? 'and c.visible_to_client = 1' : ''} order by c.id`
   ).all(t.id);
+  out.attachments = db.prepare(
+    `select a.id, a.name, a.mime, a.size, a.visible_to_client, a.created_at, a.user_id, u.name as author
+       from attachments a left join users u on u.id = a.user_id
+      where a.task_id = ? ${client ? 'and a.visible_to_client = 1' : ''} order by a.id`
+  ).all(t.id).map(a => ({ ...a, visible_to_client: !!a.visible_to_client }));
   out.adjustments = db.prepare(
     `select a.id, a.origin, a.body, a.created_at, a.resolved_at, u.name as author
        from adjustments a left join users u on u.id = a.user_id
@@ -463,7 +482,7 @@ route('PATCH', '/api/meeting-items/:id', ({ db, user, params, body }) => {
     description: 'description' in body ? str(body.description, 'descrição', { max: 10000, required: false }) : it.description,
     kind, client_id: clientId,
     client_visible: 'client_visible' in body ? clientVisible(kind, clientId, body.client_visible) : clientVisible(kind, clientId, it.client_visible),
-    assignee_ids: 'assignee_ids' in body ? JSON.stringify(checkAssignees(db, user, body.assignee_ids)) : it.assignee_ids,
+    assignee_ids: 'assignee_ids' in body ? JSON.stringify(checkAssignees(db, user, body.assignee_ids, { kind, client_id: clientId, client_visible: 'client_visible' in body ? body.client_visible : it.client_visible })) : it.assignee_ids,
     client_responsible: 'client_responsible' in body ? str(body.client_responsible, 'responsável no cliente', { max: 120, required: false }) : it.client_responsible,
     due_date: 'due_date' in body ? date(body.due_date, 'Prazo') : it.due_date,
     priority: oneOf(body.priority, 'prioridade', ['low', 'normal', 'high'], it.priority),
@@ -505,11 +524,89 @@ route('POST', '/api/meeting-items/:id/restore', ({ db, user, params }) => {
   return { ok: true };
 });
 
+function boardOf(db, orgId) {
+  const org = db.prepare('select board from orgs where id = ?').get(orgId);
+  const stages = db.prepare('select id, name from board_stages where org_id = ? order by id').all(orgId);
+  return { stages, order: org.board ? JSON.parse(org.board) : [] };
+}
+
 route('GET', '/api/me', ({ db, user }) => ({
   user,
-  org: db.prepare('select id, name, accent, logo from orgs where id = ?').get(user.org_id),
+  org: { ...db.prepare('select id, name, accent, logo from orgs where id = ?').get(user.org_id), board: boardOf(db, user.org_id) },
   today: S.today(),
 }));
+
+// ---------- quadro: colunas criadas e ordem (administrador) ----------
+route('POST', '/api/board/stages', ({ db, user, body }) => {
+  requireAdmin(user);
+  const name = str(body.name, 'nome da coluna', { max: 40 });
+  if (db.prepare('select count(*) as n from board_stages where org_id = ?').get(user.org_id).n >= 10) fail(400, 'No máximo 10 colunas criadas');
+  const r = db.prepare('insert into board_stages (org_id, name) values (?, ?)').run(user.org_id, name);
+  // A coluna nova entra antes das concluídas.
+  const b = boardOf(db, user.org_id);
+  const order = S.boardColumns(b.stages, b.order).map(c => c.key).filter(k => k !== 'todo' && k !== 'doing' && k !== `stage-${r.lastInsertRowid}`);
+  order.splice(Math.max(0, order.indexOf('done_on_time')), 0, `stage-${r.lastInsertRowid}`);
+  db.prepare('update orgs set board = ? where id = ?').run(JSON.stringify(order), user.org_id);
+  return boardOf(db, user.org_id);
+});
+route('PATCH', '/api/board/stages/:id', ({ db, user, body, params }) => {
+  requireAdmin(user);
+  if (!db.prepare('select 1 from board_stages where id = ? and org_id = ?').get(params.id, user.org_id)) fail(404, 'Coluna não encontrada');
+  db.prepare('update board_stages set name = ? where id = ?').run(str(body.name, 'nome da coluna', { max: 40 }), params.id);
+  return boardOf(db, user.org_id);
+});
+// Apagar uma coluna devolve as tarefas dela para Em andamento.
+route('DELETE', '/api/board/stages/:id', ({ db, user, params }) => {
+  requireAdmin(user);
+  if (!db.prepare('select 1 from board_stages where id = ? and org_id = ?').get(params.id, user.org_id)) fail(404, 'Coluna não encontrada');
+  tx(db, () => {
+    db.prepare('update tasks set stage_id = null where stage_id = ?').run(params.id);
+    db.prepare('delete from board_stages where id = ?').run(params.id);
+  });
+  return boardOf(db, user.org_id);
+});
+route('PUT', '/api/board/order', ({ db, user, body }) => {
+  requireAdmin(user);
+  const valid = new Set(S.boardColumns(boardOf(db, user.org_id).stages).map(c => c.key));
+  if (!Array.isArray(body.order) || !body.order.every(k => valid.has(k))) fail(400, 'Ordem inválida');
+  db.prepare('update orgs set board = ? where id = ?').run(JSON.stringify(body.order.filter(k => k !== 'todo' && k !== 'doing')), user.org_id);
+  return boardOf(db, user.org_id);
+});
+
+// ---------- anexos ----------
+const MAX_ATTACHMENT = 10 * 1024 * 1024;
+function loadAttachment(db, user, attId) {
+  const a = db.prepare('select id, task_id, user_id, name, mime, size, visible_to_client from attachments where id = ?').get(attId);
+  if (!a) fail(404, 'Anexo não encontrado');
+  loadTask(db, user, a.task_id);
+  if (user.role === 'client' && !a.visible_to_client) fail(404, 'Anexo não encontrado');
+  return a;
+}
+route('POST', '/api/tasks/:id/attachments', ({ db, user, body, params }) => {
+  const t = loadTask(db, user, params.id);
+  const name = str(body.name, 'nome do arquivo', { max: 200 }).replace(/[\\/\r\n]/g, '_');
+  const m = /^data:([\w.+-]+\/[\w.+-]+)?(;[^,]*)?;base64,([A-Za-z0-9+/=]+)$/.exec(String(body.data || ''));
+  if (!m) fail(400, 'Arquivo inválido');
+  const data = Buffer.from(m[3], 'base64');
+  if (!data.length) fail(400, 'Arquivo vazio');
+  if (data.length > MAX_ATTACHMENT) fail(400, 'Arquivo grande demais (máximo 10 MB)');
+  // Cliente sempre anexa visível; a equipe escolhe (padrão: o cliente vê se vê a tarefa).
+  const visible = user.role === 'client' ? 1 : (body.visible_to_client === false ? 0 : 1);
+  db.prepare('insert into attachments (task_id, user_id, name, mime, size, data, visible_to_client) values (?, ?, ?, ?, ?, ?, ?)')
+    .run(t.id, user.id, name, m[1] || 'application/octet-stream', data.length, data, visible);
+  touch(db, t.id);
+  return taskDetail(db, user, t.id);
+}, { maxBody: Math.ceil(MAX_ATTACHMENT * 1.4) + 64 * 1024 });
+route('GET', '/api/attachments/:id', ({ db, user, params }) => {
+  const a = loadAttachment(db, user, params.id);
+  return { name: a.name, mime: a.mime, data: Buffer.from(db.prepare('select data from attachments where id = ?').get(a.id).data).toString('base64') };
+});
+route('DELETE', '/api/attachments/:id', ({ db, user, params }) => {
+  const a = loadAttachment(db, user, params.id);
+  if (a.user_id !== user.id && user.role !== 'admin') fail(403, 'Só quem anexou ou um administrador pode apagar');
+  db.prepare('delete from attachments where id = ?').run(a.id);
+  return taskDetail(db, user, a.task_id);
+});
 
 route('POST', '/api/me/password', ({ db, user, body }) => {
   const current = str(body.current, 'senha atual', { max: 200 });
@@ -536,11 +633,26 @@ route('PATCH', '/api/org', ({ db, user, body }) => {
 route('GET', '/api/clients', ({ db, user }) => {
   if (user.role === 'client') return db.prepare('select id, name, logo from clients where id = ?').all(user.client_id);
   return db.prepare(
-    `select c.id, c.name, c.logo,
+    `select c.id, c.name, c.logo, (select json_group_array(uc.user_id) from user_clients uc where uc.client_id = c.id) as team,
        (select count(*) from tasks t where t.client_id = c.id and t.status not in ('done', 'cancelled') and t.archived_at is null and t.kind = 'external') as open_external,
        (select count(*) from tasks t where t.client_id = c.id and t.status not in ('done', 'cancelled') and t.archived_at is null and t.kind = 'internal') as open_internal
        from clients c where c.org_id = ? order by c.name`
-  ).all(user.org_id);
+  ).all(user.org_id).map(c => ({ ...c, team: JSON.parse(c.team) }));
+});
+
+// Quem da equipe acompanha o cliente (vê as tarefas externas dele).
+route('PUT', '/api/clients/:id/team', ({ db, user, body, params }) => {
+  requireAdmin(user);
+  checkClient(db, user, params.id);
+  if (!Array.isArray(body.user_ids)) fail(400, 'Campo inválido: equipe');
+  const ids = [...new Set(body.user_ids.map(x => id(x, 'equipe')))];
+  for (const uid of ids) if (!db.prepare("select 1 from users where id = ? and org_id = ? and role = 'member'").get(uid, user.org_id)) fail(400, 'Só pessoas da equipe (não administradores nem clientes)');
+  tx(db, () => {
+    db.prepare('delete from user_clients where client_id = ?').run(params.id);
+    const ins = db.prepare('insert into user_clients (user_id, client_id) values (?, ?)');
+    for (const uid of ids) ins.run(uid, params.id);
+  });
+  return { ok: true };
 });
 
 route('POST', '/api/clients', ({ db, user, body }) => {
@@ -561,9 +673,10 @@ route('PATCH', '/api/clients/:id', ({ db, user, body, params }) => {
 route('GET', '/api/users', ({ db, user }) => {
   requireStaff(user);
   return db.prepare(
-    `select u.id, u.name, u.email, u.role, u.client_id, c.name as client_name, u.active
+    `select u.id, u.name, u.email, u.role, u.client_id, c.name as client_name, u.active,
+            (select json_group_array(uc.client_id) from user_clients uc where uc.user_id = u.id) as client_ids
        from users u left join clients c on c.id = u.client_id where u.org_id = ? order by u.role, u.name`
-  ).all(user.org_id);
+  ).all(user.org_id).map(u => ({ ...u, client_ids: JSON.parse(u.client_ids) }));
 });
 
 route('POST', '/api/users', ({ db, user, body }) => {
@@ -630,7 +743,7 @@ function createTask(db, user, body) {
   const priority = oneOf(body.priority, 'prioridade', ['low', 'normal', 'high'], 'normal');
   const al = body.alerts === undefined ? [1] : alerts(body.alerts);
   const { rec, every } = recurrence(body);
-  const assignees = checkAssignees(db, user, body.assignee_ids || []);
+  const assignees = checkAssignees(db, user, body.assignee_ids || [], { kind, client_id: clientId, client_visible: clientVisible(kind, clientId, body.client_visible) });
   const newId = tx(db, () => {
     const r = db.prepare(
       `insert into tasks (org_id, kind, client_id, client_visible, title, description, due_date, priority, alerts, recurrence,
@@ -670,6 +783,7 @@ route('PATCH', '/api/tasks/:id', ({ db, user, body, params }) => {
       const clientId = kindAndClient(db, user, kind, 'client_id' in body ? (body.client_id ? id(body.client_id, 'cliente') : null) : t.client_id);
       db.prepare('update tasks set kind = ?, client_id = ?, client_visible = ? where id = ?')
         .run(kind, clientId, clientVisible(kind, clientId, 'client_visible' in body ? body.client_visible : t.client_visible), t.id);
+      if (!('assignee_ids' in body)) dropInvalidClientAssignees(db, t.id);
     }
     if ('start_date' in body) set('start_date', date(body.start_date, 'Início'));
     if ('due_date' in body) set('due_date', date(body.due_date, 'Prazo'));
@@ -691,14 +805,18 @@ route('PATCH', '/api/tasks/:id', ({ db, user, body, params }) => {
       if (!Number.isFinite(p)) fail(400, 'Campo inválido: posição');
       set('position', p);
     }
-    if ('assignee_ids' in body) setAssignees(db, t.id, checkAssignees(db, user, body.assignee_ids));
+    if ('assignee_ids' in body) setAssignees(db, t.id, checkAssignees(db, user, body.assignee_ids, db.prepare('select * from tasks where id = ?').get(t.id)));
     // Concluir e cancelar têm rotas próprias (pedem data e motivo). Voltar a uma situação aberta reabre.
     // Ao entrar em andamento pela primeira vez, o início é preenchido com hoje.
     if ('status' in body) {
       if (body.status === 'done') fail(400, 'Para concluir, use Concluir e informe a data de término');
       if (body.status === 'cancelled') fail(400, 'Para cancelar, use Cancelar e informe o motivo');
-      const status = oneOf(body.status, 'situação', ['todo', 'doing', 'review']);
-      db.prepare('update tasks set status = ?, completed_on = null, cancelled_on = null, cancel_reason = null where id = ?').run(status, t.id);
+      // Colunas criadas pela organização chegam como "stage-<id>": a tarefa fica Em andamento naquela coluna.
+      const m = /^stage-(\d+)$/.exec(String(body.status));
+      const stageId = m ? Number(m[1]) : null;
+      if (stageId && !db.prepare('select 1 from board_stages where id = ? and org_id = ?').get(stageId, user.org_id)) fail(400, 'Coluna inválida');
+      const status = stageId ? 'doing' : oneOf(body.status, 'situação', ['todo', 'doing', 'review']);
+      db.prepare('update tasks set status = ?, stage_id = ?, completed_on = null, cancelled_on = null, cancel_reason = null where id = ?').run(status, stageId, t.id);
       if (status !== 'todo' && !('start_date' in body)) db.prepare('update tasks set start_date = coalesce(start_date, ?) where id = ?').run(S.today(), t.id);
     } else if (body.start_date) {
       // Informar o início de uma tarefa a fazer já a coloca em andamento.
@@ -953,6 +1071,7 @@ function createHandler(db, opts = {}) {
 
       const token = cookieToken(req);
       const user = auth.userFromToken(db, token);
+      if (user && user.role === 'member') user.client_ids = clientIdsOf(db, user.id);
       if (!r.public && !user) fail(401, 'Faça login');
 
       const out = await r.handler({ db, user, body, params, query: Object.fromEntries(url.searchParams), token, ip: clientIp(req) });

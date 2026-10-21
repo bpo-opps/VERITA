@@ -3,7 +3,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { hashPassword } = require('./auth');
 const { today, addDays } = require('./shared');
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const SCHEMA = `
 pragma foreign_keys = on;
@@ -11,7 +11,8 @@ create table if not exists orgs (
   id integer primary key,
   name text not null,
   accent text not null default '#FB4F14',
-  logo text
+  logo text,
+  board text
 );
 create table if not exists clients (
   id integer primary key,
@@ -66,6 +67,7 @@ create table if not exists tasks (
   created_at text not null default (datetime('now')),
   updated_at text not null default (datetime('now')),
   archived_at text,
+  stage_id integer references board_stages(id) on delete set null,
   check (kind = 'internal' or client_id is not null),
   check ((status = 'done') = (completed_on is not null)),
   check ((status = 'cancelled') = (cancel_reason is not null))
@@ -166,6 +168,31 @@ create table if not exists meeting_items (
   position integer not null default 0
 );
 create index if not exists meeting_items_meeting on meeting_items (meeting_id);
+-- Quais clientes cada pessoa da equipe acompanha: ela vê as tarefas externas desses clientes.
+create table if not exists user_clients (
+  user_id integer not null references users(id) on delete cascade,
+  client_id integer not null references clients(id) on delete cascade,
+  primary key (user_id, client_id)
+);
+-- Colunas criadas pela organização no quadro (entre Em andamento e Concluída).
+create table if not exists board_stages (
+  id integer primary key,
+  org_id integer not null references orgs(id) on delete cascade,
+  name text not null,
+  created_at text not null default (datetime('now'))
+);
+create table if not exists attachments (
+  id integer primary key,
+  task_id integer not null references tasks(id) on delete cascade,
+  user_id integer references users(id) on delete set null,
+  name text not null,
+  mime text not null,
+  size integer not null,
+  data blob not null,
+  visible_to_client integer not null default 1,
+  created_at text not null default (datetime('now'))
+);
+create index if not exists attachments_task on attachments (task_id);
 create table if not exists templates (
   id integer primary key,
   org_id integer not null references orgs(id) on delete cascade,
@@ -175,6 +202,10 @@ create table if not exists templates (
   checklist text not null default '[]'
 );
 `;
+
+function addColumn(db, table, column, def) {
+  if (!db.prepare(`pragma table_info(${table})`).all().some(c => c.name === column)) db.exec(`alter table ${table} add column ${column} ${def}`);
+}
 
 function open(file) {
   const db = new DatabaseSync(file);
@@ -189,6 +220,11 @@ function open(file) {
       alter table users add column notify_email integer not null default 1;
       alter table users add column notify_whatsapp integer not null default 0;
       alter table users add column whatsapp_consent_at text;`);
+  }
+  // Versão 5 -> 6: colunas novas do quadro (as tabelas novas vêm do SCHEMA). Só acrescenta; nada é apagado.
+  if (hasTables) {
+    addColumn(db, 'tasks', 'stage_id', 'integer references board_stages(id) on delete set null');
+    addColumn(db, 'orgs', 'board', 'text');
   }
   db.exec(SCHEMA);
   // Nunca rebaixa a versão: se o código voltou para uma versão anterior (rollback), o banco continua

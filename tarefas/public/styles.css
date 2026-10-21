@@ -518,3 +518,16 @@ details > summary { cursor: pointer; font-weight: 600; }
 .item-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
 .item-grid textarea { min-height: 0; }
 @media (max-width: 860px) { .item-grid { grid-template-columns: 1fr; } }
+
+/* colunas criadas, anexos, cliente responsável */
+.col[class*="col-stage-"] .col-head > span:first-child::before { background: var(--s-doing); }
+.pill[class*="col-stage-"], .chip[class*="col-stage-"] { color: var(--s-doing); background: var(--s-doing-bg); }
+.hbar-fill[class*="col-stage-"] { background: var(--s-doing); }
+.avatar.client { background: var(--surface-2); color: var(--text-muted); border: 1px dashed var(--border-input); }
+.board-cols { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
+.board-cols li { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); flex-wrap: wrap; }
+.board-cols li.fixed { background: var(--surface-2); }
+.attach-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.attach-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.attach-list .link { text-align: left; overflow-wrap: anywhere; }
+.attach-list .link { flex: 1 1 100%; }

@@ -130,10 +130,88 @@ test('interna: só quem criou e os responsáveis; cliente só se marcada como vi
   // Sem cliente, a marca não vale.
   const noClient = await admin('PATCH', `/api/tasks/${t}`, { client_id: null });
   assert.equal(noClient.body.client_visible, false);
-  // Virar externa torna visível para o cliente e para a equipe.
+  // Virar externa torna visível para o cliente; da equipe, só para quem acompanha o cliente.
   await admin('PATCH', `/api/tasks/${t}`, { kind: 'external', client_id: ids.a });
   assert.equal((await cliA('GET', `/api/tasks/${t}`)).status, 200);
-  assert.equal((await member2('GET', `/api/tasks/${t}`)).status, 200);
+  assert.equal((await member2('GET', `/api/tasks/${t}`)).status, 404);
+});
+
+test('externa: administrador, responsáveis e a equipe que acompanha o cliente; cliente pode ser responsável', async () => {
+  const admin = await login('admin@t.local');
+  const member = await login('membro@t.local');
+  const member2 = await login('membro2@t.local');
+  const cliA = await login('a@t.local');
+  const cliB = await login('b@t.local');
+  const cliAId = ids.db.prepare("select id from users where email = 'a@t.local'").get().id;
+  const cliBId = ids.db.prepare("select id from users where email = 'b@t.local'").get().id;
+  const t = (await admin('POST', '/api/tasks', { kind: 'external', client_id: ids.a, title: 'Externa do A', assignee_ids: [ids.member, cliAId] })).body.id;
+  let d = (await admin('GET', `/api/tasks/${t}`)).body;
+  assert.deepEqual(d.assignees.map(a => a.role).sort(), ['client', 'member'], 'pessoa do cliente como responsável');
+  assert.equal((await member('GET', `/api/tasks/${t}`)).status, 200, 'responsável vê');
+  assert.equal((await member2('GET', `/api/tasks/${t}`)).status, 404, 'quem não é responsável nem acompanha o cliente não vê');
+  assert.equal((await member2('GET', '/api/tasks')).body.some(x => x.id === t), false);
+  assert.equal((await cliA('GET', '/api/tasks?mine=1')).body.some(x => x.id === t), true, 'cliente vê as dele');
+  // Administrador liga o membro 2 ao cliente A: ele passa a ver as externas do A.
+  assert.equal((await member('PUT', `/api/clients/${ids.a}/team`, { user_ids: [ids.member2] })).status, 403);
+  assert.equal((await admin('PUT', `/api/clients/${ids.a}/team`, { user_ids: [cliAId] })).status, 400, 'só equipe');
+  assert.equal((await admin('PUT', `/api/clients/${ids.a}/team`, { user_ids: [ids.member2] })).status, 200);
+  assert.equal((await member2('GET', `/api/tasks/${t}`)).status, 200, 'acompanha o cliente, vê');
+  assert.deepEqual((await admin('GET', '/api/clients')).body.find(c => c.id === ids.a).team, [ids.member2]);
+  assert.deepEqual((await admin('GET', '/api/users')).body.find(u => u.id === ids.member2).client_ids, [ids.a]);
+  // Pessoa de outro cliente não pode ser responsável; virar interna sem visibilidade tira o cliente.
+  assert.equal((await admin('PATCH', `/api/tasks/${t}`, { assignee_ids: [cliBId] })).status, 400);
+  d = (await admin('PATCH', `/api/tasks/${t}`, { kind: 'internal' })).body;
+  assert.deepEqual(d.assignees.map(a => a.id), [ids.member]);
+  assert.equal((await cliB('GET', `/api/tasks/${t}`)).status, 404);
+  await admin('PUT', `/api/clients/${ids.a}/team`, { user_ids: [] });
+});
+
+test('quadro: ordem por prazo e prioridade; colunas criadas e reordenadas', async () => {
+  const admin = await login('admin@t.local');
+  const member = await login('membro@t.local');
+  const mk = b => admin('POST', '/api/tasks', { kind: 'internal', title: b.title, due_date: b.due, priority: b.p }).then(r => r.body.id);
+  const a = await mk({ title: 'Q-sem prazo', p: 'high' }), b = await mk({ title: 'Q-baixa', due: day(3), p: 'low' });
+  const c = await mk({ title: 'Q-alta', due: day(3), p: 'high' }), e = await mk({ title: 'Q-cedo', due: day(1), p: 'low' });
+  const order = (await admin('GET', '/api/tasks?q=Q-')).body.map(x => x.id);
+  assert.deepEqual(order, [e, c, b, a]);
+  assert.equal((await member('POST', '/api/board/stages', { name: 'X' })).status, 403);
+  let board = (await admin('POST', '/api/board/stages', { name: 'Aguardando cliente' })).body;
+  const st = board.stages[0].id;
+  assert.deepEqual(board.order.slice(-4), [`stage-${st}`, 'done_on_time', 'done_late', 'cancelled'], 'coluna nova entra antes das concluídas');
+  let d = (await admin('PATCH', `/api/tasks/${b}`, { status: `stage-${st}` })).body;
+  assert.deepEqual([d.status, d.column, d.stage_id], ['doing', `stage-${st}`, st]);
+  board = (await admin('PUT', '/api/board/order', { order: [`stage-${st}`, 'review', 'overdue', 'done_on_time', 'done_late', 'cancelled'] })).body;
+  assert.equal(board.order[0], `stage-${st}`);
+  assert.equal((await admin('PUT', '/api/board/order', { order: ['nada'] })).status, 400);
+  assert.equal((await admin('GET', '/api/me')).body.org.board.stages[0].name, 'Aguardando cliente');
+  d = (await admin('PATCH', `/api/tasks/${b}`, { status: 'review' })).body;
+  assert.equal(d.stage_id, null, 'sair da coluna criada limpa a coluna');
+  await admin('PATCH', `/api/tasks/${b}`, { status: `stage-${st}` });
+  await admin('DELETE', `/api/board/stages/${st}`);
+  d = (await admin('GET', `/api/tasks/${b}`)).body;
+  assert.deepEqual([d.column, d.stage_id], ['doing', null], 'apagar a coluna devolve para Em andamento');
+});
+
+test('anexos: equipe e cliente anexam; só equipe vê o que é só da equipe', async () => {
+  const admin = await login('admin@t.local');
+  const cliA = await login('a@t.local');
+  const t = (await admin('POST', '/api/tasks', { kind: 'external', client_id: ids.a, title: 'Com anexo' })).body.id;
+  const file = 'data:text/plain;base64,' + Buffer.from('olá').toString('base64');
+  let d = (await admin('POST', `/api/tasks/${t}/attachments`, { name: 'nota.txt', data: file })).body;
+  d = (await admin('POST', `/api/tasks/${t}/attachments`, { name: 'interno.txt', data: file, visible_to_client: false })).body;
+  assert.equal(d.attachments.length, 2);
+  assert.equal(d.attachments_count, 2);
+  const c = (await cliA('GET', `/api/tasks/${t}`)).body;
+  assert.deepEqual(c.attachments.map(a => a.name), ['nota.txt']);
+  const hidden = d.attachments.find(a => a.name === 'interno.txt').id;
+  assert.equal((await cliA('GET', `/api/attachments/${hidden}`)).status, 404);
+  const got = (await cliA('GET', `/api/attachments/${c.attachments[0].id}`)).body;
+  assert.equal(Buffer.from(got.data, 'base64').toString(), 'olá');
+  d = (await cliA('POST', `/api/tasks/${t}/attachments`, { name: 'do-cliente.txt', data: file, visible_to_client: false })).body;
+  assert.equal(d.attachments.find(a => a.name === 'do-cliente.txt').visible_to_client, true, 'o que o cliente anexa ele vê');
+  assert.equal((await cliA('DELETE', `/api/attachments/${c.attachments[0].id}`)).status, 403, 'só quem anexou ou o admin apaga');
+  assert.equal((await admin('POST', `/api/tasks/${t}/attachments`, { name: 'x', data: 'nada' })).status, 400);
+  assert.equal((await admin('DELETE', `/api/attachments/${hidden}`)).status, 200);
 });
 
 test('comentário em tarefa interna nunca fica visível ao cliente', async () => {

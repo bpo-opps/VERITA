@@ -72,7 +72,7 @@ test('ata lida pela IA vira sugestões; o OK cria a tarefa e o cliente passa a v
     assert.equal(seen.attendees.length, 2, 'a IA recebe só quem estava presente');
     assert.equal(Buffer.from(seen.pdf).subarray(0, 5).toString(), '%PDF-');
     const [i1, i2] = m.items;
-    assert.deepEqual(i1.assignee_ids, [w.bia], 'responsável só da equipe presente');
+    assert.deepEqual(i1.assignee_ids, [w.bia, w.dora], 'responsáveis só entre os presentes (equipe e cliente da empresa)');
     assert.deepEqual(i1.checklist, ['Conferir números']);
     assert.equal(i1.due_date, '2026-10-23');
     assert.equal(i2.client_id, w.a, 'empresa inválida cai na empresa da reunião');
@@ -87,7 +87,8 @@ test('ata lida pela IA vira sugestões; o OK cria a tarefa e o cliente passa a v
 
     const ed = await bia('PATCH', `/api/meeting-items/${i2.id}`, { title: 'Receber extratos da Dora', assignee_ids: [w.caio] });
     assert.equal(ed.body.title, 'Receber extratos da Dora');
-    assert.equal((await bia('PATCH', `/api/meeting-items/${i2.id}`, { assignee_ids: [w.dora] })).status, 400, 'cliente não é responsável');
+    assert.equal((await bia('PATCH', `/api/meeting-items/${i2.id}`, { assignee_ids: [w.caio, w.dora] })).status, 200, 'pessoa do cliente pode ser responsável');
+    assert.equal((await bia('PATCH', `/api/meeting-items/${i2.id}`, { kind: 'internal', assignee_ids: [w.dora] })).status, 400, 'em interna, não');
 
     const ok = await bia('POST', `/api/meeting-items/${i1.id}/approve`);
     assert.equal(ok.status, 200);

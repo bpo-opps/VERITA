@@ -89,12 +89,15 @@ function fmtDateTime(s) {
   return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 const initials = name => name.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0].toUpperCase()).join('');
-const PRIORITY = { low: 'Baixa', normal: 'Normal', high: 'Alta' };
+const PRIORITY = { high: 'Alta', normal: 'Média', low: 'Baixa' };
 const isStaff = () => state.me && state.me.role !== 'client';
 const isAdmin = () => state.me && state.me.role === 'admin';
 const orgShort = () => state.org.name.split(/\s+/)[0];
 const roleLabel = r => ({ admin: 'Administrador', member: `Equipe ${orgShort()}`, client: 'Cliente' }[r]);
-const colName = key => S.COLUMNS.find(c => c.key === key).name;
+// Colunas do quadro na ordem da organização (com as colunas criadas por ela).
+const boardColumns = () => S.boardColumns(state.org?.board?.stages || [], state.org?.board?.order || []);
+const colName = key => (boardColumns().find(c => c.key === key) || { name: 'Em andamento' }).name;
+const statusName = t => (t.status === 'doing' && t.stage_id ? colName(`stage-${t.stage_id}`) : S.STATUS_LABEL[t.status]);
 const clientById = cid => state.clients.find(c => c.id === cid);
 const where = t => (t.client_id ? t.client_name : state.org.name);
 
@@ -348,15 +351,16 @@ function taskCard(t, { draggable = false, showStatus = false } = {}) {
     t.status === 'cancelled' ? h('p', { class: 'cancel-reason' }, 'Motivo: ' + t.cancel_reason) : null,
     (t.status === 'doing' || (t.progress > 0 && !['done', 'cancelled'].includes(t.status))) ? progressBar(t.progress) : null,
     h('div', { class: 'meta' },
-      showStatus || t.column === 'overdue' ? h('span', { class: 'tag' }, S.STATUS_LABEL[t.status]) : null,
+      showStatus || t.column === 'overdue' ? h('span', { class: 'tag' }, statusName(t)) : null,
       dateTags(t),
       t.alert ? h('span', { class: 'tag ' + (t.alert.kind === 'overdue' ? 'late' : 'warn') }, '⏰ ' + S.alertText(t.alert)) : null,
       t.priority === 'high' ? h('span', { class: 'tag high' }, 'Alta') : null,
       t.recurrence !== 'none' ? h('span', { class: 'tag', title: 'Recorrente' }, '↻ ' + S.RECURRENCE[t.recurrence].replace(/ \(.*/, '')) : null,
       t.adjustments_open ? h('span', { class: 'tag adj' }, `${t.adjustments_open} ajuste${t.adjustments_open > 1 ? 's' : ''}`) : null,
       t.checklist_total ? h('span', {}, `☑ ${t.checklist_done}/${t.checklist_total}`) : null,
+      t.attachments_count ? h('span', { title: `${t.attachments_count} anexo${t.attachments_count > 1 ? 's' : ''}` }, `📎 ${t.attachments_count}`) : null,
       t.archived_at ? h('span', { class: 'tag' }, 'Arquivada') : null,
-      h('span', { class: 'avatars' }, t.assignees.map(a => h('span', { class: 'avatar', title: a.name }, initials(a.name))))));
+      h('span', { class: 'avatars' }, t.assignees.map(a => h('span', { class: 'avatar' + (a.role === 'client' ? ' client' : ''), title: a.role === 'client' ? `${a.name} (cliente)` : a.name }, initials(a.name))))));
 }
 
 // Diz na hora se o cliente vai ver a tarefa nova, para ninguém achar que ela sumiu.
@@ -396,6 +400,7 @@ function tasksToolbar() {
       select('f-client', 'Empresa', v.client, [['', 'Todas as empresas'], ['org', `${state.org.name} (própria)`], ...state.clients.map(c => [c.id, c.name])], x => set('client', x)),
       select('f-who', 'Responsável', v.assignee, [['', 'Todos os responsáveis'], ['me', 'Só as minhas'], ...staff.map(u => [u.id, u.name])], x => set('assignee', x)),
     ] : null,
+    isStaff() ? null : select('f-who', 'Responsável', v.assignee, [['', 'Todas da empresa'], ['me', 'Só as que sou responsável']], x => set('assignee', x)),
     select('f-due', 'Prazo', v.due, [['', 'Qualquer prazo'], ['overdue', 'Atrasadas'], ['today', 'Vencem hoje'], ['week', 'Próximos 7 dias'], ['month', 'Este mês'], ['none', 'Sem prazo']], x => set('due', x)),
     select('f-rec', 'Repetição', v.rec, [['', 'Recorrentes e únicas'], ['1', 'Só recorrentes'], ['0', 'Só únicas']], x => set('rec', x)),
     v.layout === 'list' ? select('f-group', 'Agrupar por', v.group, [['column', 'Agrupar por situação'], ...(isStaff() ? [['client', 'Agrupar por empresa'], ['assignee', 'Agrupar por responsável']] : []), ['due', 'Agrupar por prazo'], ...(isStaff() ? [['kind', 'Agrupar por tipo']] : [])], x => set('group', x)) : null,
@@ -405,6 +410,7 @@ function tasksToolbar() {
       layouts.map(([k, l, ic]) => h('button', { type: 'button', class: 'seg-btn', 'aria-pressed': String(v.layout === k), onclick: () => set('layout', k) }, icon(ic), l))),
     h('div', { class: 'search' }, icon('search'), h('label', { class: 'sr-only', for: 'f-q' }, 'Buscar'),
       h('input', { id: 'f-q', type: 'search', placeholder: 'Buscar tarefa', value: v.q, onchange: e => { v.q = e.target.value; route(); } })),
+    v.layout === 'kanban' && isAdmin() ? h('button', { class: 'btn', type: 'button', onclick: boardDialog }, 'Colunas') : null,
     h('button', { class: 'btn filters-toggle', type: 'button', 'aria-expanded': String(filtersOpen), 'aria-controls': 'filters',
       onclick: e => { filtersOpen = !filtersOpen; filters.classList.toggle('open', filtersOpen); e.currentTarget.setAttribute('aria-expanded', String(filtersOpen)); } },
       icon('filter'), active ? `Filtros (${active})` : 'Filtros'),
@@ -426,7 +432,7 @@ function kpis(tasks) {
 }
 
 async function viewTasks() {
-  if (!isStaff()) Object.assign(state.view, { kind: '', client: '', assignee: '', archived: false });
+  if (!isStaff()) Object.assign(state.view, { kind: '', client: '', assignee: state.view.assignee === 'me' ? 'me' : '', archived: false });
   const tasks = await api('GET', '/api/tasks?' + taskQuery());
   const v = state.view;
   const body = v.layout === 'list' ? listView(tasks) : v.layout === 'calendar' ? calendarView(tasks) : kanbanView(tasks);
@@ -440,7 +446,8 @@ async function viewTasks() {
 
 function kanbanView(tasks) {
   const board = h('div', { class: 'board' });
-  for (const c of S.COLUMNS) {
+  // Os cards já chegam na ordem: prazo mais próximo, depois prioridade alta, média e baixa.
+  for (const c of boardColumns()) {
     const list = tasks.filter(t => t.column === c.key);
     const col = h('section', { class: `col col-${c.key}`, 'aria-label': c.name, 'data-col': c.key },
       h('div', { class: 'col-head' }, h('span', {}, c.name), h('span', { class: 'count' }, list.length)),
@@ -460,6 +467,48 @@ function kanbanView(tasks) {
   return board;
 }
 
+// Organizar colunas (administrador): A fazer e Em andamento ficam no começo; as outras mudam de lugar.
+function boardDialog() {
+  modal(close => {
+    const box = h('div', {});
+    const err = h('p', { class: 'error', role: 'alert' });
+    const save = async (method, path, body) => {
+      try { state.org.board = await api(method, path, body); err.textContent = ''; paint(); }
+      catch (ex) { err.textContent = ex.message; }
+    };
+    const paint = () => {
+      const cols = boardColumns();
+      const movable = cols.slice(2).map(c => c.key);
+      const move = (i, d) => { const o = movable.slice(); [o[i], o[i + d]] = [o[i + d], o[i]]; save('PUT', '/api/board/order', { order: o }); };
+      box.replaceChildren(h('ol', { class: 'board-cols' },
+        cols.slice(0, 2).map(c => h('li', { class: 'fixed' }, h('span', { class: 'grow' }, c.name), h('span', { class: 'muted small' }, 'fixa'))),
+        cols.slice(2).map((c, i) => h('li', {},
+          h('span', { class: 'grow' }, c.name, c.custom ? h('span', { class: 'muted small' }, ' (criada)') : null,
+            c.key === 'overdue' ? h('span', { class: 'muted small' }, ' (automática)') : null),
+          h('button', { class: 'btn small ghost', type: 'button', 'aria-label': `Subir ${c.name}`, disabled: i === 0, onclick: () => move(i, -1) }, '↑'),
+          h('button', { class: 'btn small ghost', type: 'button', 'aria-label': `Descer ${c.name}`, disabled: i === movable.length - 1, onclick: () => move(i, 1) }, '↓'),
+          c.custom ? [
+            h('button', { class: 'btn small ghost', type: 'button', 'aria-label': `Renomear ${c.name}`, onclick: async () => {
+              const name = await askText('Novo nome da coluna', c.name); if (name) save('PATCH', `/api/board/stages/${c.stage_id}`, { name });
+            } }, 'Renomear'),
+            h('button', { class: 'btn small ghost danger', type: 'button', 'aria-label': `Apagar ${c.name}`, onclick: async () => {
+              if (await ask(`Apagar a coluna "${c.name}"? As tarefas dela voltam para Em andamento.`, { ok: 'Apagar coluna', danger: true })) save('DELETE', `/api/board/stages/${c.stage_id}`);
+            } }, 'Apagar')] : null))));
+    };
+    paint();
+    const input = h('input', { id: 'b-new', maxlength: 40, placeholder: 'Ex.: Aguardando cliente' });
+    return h('div', {},
+      h('h2', {}, 'Colunas do quadro'),
+      h('p', { class: 'muted small' }, 'Vale para todos. A fazer e Em andamento ficam sempre no começo. Uma coluna criada funciona como uma etapa de trabalho: a tarefa nela está em andamento.'),
+      box,
+      h('form', { class: 'row', style: 'margin-top:12px', onsubmit: e => { e.preventDefault(); if (input.value.trim()) { save('POST', '/api/board/stages', { name: input.value.trim() }); input.value = ''; } } },
+        h('label', { class: 'sr-only', for: 'b-new' }, 'Nova coluna'), h('div', { class: 'grow' }, input),
+        h('button', { class: 'btn', type: 'submit' }, icon('plus'), 'Criar coluna')),
+      err,
+      h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'btn primary', type: 'button', onclick: () => { close(); route(); } }, 'Pronto')));
+  }, { onclose: () => route() });
+}
+
 function wireDrop(col, key, tasks) {
   col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('over'); });
   col.addEventListener('dragleave', e => { if (!col.contains(e.relatedTarget)) col.classList.remove('over'); });
@@ -473,23 +522,15 @@ function wireDrop(col, key, tasks) {
     if (!isStaff() && key === 'cancelled') { toast('Só a equipe cancela tarefas. Se for o caso, escreva nos comentários.'); return; }
     if (key === 'done_on_time' || key === 'done_late') { completeDialog(task); return; }
     if (key === 'cancelled') { cancelDialog(task); return; }
-    const inCol = tasks.filter(t => t.column === key && t.id !== taskId);
-    const target = e.target.closest('.task');
-    let position;
-    if (target && Number(target.dataset.id) !== taskId) {
-      const i = inCol.findIndex(t => t.id === Number(target.dataset.id));
-      const prev = inCol[i - 1];
-      position = prev ? (prev.position + inCol[i].position) / 2 : inCol[i].position - 1;
-    } else position = inCol.length ? inCol[inCol.length - 1].position + 1 : 1;
-    const nt = await api('PATCH', `/api/tasks/${taskId}`, isStaff() ? { status: key, position } : { status: key });
-    if (nt.column === 'overdue') toast(`Mudou para ${S.STATUS_LABEL[key]}, mas continua em Atrasada porque o prazo já passou.`);
+    const nt = await api('PATCH', `/api/tasks/${taskId}`, { status: key });
+    if (nt.column === 'overdue') toast(`Mudou para ${colName(key)}, mas continua em Atrasada porque o prazo já passou.`);
     route();
   }));
 }
 
 function groupKey(t, group) {
   const now = today();
-  if (group === 'column') return [S.COLUMNS.findIndex(c => c.key === t.column), colName(t.column)];
+  if (group === 'column') return [boardColumns().findIndex(c => c.key === t.column), colName(t.column)];
   if (group === 'client') return [t.client_id ? 1 : 0, where(t)];
   if (group === 'kind') return [t.kind === 'external' ? 0 : 1, t.kind === 'external' ? 'Externas' : 'Internas'];
   if (group === 'due') {
@@ -637,7 +678,7 @@ async function viewDashboard() {
     const n = all.filter(t => t.status === 'done' && t.completed_on >= start && t.completed_on <= end).length;
     weeks.push({ label: fmtShort(start), value: n, tip: `Semana de ${fmtDate(start)}: ${n} concluída${n === 1 ? '' : 's'}` });
   }
-  const byStatus = S.COLUMNS.map(c => ({ key: c.key, label: c.name, value: all.filter(t => t.column === c.key && (!['done_on_time', 'done_late', 'cancelled'].includes(c.key) || (t.completed_on || t.cancelled_on) >= since)).length }));
+  const byStatus = boardColumns().map(c => ({ key: c.key, label: c.name, value: all.filter(t => t.column === c.key && (!['done_on_time', 'done_late', 'cancelled'].includes(c.key) || (t.completed_on || t.cancelled_on) >= since)).length }));
 
   const filterRow = h('div', { class: 'dash-filters' },
     select('d-period', 'Período', dash.period, [[7, 'Últimos 7 dias'], [30, 'Últimos 30 dias'], [90, 'Últimos 90 dias'], [365, 'Últimos 12 meses']], x => { dash.period = Number(x); route(); }),
@@ -862,9 +903,13 @@ function cancelDialog(t, after) {
 
 // ---------- campos de tarefa (nova e detalhe) ----------
 function staffUsers() { return state.users.filter(u => u.role !== 'client' && u.active); }
-function assigneeChecks(selected = []) {
+// Responsáveis: a equipe e, se a tarefa aparece para o cliente, as pessoas daquele cliente.
+function assigneeChecks(selected = [], task = null) {
+  const clients = task ? state.users.filter(u => u.active && S.clientAssignable(u, task)) : [];
+  const box = (u, suffix) => h('label', {}, h('input', { type: 'checkbox', name: 'assignee', value: u.id, checked: selected.includes(u.id) }), u.name, suffix);
   return h('div', { class: 'checks', role: 'group', 'aria-label': 'Responsáveis' },
-    staffUsers().map(u => h('label', {}, h('input', { type: 'checkbox', name: 'assignee', value: u.id, checked: selected.includes(u.id) }), u.name)));
+    staffUsers().map(u => box(u)),
+    clients.map(u => box(u, h('span', { class: 'muted small' }, ' (cliente)'))));
 }
 function alertChecks(selected = []) {
   return h('div', { class: 'checks', role: 'group', 'aria-label': 'Alertas' },
@@ -945,7 +990,13 @@ function recurrenceFields(prefix, rec = 'none', every = '', { required = false }
 function newTaskModal({ recurring = false } = {}) {
   modal(close => {
     const err = h('p', { class: 'error', role: 'alert' });
-    const kc = kindClientFields('n', state.clients.length ? 'external' : 'internal', state.view.client && state.view.client !== 'org' ? Number(state.view.client) : null, false);
+    const who = h('div', {});
+    const paintWho = v => {
+      const keep = [...who.querySelectorAll('input:checked')].map(i => Number(i.value));
+      who.replaceChildren(assigneeChecks(keep.length || who.dataset.init ? keep : [state.me.id], v)); who.dataset.init = '1';
+    };
+    const kc = kindClientFields('n', state.clients.length ? 'external' : 'internal', state.view.client && state.view.client !== 'org' ? Number(state.view.client) : null, false, paintWho);
+    paintWho(kc.value());
     const rec = recurrenceFields('n', recurring ? 'monthly' : 'none', '', { required: recurring });
     const ck = checklistBuilder();
     const tplSel = h('select', { id: 'n-tpl', name: 'template_id', onchange: e => {
@@ -980,7 +1031,7 @@ function newTaskModal({ recurring = false } = {}) {
           h('select', { id: 'n-pri', name: 'priority' }, Object.entries(PRIORITY).map(([v, l]) => h('option', { value: v, selected: v === 'normal' }, l))))),
       h('div', { class: 'field' }, h('span', { class: 'label' }, 'Alertas do prazo'), alertChecks([1])),
       recurring ? null : rec.el,
-      h('div', { class: 'field' }, h('span', { class: 'label' }, 'Responsáveis'), assigneeChecks([state.me.id])),
+      h('div', { class: 'field' }, h('span', { class: 'label' }, 'Responsáveis'), who),
       err,
       h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, 'Criar tarefa'),
         h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
@@ -1002,7 +1053,9 @@ async function openTask(id) {
   let ck = { done: new Map(), added: [], removed: new Set() };
   const dirty = () => Object.keys(draft).length > 0 || ck.done.size > 0 || ck.added.length > 0 || ck.removed.size > 0;
   const val = k => (k in draft ? draft[k] : t[k]);
-  const saved = k => (k === 'assignee_ids' ? t.assignees.map(a => a.id).sort((a, b) => a - b) : t[k]);
+  // A situação de uma tarefa numa coluna criada é a chave da coluna ("stage-<id>").
+  const savedStatus = () => (t.status === 'doing' && t.stage_id ? `stage-${t.stage_id}` : t.status);
+  const saved = k => (k === 'assignee_ids' ? t.assignees.map(a => a.id).sort((a, b) => a - b) : k === 'status' ? savedStatus() : t[k]);
   const set = (k, v, repaint = false) => {
     const cmp = Array.isArray(v) ? [...v].sort((a, b) => a - b) : v;
     if (JSON.stringify(cmp) === JSON.stringify(saved(k))) delete draft[k]; else draft[k] = v;
@@ -1089,7 +1142,7 @@ async function openTask(id) {
 
   function paint() {
     const scroll = drawer.scrollTop;
-    const status = val('status');
+    const status = String(val('status')).startsWith('stage-') ? 'doing' : val('status');
     body.replaceChildren(...[
       h('div', { class: 'drawer-head' }, taskLogo(t, 'md'),
         staff ? h('input', { id: 'd-title', 'aria-label': 'Nome da tarefa', class: 'title-input', value: val('title'), maxlength: 200, oninput: e => set('title', e.target.value) })
@@ -1105,7 +1158,7 @@ async function openTask(id) {
       // Principais, na ordem pedida.
       h('div', { class: 'card-box main-fields' },
         staff ? kindClientFields('d', val('kind'), val('client_id'), val('client_visible'), v => {
-          set('kind', v.kind); set('client_id', v.client_id); set('client_visible', v.client_visible);
+          set('kind', v.kind); set('client_id', v.client_id); set('client_visible', v.client_visible, true);
         }).el : field('Empresa', h('p', { class: 'with-logo' }, taskLogo(t), where(t))),
         field('Data de início (quando começou)', canEditProgress()
           ? h('input', { id: 'd-start', type: 'date', value: val('start_date') || '', onchange: e => set('start_date', e.target.value || null, true) })
@@ -1121,10 +1174,10 @@ async function openTask(id) {
             Object.entries(PRIORITY).map(([v, l]) => h('option', { value: v, selected: v === val('priority') }, l)))
             : h('p', {}, PRIORITY[t.priority]), 'd-pri')),
         field('Responsáveis', staff ? (() => {
-          const g = assigneeChecks(val('assignee_ids') || t.assignees.map(a => a.id));
+          const g = assigneeChecks(val('assignee_ids') || t.assignees.map(a => a.id), { kind: val('kind'), client_id: val('client_id'), client_visible: val('client_visible') });
           g.addEventListener('change', () => set('assignee_ids', [...g.querySelectorAll('input:checked')].map(i => Number(i.value))));
           return g;
-        })() : h('p', {}, t.assignees.map(a => a.name).join(', ') || '–'))),
+        })() : h('p', {}, t.assignees.map(a => a.name + (a.role === 'client' ? ' (cliente)' : '')).join(', ') || '–'))),
 
       // O restante.
       h('div', { class: 'section' },
@@ -1132,6 +1185,7 @@ async function openTask(id) {
           : h('p', { class: 'pre' }, t.description || '–'), 'd-desc'),
         staff ? alertsField() : (t.alerts.length ? field('Alertas do prazo', h('p', {}, S.ALERTS.filter(a => t.alerts.includes(a.days)).map(a => a.label).join(', '))) : null),
         staff ? recurrenceField() : (t.recurrence !== 'none' ? field('Repetição', h('p', {}, S.RECURRENCE[t.recurrence] + (t.recurrence === 'custom' ? ` (a cada ${t.recurrence_every} dias)` : ''))) : null)),
+      attachmentsSection(),
       adjustmentsSection(),
       commentsSection(),
       staff ? h('div', { class: 'section row' },
@@ -1162,7 +1216,8 @@ async function openTask(id) {
     return h('div', { class: 'status-row' },
       h('div', { class: 'grow' }, h('label', { for: 'd-status' }, 'Situação'),
         h('select', { id: 'd-status', onchange: e => set('status', e.target.value, true) },
-          ['todo', 'doing', 'review'].map(x => h('option', { value: x, selected: x === status }, S.STATUS_LABEL[x])))),
+          ['todo', 'doing', ...(state.org.board?.stages || []).map(st => `stage-${st.id}`), 'review'].map(x =>
+            h('option', { value: x, selected: x === ('status' in draft ? draft.status : savedStatus()) }, x.startsWith('stage-') ? colName(x) : S.STATUS_LABEL[x])))),
       h('button', { class: 'btn primary', type: 'button', onclick: withSaved(() => completeDialog(t, afterDialog)) }, 'Concluir…'),
       staff ? h('button', { class: 'btn', type: 'button', onclick: withSaved(() => cancelDialog(t, afterDialog)) }, 'Cancelar…') : null,
       t.column === 'overdue' ? h('p', { class: 'small danger full' }, 'Está em Atrasada porque o prazo passou. Ajuste o prazo ou conclua para tirar daqui.') : null);
@@ -1260,6 +1315,49 @@ async function openTask(id) {
           h('button', { class: 'btn', style: 'margin-top:8px', onclick: () => { if (!ta.value.trim()) { ta.focus(); return; } act('POST', `/api/tasks/${t.id}/adjustments`, { body: ta.value }); } }, 'Registrar e voltar para "Em andamento"'))) : null);
   }
 
+  // Anexos: enviados na hora (não esperam o Salvar). A equipe pode deixar um anexo só para a equipe.
+  function attachmentsSection() {
+    const list = t.attachments || [];
+    const hide = h('input', { type: 'checkbox', id: 'at-hide' });
+    const busy = h('span', { class: 'muted small', role: 'status' });
+    const file = h('input', { type: 'file', id: 'at-file', class: 'sr-only', onchange: guard(async e => {
+      const f = e.target.files[0]; e.target.value = '';
+      if (!f) return;
+      if (f.size > 10 * 1024 * 1024) { toast('Arquivo grande demais (máximo 10 MB)'); return; }
+      busy.textContent = `Enviando ${f.name}…`;
+      try {
+        const data = await readFileData(f);
+        t = await api('POST', `/api/tasks/${t.id}/attachments`, { name: f.name, data, visible_to_client: !hide.checked });
+        changedOnServer = true; paint(); toast('Anexo enviado');
+      } finally { busy.textContent = ''; }
+    }) });
+    const download = guard(async a => {
+      const f = await api('GET', `/api/attachments/${a.id}`);
+      const bytes = Uint8Array.from(atob(f.data), c => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: f.mime }));
+      const link = h('a', { href: url, download: f.name, target: '_blank', rel: 'noopener' });
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    });
+    const size = n => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB`);
+    return h('div', { class: 'section' },
+      h('h2', {}, `Anexos${list.length ? ` (${list.length})` : ''}`),
+      list.length ? h('ul', { class: 'attach-list' }, list.map(a => h('li', {},
+        h('button', { class: 'link grow', type: 'button', onclick: () => download(a), title: 'Baixar' }, '📎 ', a.name),
+        h('span', { class: 'muted small' }, `${size(a.size)} · ${a.author || ''} · ${fmtDateTime(a.created_at)}`),
+        staff && t.client_visible ? h('span', { class: 'tag' + (a.visible_to_client ? ' ok' : '') }, a.visible_to_client ? 'cliente vê' : 'só equipe') : null,
+        a.user_id === state.me.id || isAdmin() ? h('button', { class: 'btn ghost small', type: 'button', 'aria-label': `Apagar ${a.name}`, onclick: guard(async () => {
+          if (!(await ask(`Apagar o anexo "${a.name}"?`, { ok: 'Apagar', danger: true }))) return;
+          t = await api('DELETE', `/api/attachments/${a.id}`); changedOnServer = true; paint();
+        }) }, '✕') : null)))
+        : h('p', { class: 'muted' }, 'Nenhum anexo.'),
+      h('div', { class: 'row', style: 'margin-top:8px' },
+        h('label', { class: 'btn file-btn', for: 'at-file' }, file, '📎 Anexar arquivo'),
+        staff && t.client_visible ? h('label', { for: 'at-hide', class: 'check inline' }, hide, 'Só a equipe vê') : null,
+        busy),
+      h('p', { class: 'muted small' }, 'Até 10 MB por arquivo: PDF, planilha, imagem, documento.'));
+  }
+
   function commentsSection() {
     const ta = h('textarea', { id: 'cm-body', placeholder: staff ? 'Escreva um comentário' : 'Escreva para a equipe' });
     const vis = h('input', { type: 'checkbox', id: 'cm-vis' });
@@ -1297,13 +1395,15 @@ async function viewClients() {
       logoPicker('Escolher logo', async src => { newLogo = src; preview.replaceChildren(logoEl('novo', src)); }),
       h('button', { class: 'btn primary', type: 'submit' }, 'Cadastrar')) : null,
     h('div', { class: 'card-box table-wrap' }, state.clients.length ? h('table', {},
-      h('thead', {}, h('tr', {}, h('th', {}, 'Cliente'), h('th', { class: 'num' }, 'Externas abertas'), h('th', { class: 'num' }, 'Internas abertas'), h('th', {}, ''))),
+      h('thead', {}, h('tr', {}, h('th', {}, 'Cliente'), h('th', {}, 'Equipe que acompanha'), h('th', { class: 'num' }, 'Externas abertas'), h('th', { class: 'num' }, 'Internas abertas'), h('th', {}, ''))),
       h('tbody', {}, state.clients.map(c => h('tr', {},
         h('td', {}, h('span', { class: 'with-logo' }, logoEl(c.name, c.logo, 'md'), c.name)),
+        h('td', { 'data-label': 'Equipe' }, (c.team || []).map(uid => (state.users.find(u => u.id === uid) || {}).name).filter(Boolean).join(', ') || h('span', { class: 'muted small' }, 'Só o administrador e os responsáveis')),
         h('td', { class: 'num' }, c.open_external), h('td', { class: 'num' }, c.open_internal),
         h('td', { class: 'actions' },
           h('button', { class: 'btn small', onclick: () => { Object.assign(state.view, { client: String(c.id), kind: '' }); saveView(); location.hash = '#/tarefas'; } }, 'Ver tarefas'),
           isAdmin() ? [
+            h('button', { class: 'btn small', onclick: () => clientTeamDialog(c) }, 'Equipe'),
             logoPicker(c.logo ? 'Trocar logo' : 'Pôr logo', async src => { await api('PATCH', `/api/clients/${c.id}`, { logo: src }); toast('Logo salvo'); route(); }),
             c.logo ? h('button', { class: 'btn small', onclick: guard(async () => { await api('PATCH', `/api/clients/${c.id}`, { logo: null }); route(); }) }, 'Tirar logo') : null,
             h('button', { class: 'btn small', onclick: guard(async () => {
@@ -1312,6 +1412,29 @@ async function viewClients() {
             }) }, 'Renomear')] : null)))))
       : h('p', { class: 'empty' }, 'Nenhum cliente ainda.')),
   ]);
+}
+
+// Quem da equipe acompanha o cliente: vê todas as tarefas externas dele, mesmo sem ser responsável.
+function clientTeamDialog(c) {
+  const members = state.users.filter(u => u.role === 'member' && u.active);
+  modal(close => {
+    const err = h('p', { class: 'error', role: 'alert' });
+    return h('form', { onsubmit: guard(async e => {
+      e.preventDefault();
+      try {
+        await api('PUT', `/api/clients/${c.id}/team`, { user_ids: [...e.target.querySelectorAll('input:checked')].map(i => Number(i.value)) });
+        state.users = await api('GET', '/api/users'); close(); toast('Equipe do cliente salva'); route();
+      } catch (ex) { err.textContent = ex.message; }
+    }) },
+      h('h2', {}, `Equipe de ${c.name}`),
+      h('p', { class: 'muted small' }, 'Quem estiver marcado vê todas as tarefas externas deste cliente. Os outros da equipe só veem as tarefas em que são responsáveis. Administradores veem todas.'),
+      members.length ? h('div', { class: 'checks', role: 'group', 'aria-label': 'Equipe' },
+        members.map(u => h('label', {}, h('input', { type: 'checkbox', value: u.id, checked: (c.team || []).includes(u.id) }), u.name)))
+        : h('p', { class: 'muted' }, 'Ninguém da equipe cadastrado ainda (Pessoas → Equipe Opps).'),
+      err,
+      h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'btn primary', type: 'submit' }, 'Salvar'),
+        h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
+  });
 }
 
 // ---------- pessoas ----------
@@ -1340,16 +1463,17 @@ async function viewTeam() {
       h('div', { class: 'field' }, h('label', { for: 'u-role' }, 'Visão'), roleSel)),
     clientField,
     h('ul', { class: 'muted small roles' },
-      h('li', {}, h('strong', {}, 'Administrador: '), 'vê as externas e as internas que criou ou em que é responsável; gerencia pessoas, clientes e marca.'),
-      h('li', {}, h('strong', {}, `${roleLabel('member')}: `), 'cria tarefas; vê as externas e as internas que criou ou em que é responsável.'),
-      h('li', {}, h('strong', {}, 'Cliente: '), 'vê as externas da empresa dele e as internas marcadas como visíveis; aprova entregas e pede ajustes.')),
+      h('li', {}, h('strong', {}, 'Administrador: '), 'vê todas as externas e as internas que criou ou em que é responsável; gerencia pessoas, clientes e marca.'),
+      h('li', {}, h('strong', {}, `${roleLabel('member')}: `), 'cria tarefas; vê as que criou, as em que é responsável e as externas dos clientes que acompanha (Clientes → Equipe).'),
+      h('li', {}, h('strong', {}, 'Cliente: '), 'vê as externas da empresa dele e as internas marcadas como visíveis; pode ser responsável, aprova entregas e pede ajustes.')),
     err, h('button', { class: 'btn primary', type: 'submit' }, 'Criar acesso')) : null;
   shell([
     form,
     h('div', { class: 'card-box table-wrap' }, h('table', {},
       h('thead', {}, h('tr', {}, h('th', {}, 'Nome'), h('th', {}, 'Email'), h('th', {}, 'Visão'), h('th', {}, 'Situação'), h('th', {}, ''))),
       h('tbody', {}, state.users.map(u => h('tr', {},
-        h('td', {}, u.name), h('td', {}, u.email), h('td', {}, roleLabel(u.role) + (u.client_name ? ` · ${u.client_name}` : '')),
+        h('td', {}, u.name), h('td', {}, u.email), h('td', {}, roleLabel(u.role) + (u.client_name ? ` · ${u.client_name}` : ''),
+          u.role === 'member' && u.client_ids?.length ? h('div', { class: 'muted small' }, 'Acompanha: ' + u.client_ids.map(id => (state.clients.find(c => c.id === id) || {}).name).filter(Boolean).join(', ')) : null),
         h('td', {}, u.active ? 'Ativo' : 'Desativado'),
         h('td', { class: 'actions' }, isAdmin() && u.id !== state.me.id ? [
           u.active ? h('button', { class: 'btn small', onclick: guard(async () => {

@@ -44,6 +44,14 @@ A senha temporária aparece uma vez no terminal; troque em Configurações. O ba
 - **Visões:** Kanban, Lista (agrupada por situação, empresa, responsável, prazo ou tipo) e Calendário (pelo prazo; no celular vira agenda). Filtros por tipo, empresa, responsável, prazo e recorrência (só recorrentes ou só únicas).
 - **Também:** ajustes internos e do cliente, comentários (visíveis ao cliente só quando marcados, e nunca em interna), modelos com checklist, relatório por empresa com % no prazo.
 
+## Quem vê, colunas e anexos
+
+- **Externa:** o administrador, quem criou, os responsáveis e quem da equipe acompanha aquele cliente (Clientes → Equipe). Os outros da equipe não veem. **Interna:** só quem criou e os responsáveis. **Cliente:** as externas da empresa dele e as internas marcadas como visíveis.
+- **Pessoa do cliente como responsável:** em tarefa externa (ou interna visível) da empresa dela. No portal, o cliente filtra "Só as que sou responsável".
+- **Colunas do quadro** (administrador, botão Colunas no Kanban): A fazer e Em andamento ficam no começo; as outras mudam de lugar, e dá para criar, renomear e apagar colunas (tarefa numa coluna criada está em andamento; apagar a coluna devolve as tarefas para Em andamento).
+- **Ordem dos cards:** prazo mais próximo primeiro, depois prioridade alta, média e baixa; sem prazo no fim.
+- **Anexos** no card (até 10 MB cada): equipe e cliente anexam; a equipe pode marcar "Só a equipe vê".
+
 ## Painel e Recorrentes
 
 - **Painel** (tela inicial): saudação com a data e quatro números (executadas na semana, atrasadas, vencem hoje, próximas 7 dias); filtros de período e empresa; produtividade (concluídas, % no prazo, tempo médio do início ao término, canceladas), tarefas por situação, concluídas por semana (8 semanas), carga do time por responsável, em aberto por empresa e a lista das atrasadas. Passar o mouse ou tocar numa barra mostra o valor. Tudo sai das tarefas que a pessoa pode ver, então o cliente tem o painel só das dele.
