@@ -144,6 +144,7 @@ create table if not exists meetings (
   other_attendees text not null default '',
   pdf blob,
   pdf_name text,
+  notes_text text,
   summary text,
   status text not null default 'processing' check (status in ('processing','ready','error')),
   error text,
@@ -257,6 +258,7 @@ function open(file) {
     addColumn(db, 'tasks', 'started_by', 'integer references users(id) on delete set null');
     addColumn(db, 'tasks', 'completed_by', 'integer references users(id) on delete set null');
     addColumn(db, 'tasks', 'cancelled_by', 'integer references users(id) on delete set null');
+    if (db.prepare("select 1 from sqlite_master where type = 'table' and name = 'meetings'").get()) addColumn(db, 'meetings', 'notes_text', 'text');
   }
   db.exec(SCHEMA);
   // Nunca rebaixa a versão: se o código voltou para uma versão anterior (rollback), o banco continua

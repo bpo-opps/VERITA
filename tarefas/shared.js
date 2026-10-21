@@ -155,10 +155,97 @@
     return u.role === 'client' && !!t.client_id && u.client_id === Number(t.client_id) && clientSees(t);
   }
 
+  // ---------- leitura das "Próximas etapas" das anotações do Gemini (sem IA) ----------
+  const fold = x => String(x).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const WEEKDAYS = { domingo: 0, segunda: 1, terca: 2, quarta: 3, quinta: 4, sexta: 5, sabado: 6 };
+  const SECTION = /^(#+\s*)?(pr[oó]ximas etapas|pr[oó]ximos passos|next steps|a[cç][oõ]es|encaminhamentos|itens de a[cç][aã]o|action items|tarefas)\s*:?\s*$/i;
+  const HEADING = /^(#+\s*)?(resumo|summary|detalhes|details|notas|anota[cç][oõ]es|participantes|decis[oõ]es|t[oó]picos|assuntos|pauta)\b.{0,40}:?\s*$/i;
+  const weekday = (from, dow) => { let d = addDays(from, 1); for (let i = 0; i < 7; i++, d = addDays(d, 1)) if (parse(d).getUTCDay() === dow) return d; return d; };
+  // Prazo escrito na frase, a partir da data da reunião. null quando não há prazo.
+  function dueFromText(text, base) {
+    const t = fold(text);
+    let m = /(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/.exec(t);
+    if (m) {
+      const day = Number(m[1]), mon = Number(m[2]);
+      let year = m[3] ? Number(m[3].length === 2 ? '20' + m[3] : m[3]) : Number(base.slice(0, 4));
+      if (mon < 1 || mon > 12 || day < 1 || day > 31) return null;
+      let iso = `${year}-${pad(mon)}-${pad(day)}`;
+      if (!m[3] && iso < addDays(base, -30)) iso = `${year + 1}-${pad(mon)}-${pad(day)}`;
+      return iso;
+    }
+    if ((m = /\b(?:ate|no|para)\s+o?\s*dia\s+(\d{1,2})\b/.exec(t))) {
+      const day = Number(m[1]);
+      let iso = `${base.slice(0, 8)}${pad(day)}`;
+      if (iso < base) iso = addMonths(`${base.slice(0, 8)}01`, 1).slice(0, 8) + pad(day);
+      return iso;
+    }
+    if (/\bhoje\b/.test(t)) return base;
+    if (/\bamanha\b/.test(t)) return addDays(base, 1);
+    if ((m = /\b(?:em|ate)\s+(\d{1,3})\s+dias?\b/.exec(t))) return addDays(base, Number(m[1]));
+    if (/\b(proxima semana|semana que vem)\b/.test(t)) return addDays(base, 7);
+    if (/\b(fim|final) do mes\b/.test(t)) return addDays(addMonths(`${base.slice(0, 8)}01`, 1), -1);
+    if (/\b(esta|essa) semana\b/.test(t)) return weekday(addDays(base, -1), 5);
+    if ((m = /\b(segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/.exec(t))) return weekday(base, WEEKDAYS[m[1]]);
+    return null;
+  }
+  // Pessoas citadas pelo nome (completo, ou primeiro nome quando só uma pessoa tem esse primeiro nome).
+  function findPeople(text, people) {
+    const t = ` ${fold(text).replace(/[^a-z0-9]+/g, ' ')} `;
+    const firsts = {};
+    for (const p of people) { const f = fold(p.name).split(/\s+/)[0]; firsts[f] = (firsts[f] || 0) + 1; }
+    return people.filter(p => {
+      const full = fold(p.name).replace(/[^a-z0-9]+/g, ' ').trim();
+      const first = full.split(' ')[0];
+      return t.includes(` ${full} `) || (firsts[first] === 1 && first.length > 2 && t.includes(` ${first} `));
+    });
+  }
+  // Devolve as tarefas encontradas: { title, description, assignee_ids, client_responsible, due_date, priority, quote }.
+  function parseNextSteps(text, { people = [], date: base = today() } = {}) {
+    const lines = String(text || '').replace(/\r/g, '').split('\n').map(l => l.trim());
+    let start = lines.findIndex(l => SECTION.test(l.replace(/[*_]/g, '')));
+    let chunk;
+    if (start >= 0) {
+      chunk = [];
+      for (const l of lines.slice(start + 1)) {
+        const plain = l.replace(/[*_]/g, '');
+        if (chunk.length && (SECTION.test(plain) || HEADING.test(plain))) break;
+        chunk.push(l);
+      }
+    } else chunk = lines.filter(l => /^([-•*▪◦]|\[ ?\]|\d+[.)])\s+/.test(l));
+    const items = [];
+    for (let raw of chunk) {
+      let l = raw.replace(/^([-•*▪◦]|\[[ xX]?\]|\d+[.)])\s*/, '').replace(/[*_]{1,2}/g, '').trim();
+      if (l.length < 4) continue;
+      let who = [], named = '';
+      const br = /^\[([^\]]{2,80})\]\s*[:\-–]?\s*(.*)$/.exec(l);
+      if (br) { named = br[1].trim(); l = br[2].trim(); who = findPeople(named, people); }
+      else {
+        const lead = /^([A-ZÀ-Ý][\wÀ-ÿ]+(?:\s+(?:e|de|da|do|dos|das|[A-ZÀ-Ý][\wÀ-ÿ]+))*?)\s+(vai|vão|irá|irão|deve|devem|fica de|ficou de|ficará|ficarão|precisa|precisam|se comprometeu a|vai\s+\w+)\s+(.*)$/.exec(l);
+        if (lead) { named = lead[1]; who = findPeople(named, people); l = lead[3]; }
+        else who = findPeople(l, people);
+      }
+      if (!l) continue;
+      let title = l, description = '';
+      const colon = /^([^:]{4,120}):\s+(.+)$/.exec(l);
+      if (colon) { title = colon[1]; description = colon[2]; }
+      title = title.replace(/[.;]+$/, '').trim();
+      title = title.charAt(0).toUpperCase() + title.slice(1);
+      items.push({
+        title: title.slice(0, 200), description: description.slice(0, 2000),
+        assignee_ids: [...new Set(who.map(p => p.id))],
+        client_responsible: named && !who.length ? named.slice(0, 120) : '',
+        due_date: dueFromText(raw, base),
+        priority: /\b(urgente|prioridade alta|o quanto antes|asap|imediato)\b/.test(fold(raw)) ? 'high' : 'normal',
+        quote: raw.slice(0, 1000),
+      });
+    }
+    return items;
+  }
+
   function validAlerts(list) {
     if (!Array.isArray(list) || !list.every(n => ALERT_DAYS.includes(Number(n)))) return null;
     return [...new Set(list.map(Number))].sort((a, b) => a - b);
   }
 
-  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, startByChecklist, clientSees, canSee, clientAssignable, boardColumns, boardSort, PRIORITY_RANK, validAlerts };
+  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, startByChecklist, clientSees, canSee, clientAssignable, boardColumns, boardSort, PRIORITY_RANK, parseNextSteps, dueFromText, validAlerts };
 });

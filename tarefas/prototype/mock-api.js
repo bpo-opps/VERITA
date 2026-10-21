@@ -639,6 +639,20 @@
     setTimeout(() => {
       const m = db.meetings.find(x => x.id === mid); if (!m) return;
       const people = m.attendee_ids.map(uid => db.users.find(u => u.id === uid)).filter(Boolean);
+      // Com texto colado: a mesma leitura das "Próximas etapas" do sistema (sem IA).
+      if (m.notes_text) {
+        const kind = m.client_id ? 'external' : 'internal';
+        const allowed = u => u.role === 'admin' || (u.role === 'member' && (!m.client_id || clientIdsOf(u.id).includes(m.client_id)))
+          || (u.role === 'client' && S.clientAssignable(u, { kind, client_id: m.client_id, client_visible: 0 }));
+        const found = S.parseNextSteps(m.notes_text, { people, date: m.meeting_date });
+        found.forEach((t, i) => db.meeting_items.push({ id: nextId(), meeting_id: mid, title: t.title, description: t.description, kind, client_id: m.client_id,
+          client_visible: false, assignee_ids: t.assignee_ids.filter(uid => allowed(people.find(u => u.id === uid))), client_responsible: t.client_responsible,
+          due_date: t.due_date, priority: t.priority, checklist: [], quote: t.quote, status: 'pending', task_id: null, decided_at: null, position: i + 1 }));
+        Object.assign(m, { status: 'ready', error: null, summary: found.length
+          ? `Lido pelas "Próximas etapas" das anotações: ${found.length} tarefa(s) encontrada(s). Confira cada uma antes do OK.`
+          : 'Não encontrei a seção "Próximas etapas" (ou itens em lista) no texto colado. Confira o texto ou lance as tarefas à mão.' });
+        persist(); return;
+      }
       // Responsável da equipe: administrador ou quem acompanha o cliente da reunião.
       const staff = people.filter(u => u.role === 'admin' || (u.role === 'member' && (!m.client_id || clientIdsOf(u.id).includes(m.client_id)))), cli = people.find(u => u.role === 'client');
       const s1 = staff[0], s2 = staff[1] || staff[0];
@@ -678,16 +692,26 @@
     attendee_ids.forEach(uid => { if (!db.users.some(u => u.id === uid)) fail(400, 'Participante inválido'); });
     const other_attendees = str(body.other_attendees, 'outros participantes', { max: 1000, required: false });
     if (!attendee_ids.length && !other_attendees) fail(400, 'Marque quem estava presente');
-    if (typeof body.pdf !== 'string' || !body.pdf.startsWith('data:application/pdf;base64,')) fail(400, 'Anexe o PDF da reunião');
-    if (atob(body.pdf.slice(28, 40)).slice(0, 5) !== '%PDF-') fail(400, 'O arquivo não é um PDF');
+    const notes_text = str(body.notes_text, 'texto das anotações', { max: 100000, required: false }) || null;
+    if (!notes_text && !body.pdf) fail(400, 'Cole o texto das anotações ou anexe o PDF da reunião');
+    if (body.pdf) {
+      if (typeof body.pdf !== 'string' || !body.pdf.startsWith('data:application/pdf;base64,')) fail(400, 'PDF inválido');
+      if (atob(body.pdf.slice(28, 40)).slice(0, 5) !== '%PDF-') fail(400, 'O arquivo não é um PDF');
+    }
     const id = nextId();
-    pdfs.set(id, { name: body.pdf_name || 'ata.pdf', data: body.pdf.slice(28) });
-    db.meetings.push({ id, title, meeting_date, client_id, attendee_ids, other_attendees, pdf_name: body.pdf_name || 'ata.pdf', summary: null,
+    if (body.pdf) pdfs.set(id, { name: body.pdf_name || 'ata.pdf', data: body.pdf.slice(28) });
+    db.meetings.push({ id, title, meeting_date, client_id, attendee_ids, other_attendees, notes_text, pdf_name: body.pdf ? body.pdf_name || 'ata.pdf' : null, summary: null,
       status: 'processing', error: null, created_by: user.id, created_at: now() });
     simulateReading(id);
     return { id };
   });
   route('GET', '/api/meetings/:id', ({ user, id }) => meetingDetail(user, id));
+  route('PATCH', '/api/meetings/:id', ({ user, id, body }) => {
+    const m = loadMeeting(user, id);
+    if ('title' in body) m.title = str(body.title, 'título', { max: 200 });
+    if ('notes_text' in body) m.notes_text = str(body.notes_text, 'texto das anotações', { max: 100000, required: false }) || null;
+    return meetingDetail(user, id);
+  });
   route('GET', '/api/meetings/:id/pdf', ({ user, id }) => {
     loadMeeting(user, id);
     if (!pdfs.has(id)) fail(404, 'No protótipo, o PDF fica guardado só até recarregar a página.');

@@ -128,7 +128,7 @@ test('sem IA ou com falha: a reunião fica com o motivo e dá para lançar à m�
     const r = await admin('POST', '/api/meetings', { title: 'Sem IA', meeting_date: '2026-10-19', attendee_ids: [w.bia], pdf: PDF });
     const m = await settled(admin, r.body.id);
     assert.equal(m.status, 'error');
-    assert.match(m.error, /ANTHROPIC_API_KEY/);
+    assert.match(m.error, /Próximas etapas/, 'sem IA e sem texto colado: pede o texto');
     const it = (await admin('POST', `/api/meetings/${r.body.id}/items`, { title: 'Tarefa à mão' })).body;
     assert.equal(it.kind, 'internal');
     assert.equal((await admin('POST', `/api/meeting-items/${it.id}/approve`)).status, 200);
@@ -193,4 +193,41 @@ test('pedido à API da Anthropic: PDF, participantes, saída estruturada e fallb
   const [doc, text] = req.body.messages[0].content;
   assert.equal(doc.source.media_type, 'application/pdf');
   assert.match(text.text, /"nome": "Bia"/);
+});
+
+test('sem IA: o texto colado é lido pelas "Próximas etapas"', async () => {
+  const w = world();
+  const { server, login } = await serve(w, null);
+  try {
+    const bia = await login('bia@opps.test');
+    assert.equal((await bia('POST', '/api/meetings', { title: 'X', meeting_date: '2026-10-21', attendee_ids: [w.bia] })).status, 400, 'nem texto nem PDF');
+    const notes = `Resumo\nConversamos sobre o fechamento.\n\nPróximas etapas\n[Bia Equipe] Enviar relatório: até sexta-feira.\n- Dora vai mandar os extratos amanhã, urgente.\n- [Contador Externo] Revisar a folha na próxima semana.\n\nDetalhes\nnada`;
+    const r = await bia('POST', '/api/meetings', { title: 'Fechamento', meeting_date: '2026-10-21', client_id: w.a, attendee_ids: [w.bia, w.dora], notes_text: notes });
+    assert.equal(r.status, 201);
+    const m = await settled(bia, r.body.id);
+    assert.equal(m.status, 'ready');
+    assert.match(m.summary, /3 tarefa/);
+    const [a, b, c] = m.items;
+    assert.deepEqual([a.title, a.assignee_ids, a.due_date], ['Enviar relatório', [w.bia], '2026-10-23']);
+    assert.deepEqual([b.assignee_ids, b.due_date, b.priority, b.kind, b.client_id], [[w.dora], '2026-10-22', 'high', 'external', w.a]);
+    assert.deepEqual([c.client_responsible, c.assignee_ids, c.due_date], ['Contador Externo', [], '2026-10-28']);
+    // Corrigir o texto e ler de novo.
+    await bia('PATCH', `/api/meetings/${r.body.id}`, { notes_text: 'Próximas etapas\n- [Bia Equipe] Só uma tarefa' });
+    await bia('POST', `/api/meetings/${r.body.id}/process`);
+    assert.deepEqual((await settled(bia, r.body.id)).items.map(i => i.title), ['Só uma tarefa']);
+  } finally { server.close(); }
+});
+
+test('prazos escritos na frase, a partir da data da reunião (quarta, 21/10/2026)', () => {
+  const S = require('../shared');
+  const base = '2026-10-21';
+  const cases = [['até sexta', '2026-10-23'], ['na quarta', '2026-10-28'], ['até 05/11', '2026-11-05'], ['até 10/01/2027', '2027-01-10'],
+    ['até o dia 5', '2026-11-05'], ['até o dia 25', '2026-10-25'], ['em 3 dias', '2026-10-24'], ['semana que vem', '2026-10-28'],
+    ['ainda esta semana', '2026-10-23'], ['até o fim do mês', '2026-10-31'], ['hoje mesmo', '2026-10-21'], ['sem prazo combinado', null], ['até 15/09', '2027-09-15']];
+  for (const [text, want] of cases) assert.equal(S.dueFromText(text, base), want, text);
+  // Sem a seção, usa os itens em lista; primeiro nome só quando não há outra pessoa com o mesmo.
+  const people = [{ id: 1, name: 'Ana Souza' }, { id: 2, name: 'Ana Lima' }, { id: 3, name: 'Bruno Dias' }];
+  const out = S.parseNextSteps('Texto solto\n- Ana vai revisar o contrato\n- Bruno vai ligar para o banco\n- Ana Lima fica de enviar o boleto', { people, date: base });
+  assert.deepEqual(out.map(t => t.assignee_ids), [[], [3], [2]]);
+  assert.equal(out[0].client_responsible, 'Ana', 'nome ambíguo fica como texto para conferir');
 });

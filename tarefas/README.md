@@ -130,21 +130,19 @@ Os parâmetros precisam ficar nessa ordem; o texto em volta pode mudar. Para usa
 
 Cada pessoa informa o celular e marca a autorização em Configurações → Avisos; sem a autorização, nada vai para o WhatsApp dela. A Meta cobra por conversa iniciada pela empresa (tabela em developers.facebook.com/docs/whatsapp/pricing).
 
-## Reuniões: ata do Google Meet vira tarefa
+## Reuniões: anotações do Google Meet viram tarefas
 
 Menu **Reuniões** (equipe e administrador; o cliente não vê):
 
-1. Anexe o PDF da ata (as anotações do Gemini no Meet, exportadas em PDF, ou qualquer ata em PDF com texto), escolha a empresa e marque **quem estava presente**: a equipe e as pessoas do cliente. Quem não tem acesso ao sistema vai em "Outros participantes".
-2. A IA (Claude, da Anthropic) lê a ata e faz o pré-lançamento: título, empresa, tipo, responsáveis, prazo, prioridade, checklist e o trecho da ata de onde cada tarefa saiu. Responsável só pode ser alguém da equipe que estava presente; quando quem ficou de fazer é do cliente, o nome vai em "Responsável no cliente". Prazo só entra se foi combinado; "sexta" ou "semana que vem" são convertidos a partir da data da reunião.
-3. Na triagem você corrige o que quiser (salva na hora), descarta o que não é tarefa, adiciona o que faltou e dá **OK, lançar** em cada uma, ou **Lançar todas**. Só depois do OK a tarefa vai para o quadro, com os avisos de tarefa criada. A descrição ganha "Da reunião ... de dd/mm/aaaa".
+1. Cole as anotações do Gemini (o documento "Anotações do Gemini" que o Meet cria no Google Drive: tudo, ou só a parte "Próximas etapas"), escolha a empresa e marque **quem estava presente**. O PDF da ata é opcional e fica guardado junto.
+2. O sistema lê a seção "Próximas etapas" (ou "Próximos passos", "Ações", "Encaminhamentos"; sem seção, os itens em lista) e cada linha vira uma sugestão de tarefa, **sem IA e sem custo**:
+   - Responsável: o nome entre colchetes (`[Ana Souza] ...`) ou no começo da frase (`Ana vai ...`), ligado aos participantes. Nome que não é de ninguém do sistema vai para "Responsável no cliente".
+   - Prazo, a partir da data da reunião: `até 25/10`, `25/10/2026`, `até o dia 5`, `sexta-feira`, `amanhã`, `em 3 dias`, `semana que vem`, `esta semana`, `fim do mês`.
+   - Prioridade alta quando aparece "urgente", "o quanto antes" ou "prioridade alta". Texto depois de dois-pontos vira a descrição.
+   - A regra fica em `shared.js` (`parseNextSteps`), usada pelo servidor e pelo protótipo.
+3. Na triagem você corrige (salva na hora), descarta, adiciona o que faltou e dá **OK, lançar** ou **Lançar todas**. Só depois do OK a tarefa vai para o quadro. Errou um nome no texto? Corrija em "Anotações coladas" e **Salvar e ler de novo** (as já lançadas ficam).
 
-"Ler de novo" refaz a leitura e troca só as sugestões ainda não lançadas. Apagar a reunião apaga o PDF e as sugestões; as tarefas lançadas continuam. O PDF fica guardado no banco (até 15 MB).
-
-**Para ligar a leitura por IA:** crie uma chave em console.anthropic.com (conta da Opps, com cobrança por uso) e rode o servidor com `ANTHROPIC_API_KEY=...`. Sem a chave, a tela funciona igual, mas as tarefas são lançadas à mão na triagem. Modelo: Claude Opus 5.5 (troque com `MEETINGS_MODEL`). Uma ata de 5 a 10 páginas custa em geral de 10 a 40 centavos de dólar (estimativa pelo preço por token do modelo; o valor real aparece no console da Anthropic).
-
-Privacidade: o PDF da ata é enviado à API da Anthropic para ser lido. Avise os clientes, se o contrato pedir, que as atas passam por um serviço de IA.
-
-No protótipo a leitura é simulada: as sugestões são de exemplo, montadas a partir de quem estava presente, e o PDF fica só até recarregar a página.
+Com `ANTHROPIC_API_KEY` no servidor e um PDF anexado, a leitura passa a ser feita pela IA (Claude), que entende atas sem o formato de "Próximas etapas". Sem a chave, tudo funciona pela leitura acima.
 
 ## O que ainda não faz
 

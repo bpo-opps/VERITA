@@ -1865,25 +1865,27 @@ async function viewMeetings() {
   const who = attendeePicker('m', '');
   clientSel.addEventListener('change', () => who.repaint(clientSel.value));
   const fileInfo = h('span', { class: 'muted small' }, 'Nenhum arquivo escolhido');
-  const file = h('input', { id: 'm-pdf', type: 'file', accept: 'application/pdf,.pdf', class: 'sr-only', required: true,
+  const file = h('input', { id: 'm-pdf', type: 'file', accept: 'application/pdf,.pdf', class: 'sr-only',
     onchange: e => { fileInfo.textContent = e.target.files[0] ? e.target.files[0].name : 'Nenhum arquivo escolhido'; } });
   const submit = h('button', { class: 'btn primary', type: 'submit' }, 'Enviar para a triagem');
   const form = h('form', { class: 'card-box', onsubmit: async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const f = file.files[0];
-    if (!f) { err.textContent = 'Anexe o PDF da reunião'; return; }
-    if (f.size > 15 * 1024 * 1024) { err.textContent = 'PDF grande demais (máximo 15 MB)'; return; }
+    const notes = String(fd.get('notes') || '').trim();
+    if (!f && !notes) { err.textContent = 'Cole o texto das anotações (ou anexe o PDF)'; return; }
+    if (f && f.size > 15 * 1024 * 1024) { err.textContent = 'PDF grande demais (máximo 15 MB)'; return; }
     submit.disabled = true; submit.textContent = 'Enviando…';
     try {
       const { id } = await api('POST', '/api/meetings', { title: fd.get('title'), meeting_date: fd.get('meeting_date'),
         client_id: clientSel.value ? Number(clientSel.value) : null, attendee_ids: who.value(), other_attendees: fd.get('others'),
-        pdf: (await readFileData(f)).replace(/^data:[^,]*,/, 'data:application/pdf;base64,'), pdf_name: f.name });
+        notes_text: notes || undefined,
+        ...(f ? { pdf: (await readFileData(f)).replace(/^data:[^,]*,/, 'data:application/pdf;base64,'), pdf_name: f.name } : {}) });
       location.hash = `#/reuniao/${id}`;
     } catch (ex) { err.textContent = ex.message; submit.disabled = false; submit.textContent = 'Enviar para a triagem'; }
   } },
     h('h2', {}, 'Nova reunião'),
-    h('p', { class: 'muted' }, 'Anexe o PDF da ata do Google Meet e marque quem estava presente. A IA lê a ata e separa as tarefas; nada vai para o quadro antes do seu OK.'),
+    h('p', { class: 'muted' }, 'Cole as anotações do Gemini (Google Meet) e marque quem estava presente. O sistema lê a parte "Próximas etapas" e separa as tarefas; nada vai para o quadro antes do seu OK.'),
     h('div', { class: 'grid2' },
       h('div', { class: 'field' }, h('label', { for: 'm-title' }, 'Reunião'), h('input', { id: 'm-title', name: 'title', required: true, maxlength: 200, placeholder: 'Ex.: Alinhamento mensal' })),
       h('div', { class: 'field' }, h('label', { for: 'm-date' }, 'Data'), h('input', { id: 'm-date', name: 'meeting_date', type: 'date', required: true, value: today() }))),
@@ -1891,7 +1893,10 @@ async function viewMeetings() {
     h('h3', { class: 'sub-h' }, 'Quem estava presente'),
     who.el,
     h('div', { class: 'field' }, h('label', { for: 'm-others' }, 'Outros participantes (opcional)'), h('input', { id: 'm-others', name: 'others', maxlength: 1000, placeholder: 'Ex.: Paulo (contador do cliente)' })),
-    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Ata da reunião (PDF)'),
+    h('div', { class: 'field' }, h('label', { for: 'm-notes' }, 'Anotações da reunião'),
+      h('textarea', { id: 'm-notes', name: 'notes', rows: 8, placeholder: 'Próximas etapas\n[Nome da pessoa] O que ficou de fazer: detalhes até sexta-feira\n- Fulano vai enviar o relatório até 25/10' }),
+      h('p', { class: 'muted small' }, 'No documento "Anotações do Gemini" que o Meet cria no Google Drive, copie tudo (ou só a parte "Próximas etapas") e cole aqui. Cada linha vira uma sugestão de tarefa, com o responsável pelo nome e o prazo quando estiver escrito ("até sexta", "até 25/10", "semana que vem").')),
+    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Ata em PDF (opcional, fica guardada junto)'),
       h('div', { class: 'row' }, h('label', { class: 'btn file-btn', for: 'm-pdf' }, file, 'Escolher PDF'), fileInfo)),
     err, submit);
   shell([
@@ -1941,7 +1946,7 @@ async function viewMeeting(meetingId) {
     m.summary ? h('p', { class: 'summary' }, m.summary) : null,
     h('div', { class: 'row' },
       m.pdf_name ? h('button', { class: 'btn small', type: 'button', onclick: openPdf }, `Abrir PDF (${m.pdf_name})`) : null,
-      m.status !== 'processing' && m.ai !== false ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
+      m.status !== 'processing' && (m.ai || m.notes_text) ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
         if (pending.length && !(await ask('Ler a ata de novo? As tarefas que ainda estão para revisar serão trocadas pela nova leitura. As já lançadas ficam.', { ok: 'Ler de novo' }))) return;
         await api('POST', `/api/meetings/${meetingId}/process`); route();
       }) }, 'Ler de novo') : null,
@@ -1951,9 +1956,19 @@ async function viewMeeting(meetingId) {
       }) }, 'Apagar')));
 
   const status = m.status === 'processing'
-    ? h('div', { class: 'card-box reading', role: 'status' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'A IA está lendo a ata. Isso leva de alguns segundos a um ou dois minutos; esta tela atualiza sozinha.')
+    ? h('div', { class: 'card-box reading', role: 'status' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Lendo as anotações. Leva alguns segundos (com IA, até um ou dois minutos); esta tela atualiza sozinha.')
     : m.status === 'error' ? h('div', { class: 'card-box error-box', role: 'alert' }, h('strong', {}, 'Não deu para ler a ata. '), m.error) : null;
 
+  const notesBox = h('textarea', { id: 'mt-notes', rows: 8, 'aria-label': 'Anotações da reunião' }, m.notes_text || '');
+  const notesSection = m.status !== 'processing' ? h('details', { class: 'card-box notes-box', open: !m.notes_text && m.status === 'error' },
+    h('summary', {}, m.notes_text ? 'Anotações coladas (corrigir e ler de novo)' : 'Colar as anotações da reunião'),
+    h('p', { class: 'muted small' }, 'As tarefas saem da parte "Próximas etapas". Corrigiu um nome ou um prazo no texto? Salve e o sistema lê de novo; as tarefas já lançadas ficam.'),
+    notesBox,
+    h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
+      if (pending.length && !(await ask('Ler de novo? As tarefas que ainda estão para revisar serão trocadas pela nova leitura. As já lançadas ficam.', { ok: 'Ler de novo' }))) return;
+      await api('PATCH', `/api/meetings/${meetingId}`, { notes_text: notesBox.value });
+      await api('POST', `/api/meetings/${meetingId}/process`); route();
+    }) }, 'Salvar e ler de novo'))) : null;
   const addForm = h('form', { class: 'row add-item', onsubmit: guard(async e => {
     e.preventDefault();
     const input = e.target.elements['mi-new'];
@@ -1975,12 +1990,12 @@ async function viewMeeting(meetingId) {
   }) }, icon('check'), `Lançar todas (${pending.length})`) : null;
 
   shell([
-    header, status,
+    header, status, notesSection,
     m.status !== 'processing' ? h('section', { 'aria-labelledby': 'mi-h' },
       h('div', { class: 'row section-h' }, h('h2', { id: 'mi-h', class: 'grow' }, pending.length ? `Para revisar (${pending.length})` : 'Para revisar'), approveAll),
       pending.length ? h('p', { class: 'muted small' }, 'Confira cada tarefa: o que você muda fica salvo na hora. "OK, lançar" leva para o quadro e avisa os responsáveis.') : null,
       pending.map(meetingItemCard),
-      !pending.length && m.status === 'ready' ? h('div', { class: 'card-box empty' }, approved.length ? 'Tudo revisado.' : 'A IA não encontrou tarefas nesta ata. Se faltou alguma, adicione abaixo.') : null,
+      !pending.length && m.status === 'ready' ? h('div', { class: 'card-box empty' }, approved.length ? 'Tudo revisado.' : 'Nenhuma tarefa encontrada. Confira as anotações acima ou adicione abaixo.') : null,
       h('div', { class: 'card-box' }, addForm)) : null,
     approved.length ? h('section', { class: 'card-box' }, h('h2', {}, `Lançadas (${approved.length})`),
       h('ul', { class: 'plain-list' }, approved.map(it => h('li', {}, h('span', { class: 'tag ok' }, 'Lançada'), ' ',
@@ -2004,9 +2019,9 @@ function meetingItemCard(it) {
   }));
   const kc = kindClientFields(p, it.kind, it.client_id, it.client_visible, v => save(v), { showTeam: false });
   const field = (label, id, input) => h('div', { class: 'field' }, h('label', { for: id }, label), input);
-  const who = h('div', { class: 'checks', role: 'group', 'aria-label': 'Responsáveis' },
-    staffUsers().map(u => h('label', {}, h('input', { type: 'checkbox', value: u.id, checked: it.assignee_ids.includes(u.id),
-      onchange: () => save({ assignee_ids: [...who.querySelectorAll('input:checked')].map(i => Number(i.value)) }) }), u.name)));
+  // Mesma regra da tarefa: com empresa, administradores, quem acompanha o cliente e as pessoas do cliente.
+  const who = assigneeChecks(it.assignee_ids, { kind: it.kind, client_id: it.client_id, client_visible: it.client_visible });
+  who.addEventListener('change', () => save({ assignee_ids: [...who.querySelectorAll('input:checked')].map(i => Number(i.value)) }));
   const card = h('article', { class: 'card-box item-card', 'aria-label': it.title },
     field('Tarefa', `${p}-title`, h('input', { id: `${p}-title`, value: it.title, maxlength: 200, required: true,
       onchange: e => e.target.value.trim() && save({ title: e.target.value.trim() }) })),
@@ -2016,7 +2031,7 @@ function meetingItemCard(it) {
         field('Responsável no cliente (opcional)', `${p}-cr`, h('input', { id: `${p}-cr`, value: it.client_responsible, maxlength: 120, placeholder: 'Quem do cliente ficou de fazer',
           onchange: e => save({ client_responsible: e.target.value }) }))),
       h('div', {},
-        h('div', { class: 'field' }, h('span', { class: 'label' }, 'Responsáveis (equipe)'), who),
+        h('div', { class: 'field' }, h('span', { class: 'label' }, 'Responsáveis'), who),
         h('div', { class: 'grid2' },
           field('Prazo', `${p}-due`, h('input', { id: `${p}-due`, type: 'date', value: it.due_date || '', onchange: e => save({ due_date: e.target.value || null }) })),
           field('Prioridade', `${p}-pri`, h('select', { id: `${p}-pri`, onchange: e => save({ priority: e.target.value }) },

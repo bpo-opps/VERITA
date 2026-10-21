@@ -342,7 +342,7 @@ const ITEM_FIELDS = 'id, meeting_id, title, description, kind, client_id, client
 const itemOut = it => ({ ...it, client_visible: !!it.client_visible, assignee_ids: JSON.parse(it.assignee_ids), checklist: JSON.parse(it.checklist) });
 function loadMeeting(db, user, meetingId) {
   requireStaff(user);
-  const m = db.prepare('select id, org_id, title, meeting_date, client_id, attendee_ids, other_attendees, pdf_name, summary, status, error, created_by, created_at from meetings where id = ? and org_id = ?').get(meetingId, user.org_id);
+  const m = db.prepare('select id, org_id, title, meeting_date, client_id, attendee_ids, other_attendees, pdf_name, notes_text, summary, status, error, created_by, created_at from meetings where id = ? and org_id = ?').get(meetingId, user.org_id);
   if (!m) fail(404, 'Reunião não encontrada');
   return { ...m, attendee_ids: JSON.parse(m.attendee_ids) };
 }
@@ -364,17 +364,33 @@ function aiError(e) {
   if (e.status >= 500 || e.name === 'APIConnectionError') return 'A IA não respondeu. Clique em "Ler de novo" daqui a pouco.';
   return e.message || 'Falha ao ler a ata';
 }
+// Leitura sem IA: cada linha das "Próximas etapas" vira uma sugestão no formato que a IA devolveria.
+function nextStepsOut(m, attendees) {
+  const found = S.parseNextSteps(m.notes_text, { people: attendees, date: m.meeting_date });
+  return {
+    summary: found.length ? `Lido pelas "Próximas etapas" das anotações: ${found.length} tarefa(s) encontrada(s). Confira cada uma antes do OK.`
+      : 'Não encontrei a seção "Próximas etapas" (ou itens em lista) no texto colado. Confira o texto ou lance as tarefas à mão.',
+    tasks: found.map(t => ({ ...t, kind: m.client_id ? 'external' : 'internal', client_id: m.client_id || 0, responsible_ids: t.assignee_ids,
+      checklist: [], due_date: t.due_date || '' })),
+  };
+}
+
 async function processMeeting(db, meetingId) {
   const m = db.prepare('select * from meetings where id = ?').get(meetingId);
   if (!m) return;
   const setStatus = (status, error = null) => db.prepare('update meetings set status = ?, error = ? where id = ?').run(status, error, meetingId);
-  if (!extractor) { setStatus('error', 'A leitura por IA não está ligada neste servidor (falta ANTHROPIC_API_KEY). Lance as tarefas à mão aqui embaixo.'); return; }
   const ids = JSON.parse(m.attendee_ids);
   const attendees = ids.map(uid => db.prepare('select id, name, role, client_id from users where id = ? and org_id = ?').get(uid, m.org_id)).filter(Boolean);
   const clients = db.prepare('select id, name from clients where org_id = ? order by name').all(m.org_id);
   const meeting = { title: m.title, meeting_date: m.meeting_date, client_id: m.client_id };
+  // Com IA e PDF: a IA lê a ata. Sem IA: o texto colado é lido pelas "Próximas etapas" (shared.parseNextSteps).
+  const useAi = extractor && m.pdf;
+  if (!useAi && !m.notes_text) {
+    setStatus('error', 'Cole o texto das anotações (a parte "Próximas etapas") para o sistema encontrar as tarefas, ou lance à mão aqui embaixo.');
+    return;
+  }
   try {
-    const out = await extractor({ pdf: m.pdf, meeting, attendees, others: m.other_attendees, clients });
+    const out = useAi ? await extractor({ pdf: m.pdf, meeting, attendees, others: m.other_attendees, clients }) : nextStepsOut(m, attendees);
     const items = out.tasks.map(t => require('./meetings').sanitize(t, { meeting, attendees, clients }));
     // Da equipe, só fica responsável quem pode ser: em tarefa de cliente, quem acompanha o cliente (ou administrador).
     for (const it of items) {
@@ -435,10 +451,12 @@ route('POST', '/api/meetings', ({ db, user, body }) => {
   const attendees = attendeeList(db, user, body.attendee_ids || []);
   const others = str(body.other_attendees, 'outros participantes', { max: 1000, required: false });
   if (!attendees.length && !others) fail(400, 'Marque quem estava presente');
-  const pdf = pdfBuffer(body.pdf);
-  const name = str(body.pdf_name, 'nome do arquivo', { max: 200, required: false }) || 'ata.pdf';
-  const r = db.prepare(`insert into meetings (org_id, title, meeting_date, client_id, attendee_ids, other_attendees, pdf, pdf_name, created_by)
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(user.org_id, title, meetingDate, clientId, JSON.stringify(attendees), others, pdf, name, user.id);
+  const notes = str(body.notes_text, 'texto das anotações', { max: 100000, required: false }) || null;
+  if (!notes && !body.pdf) fail(400, 'Cole o texto das anotações ou anexe o PDF da reunião');
+  const pdf = body.pdf ? pdfBuffer(body.pdf) : null;
+  const name = pdf ? str(body.pdf_name, 'nome do arquivo', { max: 200, required: false }) || 'ata.pdf' : null;
+  const r = db.prepare(`insert into meetings (org_id, title, meeting_date, client_id, attendee_ids, other_attendees, pdf, pdf_name, notes_text, created_by)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(user.org_id, title, meetingDate, clientId, JSON.stringify(attendees), others, pdf, name, notes, user.id);
   const meetingId = Number(r.lastInsertRowid);
   // A leitura leva de segundos a um ou dois minutos: roda por trás e a tela acompanha pelo status.
   processMeeting(db, meetingId).catch(e => console.error(e));
@@ -468,8 +486,9 @@ route('PATCH', '/api/meetings/:id', ({ db, user, params, body }) => {
   const meetingDate = 'meeting_date' in body ? date(body.meeting_date, 'Data da reunião') || m.meeting_date : m.meeting_date;
   const attendees = 'attendee_ids' in body ? attendeeList(db, user, body.attendee_ids) : m.attendee_ids;
   const others = 'other_attendees' in body ? str(body.other_attendees, 'outros participantes', { max: 1000, required: false }) : m.other_attendees;
-  db.prepare('update meetings set title = ?, meeting_date = ?, attendee_ids = ?, other_attendees = ? where id = ?')
-    .run(title, meetingDate, JSON.stringify(attendees), others, params.id);
+  const notes = 'notes_text' in body ? str(body.notes_text, 'texto das anotações', { max: 100000, required: false }) || null : m.notes_text;
+  db.prepare('update meetings set title = ?, meeting_date = ?, attendee_ids = ?, other_attendees = ?, notes_text = ? where id = ?')
+    .run(title, meetingDate, JSON.stringify(attendees), others, notes, params.id);
   return meetingDetail(db, user, params.id);
 });
 
