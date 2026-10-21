@@ -18,6 +18,7 @@ function world() {
   const bia = createUser(db, { orgId, name: 'Bia Equipe', email: 'bia@opps.test', password: pw, role: 'member' });
   const caio = createUser(db, { orgId, name: 'Caio Equipe', email: 'caio@opps.test', password: pw, role: 'member' });
   const dora = createUser(db, { orgId, name: 'Dora Cliente', email: 'dora@clientea.test', password: pw, role: 'client', clientId: a });
+  db.prepare('insert into user_clients (user_id, client_id) values (?, ?), (?, ?)').run(bia, a, caio, a);
   return { db, a, admin, bia, caio, dora, pw };
 }
 

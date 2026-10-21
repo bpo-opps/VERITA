@@ -135,14 +135,20 @@
     return !!t.client_id && (t.kind === 'external' || !!t.client_visible);
   }
   // Quem vê a tarefa.
-  // Externa: o administrador, quem criou, os responsáveis e quem da equipe acompanha aquele cliente
-  // (user.client_ids). Interna: só quem criou e os responsáveis (vale também para administradores).
+  // Quem criou e os responsáveis sempre veem. Além deles, depende de "a equipe vê" (team_visible):
+  // - Externa: com a marca, o administrador e quem da equipe acompanha o cliente (user.client_ids);
+  //   sem a marca ("só os responsáveis"), só o administrador.
+  // - Interna: sem a marca, só quem criou e os responsáveis (vale também para administradores);
+  //   com a marca, a equipe do cliente ligado (e o administrador) ou, sem cliente, a equipe toda.
   // Cliente: as da empresa dele que clientSees permite (responsável ou não).
   function canSee(user, t, assigneeIds) {
     if (user.role === 'client') return t.client_id === user.client_id && clientSees(t);
     if (t.created_by === user.id || assigneeIds.includes(user.id)) return true;
-    if (t.kind !== 'external') return false;
-    return user.role === 'admin' || (user.client_ids || []).includes(t.client_id);
+    const admin = user.role === 'admin';
+    const follows = (user.client_ids || []).includes(t.client_id);
+    if (t.kind === 'external') return admin || (!!t.team_visible && follows);
+    if (!t.team_visible) return false;
+    return t.client_id ? admin || follows : true;
   }
   // Pessoa do cliente pode ser responsável quando a tarefa é da empresa dela e ela vê a tarefa.
   function clientAssignable(u, t) {

@@ -46,11 +46,23 @@ A senha temporária aparece uma vez no terminal; troque em Configurações. O ba
 
 ## Quem vê, colunas e anexos
 
-- **Externa:** o administrador, quem criou, os responsáveis e quem da equipe acompanha aquele cliente (Clientes → Equipe). Os outros da equipe não veem. **Interna:** só quem criou e os responsáveis. **Cliente:** as externas da empresa dele e as internas marcadas como visíveis.
-- **Pessoa do cliente como responsável:** em tarefa externa (ou interna visível) da empresa dela. No portal, o cliente filtra "Só as que sou responsável".
-- **Colunas do quadro** (administrador, botão Colunas no Kanban): A fazer e Em andamento ficam no começo; as outras mudam de lugar, e dá para criar, renomear e apagar colunas (tarefa numa coluna criada está em andamento; apagar a coluna devolve as tarefas para Em andamento).
-- **Ordem dos cards:** prazo mais próximo primeiro, depois prioridade alta, média e baixa; sem prazo no fim.
+- **Quem vê:** quem criou e os responsáveis sempre. Além deles, cada tarefa tem "A equipe vê":
+  - Externa (marcado por padrão): o administrador e quem da equipe acompanha o cliente (Clientes → Equipe). Desmarcado: só os responsáveis e o administrador.
+  - Interna (desmarcado por padrão): só quem criou e os responsáveis. Marcado: a equipe do cliente ligado ou, sem cliente, toda a equipe.
+  - Cliente: as externas da empresa dele e as internas marcadas "Visível para o cliente".
+- **Responsáveis:** sem empresa, qualquer pessoa da equipe. Com empresa: os administradores, quem acompanha aquele cliente e as pessoas do cliente (quando ele vê a tarefa).
+- **Nova tarefa:** começa como Interna, já aceita anexos e fecha sozinha ao criar.
+- **Quem mexeu:** o card mostra quem criou, quem iniciou (quem preencheu o início) e quem concluiu ou cancelou, sem ninguém precisar digitar.
+- **Colunas do quadro** (administrador, botão Colunas no Kanban): A fazer e Em andamento ficam no começo; as outras mudam de lugar, e dá para criar, renomear e apagar colunas.
+- **Ordem dos cards:** prazo mais próximo primeiro, depois prioridade alta, média e baixa.
 - **Anexos** no card (até 10 MB cada): equipe e cliente anexam; a equipe pode marcar "Só a equipe vê".
+
+## Alertas, relatórios e compromissos
+
+- **Alertas:** filtros de empresa e responsável. Com um deles escolhido, aparece a mensagem pronta para o WhatsApp (copiar ou abrir no WhatsApp) e a imagem das tarefas para anexar; cada tarefa também tem o seu botão. Serve enquanto o envio automático por WhatsApp não está ligado.
+- **Dashboard clicável:** cada número e barra abre Tarefas com o filtro correspondente.
+- **Relatórios:** resumo, por empresa, por responsável, prazos, concluídas, canceladas, evolução mensal, ajustes, recorrentes e lista completa, com filtros de período, empresa, responsável, tipo e situação; baixam em Excel (.xlsx) e PDF, gerados no próprio navegador (`public/exports.js`).
+- **Compromissos:** agenda de reuniões e compromissos (lista ou mês), com empresa, participantes (equipe e cliente) e local ou link. Veem quem marcou, os participantes e o administrador; o cliente só os de que participa. A ligação com Google Agenda e Outlook vem depois.
 
 ## Painel e Recorrentes
 

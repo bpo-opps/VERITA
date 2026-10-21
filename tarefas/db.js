@@ -3,7 +3,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { hashPassword } = require('./auth');
 const { today, addDays } = require('./shared');
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 const SCHEMA = `
 pragma foreign_keys = on;
@@ -68,6 +68,10 @@ create table if not exists tasks (
   updated_at text not null default (datetime('now')),
   archived_at text,
   stage_id integer references board_stages(id) on delete set null,
+  team_visible integer not null default 0,
+  started_by integer references users(id) on delete set null,
+  completed_by integer references users(id) on delete set null,
+  cancelled_by integer references users(id) on delete set null,
   check (kind = 'internal' or client_id is not null),
   check ((status = 'done') = (completed_on is not null)),
   check ((status = 'cancelled') = (cancel_reason is not null))
@@ -193,6 +197,26 @@ create table if not exists attachments (
   created_at text not null default (datetime('now'))
 );
 create index if not exists attachments_task on attachments (task_id);
+-- Compromissos: agenda de reuniões e compromissos (por enquanto só dentro do sistema).
+create table if not exists events (
+  id integer primary key,
+  org_id integer not null references orgs(id) on delete cascade,
+  title text not null,
+  date text not null,
+  start_time text,
+  end_time text,
+  location text not null default '',
+  notes text not null default '',
+  client_id integer references clients(id) on delete set null,
+  created_by integer references users(id) on delete set null,
+  created_at text not null default (datetime('now'))
+);
+create index if not exists events_org on events (org_id, date);
+create table if not exists event_users (
+  event_id integer not null references events(id) on delete cascade,
+  user_id integer not null references users(id) on delete cascade,
+  primary key (event_id, user_id)
+);
 create table if not exists templates (
   id integer primary key,
   org_id integer not null references orgs(id) on delete cascade,
@@ -203,8 +227,11 @@ create table if not exists templates (
 );
 `;
 
+// Acrescenta a coluna se ainda não existe. Devolve true quando acrescentou.
 function addColumn(db, table, column, def) {
-  if (!db.prepare(`pragma table_info(${table})`).all().some(c => c.name === column)) db.exec(`alter table ${table} add column ${column} ${def}`);
+  if (db.prepare(`pragma table_info(${table})`).all().some(c => c.name === column)) return false;
+  db.exec(`alter table ${table} add column ${column} ${def}`);
+  return true;
 }
 
 function open(file) {
@@ -225,6 +252,11 @@ function open(file) {
   if (hasTables) {
     addColumn(db, 'tasks', 'stage_id', 'integer references board_stages(id) on delete set null');
     addColumn(db, 'orgs', 'board', 'text');
+    // Versão 6 -> 7: quem da equipe vê (externas continuam visíveis para a equipe do cliente), quem iniciou e quem concluiu.
+    if (addColumn(db, 'tasks', 'team_visible', 'integer not null default 0')) db.exec("update tasks set team_visible = 1 where kind = 'external'");
+    addColumn(db, 'tasks', 'started_by', 'integer references users(id) on delete set null');
+    addColumn(db, 'tasks', 'completed_by', 'integer references users(id) on delete set null');
+    addColumn(db, 'tasks', 'cancelled_by', 'integer references users(id) on delete set null');
   }
   db.exec(SCHEMA);
   // Nunca rebaixa a versão: se o código voltou para uma versão anterior (rollback), o banco continua
@@ -312,6 +344,12 @@ function seedDemo(db) {
   task({ kind: 'internal', title: 'Atualizar modelo de relatório mensal', due: d(15), by: bia }, [bia]);
   task({ kind: 'external', client: clinica, status: 'done', title: 'Levantamento inicial (antigo)', due: d(-40), done: d(-41), archived: true }, [admin]);
 
+  // Externas visíveis para a equipe do cliente; quem acompanha cada cliente; quem iniciou e concluiu.
+  db.exec("update tasks set team_visible = 1 where kind = 'external'");
+  db.prepare("update tasks set started_by = coalesce((select user_id from task_assignees a where a.task_id = tasks.id limit 1), created_by) where start_date is not null").run();
+  db.prepare("update tasks set completed_by = coalesce((select user_id from task_assignees a where a.task_id = tasks.id limit 1), created_by) where status = 'done'").run();
+  db.prepare("update tasks set cancelled_by = created_by where status = 'cancelled'").run();
+  db.prepare('insert into user_clients (user_id, client_id) values (?, ?), (?, ?)').run(ana, padaria, bia, clinica);
   db.prepare("insert into templates (org_id, name, title, checklist) values (?, 'Fechamento mensal', 'Fechamento do mês', ?)")
     .run(orgId, JSON.stringify(['Conciliar bancos', 'Conferir notas fiscais', 'Lançar provisões', 'Enviar relatório ao cliente']));
 }

@@ -234,11 +234,11 @@ function renderLogin(message) {
 // Estrutura: menu lateral (gaveta no celular) + barra superior com o título e a ação da página.
 function shell(content, { title, sub } = {}) {
   const nav = isStaff()
-    ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/reunioes', 'Reuniões', 'meet'], ['#/alertas', 'Alertas', 'bell'],
-      ['#/clientes', 'Clientes', 'building'], ['#/modelos', 'Modelos', 'copy'], ['#/relatorio', 'Relatório', 'chart'], ['#/equipe', 'Pessoas', 'users'],
+    ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/reunioes', 'Reuniões', 'meet'], ['#/alertas', 'Alertas', 'bell'],
+      ['#/clientes', 'Clientes', 'building'], ['#/modelos', 'Modelos', 'copy'], ['#/relatorio', 'Relatórios', 'chart'], ['#/equipe', 'Pessoas', 'users'],
       ...(isAdmin() ? [['#/avisos', 'Avisos', 'mail']] : []),
       ['#/config', 'Configurações', 'settings']]
-    : [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Minhas entregas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/alertas', 'Alertas', 'bell'],
+    : [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Minhas entregas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/alertas', 'Alertas', 'bell'],
       ['#/config', 'Minha conta', 'settings']];
   const current = location.hash.split('?')[0] || nav[0][0];
   const page = nav.find(n => n[0] === current) || nav[0];
@@ -293,7 +293,7 @@ async function boot() {
 }
 
 const ROUTES = {
-  '#/avisos': viewNotifications, '#/reunioes': viewMeetings, '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
+  '#/avisos': viewNotifications, '#/reunioes': viewMeetings, '#/compromissos': viewEvents, '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
   '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings,
 };
 
@@ -311,7 +311,7 @@ async function route() {
     return;
   }
   const fallback = '#/painel';
-  const clientPages = ['#/painel', '#/tarefas', '#/recorrentes', '#/alertas', '#/config'];
+  const clientPages = ['#/painel', '#/tarefas', '#/recorrentes', '#/compromissos', '#/alertas', '#/config'];
   const view = ROUTES[key];
   if (!view || (!isStaff() && !clientPages.includes(key))) { location.hash = fallback; return; }
   try { await refreshAlerts(); } catch { /* segue sem o contador */ }
@@ -341,6 +341,13 @@ function dateTags(t) {
   return [t.start_date ? h('span', { class: 'tag' }, `Início ${fmtShort(t.start_date)}`) : null,
     t.due_date ? h('span', { class: 'tag' + (t.column === 'overdue' ? ' late' : '') }, `Prazo ${fmtShort(t.due_date)}`) : null];
 }
+// Quem mexeu: preenchido sozinho quando alguém informa o início, conclui ou cancela.
+function whoDid(t) {
+  const parts = [t.started_by_name && t.start_date ? `Iniciada por ${t.started_by_name}` : null,
+    t.status === 'done' && t.completed_by_name ? `Concluída por ${t.completed_by_name}` : null,
+    t.status === 'cancelled' && t.cancelled_by_name ? `Cancelada por ${t.cancelled_by_name}` : null].filter(Boolean);
+  return parts.length ? h('p', { class: 'who-did' }, parts.join(' · ')) : null;
+}
 const internalTag = t => (t.kind === 'internal' ? h('span', { class: 'tag internal' }, t.client_visible ? 'Interna · cliente vê' : 'Interna') : null);
 function taskCard(t, { draggable = false, showStatus = false } = {}) {
   return h('button', { class: `task col-${t.column}`, type: 'button', draggable: draggable ? 'true' : null, 'data-id': t.id, onclick: () => openTask(t.id) },
@@ -349,6 +356,7 @@ function taskCard(t, { draggable = false, showStatus = false } = {}) {
         internalTag(t))),
     h('div', { class: 'title' }, t.title),
     t.status === 'cancelled' ? h('p', { class: 'cancel-reason' }, 'Motivo: ' + t.cancel_reason) : null,
+    whoDid(t),
     (t.status === 'doing' || (t.progress > 0 && !['done', 'cancelled'].includes(t.status))) ? progressBar(t.progress) : null,
     h('div', { class: 'meta' },
       showStatus || t.column === 'overdue' ? h('span', { class: 'tag' }, statusName(t)) : null,
@@ -433,14 +441,24 @@ function kpis(tasks) {
 
 async function viewTasks() {
   if (!isStaff()) Object.assign(state.view, { kind: '', client: '', assignee: state.view.assignee === 'me' ? 'me' : '', archived: false });
-  const tasks = await api('GET', '/api/tasks?' + taskQuery());
+  let tasks = await api('GET', '/api/tasks?' + taskQuery());
   const v = state.view;
+  // Filtros que vêm do Dashboard: situação (coluna) e período de conclusão/cancelamento.
+  const closedOn = t => t.completed_on || t.cancelled_on || '';
+  if (v.col) tasks = tasks.filter(t => (v.col === 'done' ? t.status === 'done' : t.column === v.col));
+  if (v.since) tasks = tasks.filter(t => closedOn(t) >= v.since);
+  if (v.until) tasks = tasks.filter(t => closedOn(t) <= v.until);
+  const dashFilter = v.col || v.since ? h('div', { class: 'card-box dash-filter-note' },
+    h('span', { class: 'grow' }, 'Mostrando: ', h('strong', {}, v.col === 'done' ? 'Concluídas' : v.col ? colName(v.col) : 'Tarefas'),
+      v.since ? ` de ${fmtDate(v.since)}` : '', v.until ? ` a ${fmtDate(v.until)}` : (v.since ? ' até hoje' : '')),
+    h('button', { class: 'btn small', type: 'button', onclick: () => { Object.assign(v, { col: '', since: '', until: '' }); saveView(); route(); } }, 'Ver todas')) : null;
   const body = v.layout === 'list' ? listView(tasks) : v.layout === 'calendar' ? calendarView(tasks) : kanbanView(tasks);
   const waiting = isStaff() ? [] : tasks.filter(t => t.status === 'review');
   shell([
     waiting.length ? h('div', { class: 'card-box waiting-box' }, h('strong', {}, `${waiting.length} entrega${waiting.length > 1 ? 's' : ''} esperando sua revisão: `),
       waiting.map((t, i) => [i ? ', ' : '', h('button', { class: 'link', type: 'button', onclick: () => openTask(t.id) }, t.title)])) : null,
     v.archived ? null : kpis(tasks),
+    dashFilter,
     tasksToolbar(), v.archived ? h('p', { class: 'muted' }, 'Mostrando só as tarefas arquivadas.') : null, body]);
 }
 
@@ -635,7 +653,7 @@ const pctText = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '–');
 function hbars(rows, { colorOf, unit = '' } = {}) {
   const max = Math.max(1, ...rows.map(r => r.value));
   if (!rows.length) return h('p', { class: 'empty' }, 'Sem dados no período.');
-  return h('div', { class: 'hbars' }, rows.map(r => h('div', { class: 'hbar', tabindex: '0', 'data-tip': r.tip || `${r.label}: ${fmtNum(r.value)}${unit}` },
+  return h('div', { class: 'hbars' }, rows.map(r => h(r.go ? 'button' : 'div', { class: 'hbar' + (r.go ? ' clickable' : ''), type: r.go ? 'button' : null, tabindex: '0', onclick: r.go || null, 'data-tip': r.tip || `${r.label}: ${fmtNum(r.value)}${unit}` },
     h('span', { class: 'hbar-label' }, r.icon || null, h('span', {}, r.label)),
     h('span', { class: 'hbar-track' }, h('span', { class: 'hbar-fill' + (colorOf ? ` col-${colorOf(r)}` : ''), style: `width:${(r.value / max) * 100}%` })),
     h('span', { class: 'hbar-value' }, fmtNum(r.value) + unit))));
@@ -643,13 +661,19 @@ function hbars(rows, { colorOf, unit = '' } = {}) {
 // Colunas por semana: uma série, valor no topo de cada coluna.
 function columns(rows) {
   const max = Math.max(1, ...rows.map(r => r.value));
-  return h('div', { class: 'cols-chart' }, rows.map(r => h('div', { class: 'colc', tabindex: '0', 'data-tip': r.tip },
+  return h('div', { class: 'cols-chart' }, rows.map(r => h(r.go ? 'button' : 'div', { class: 'colc' + (r.go ? ' clickable' : ''), type: r.go ? 'button' : null, tabindex: '0', onclick: r.go || null, 'data-tip': r.tip },
     h('span', { class: 'colc-value' }, r.value || ''),
     h('span', { class: 'colc-bar', style: `height:${Math.max(r.value ? 4 : 0, (r.value / max) * 100)}%` }),
     h('span', { class: 'colc-label' }, r.label))));
 }
 const greet = () => { const hr = new Date().getHours(); return hr < 12 ? 'Bom dia' : hr < 18 ? 'Boa tarde' : 'Boa noite'; };
 function weekStart(iso) { const d = new Date(iso + 'T12:00'); const dow = (d.getDay() + 6) % 7; return S.addDays(iso, -dow); }
+
+// Do Dashboard para Tarefas, já com o filtro do número clicado (os outros filtros são limpos).
+function goTasks(filters, layout = 'kanban') {
+  Object.assign(state.view, { kind: '', client: dash.client || '', assignee: '', due: '', rec: '', q: '', archived: false, col: '', since: '', until: '' }, filters, { layout });
+  saveView(); location.hash = '#/tarefas';
+}
 
 async function viewDashboard() {
   const all = (await api('GET', '/api/tasks')).filter(t => !dash.client || String(t.client_id ?? 'org') === dash.client);
@@ -666,9 +690,10 @@ async function viewDashboard() {
   const dueToday = open.filter(t => t.due_date === now).length;
   const next7 = open.filter(t => t.due_date > now && t.due_date <= S.addDays(now, 7)).length;
 
-  const chip = (ic, label, value, sub, cls = '') => h('div', { class: 'hchip ' + cls }, h('span', { class: 'hchip-icon' }, icon(ic)),
+  const chip = (ic, label, value, sub, cls, go) => h('button', { type: 'button', class: 'hchip clickable ' + (cls || ''), onclick: go, title: `Ver ${label.toLowerCase()} em Tarefas` }, h('span', { class: 'hchip-icon' }, icon(ic)),
     h('div', {}, h('div', { class: 'hchip-label' }, label), h('div', { class: 'hchip-value' }, value), h('div', { class: 'hchip-sub' }, sub)));
-  const stat = (label, value, sub, cls = '') => h('div', { class: 'stat ' + cls }, h('div', { class: 'stat-value' }, value), h('div', { class: 'stat-label' }, label), sub ? h('div', { class: 'stat-sub' }, sub) : null);
+  const stat = (label, value, sub, cls, go) => h(go ? 'button' : 'div', { type: go ? 'button' : null, class: 'stat ' + (cls || '') + (go ? ' clickable' : ''), onclick: go || null },
+    h('div', { class: 'stat-value' }, value), h('div', { class: 'stat-label' }, label), sub ? h('div', { class: 'stat-sub' }, sub) : null);
 
   // Concluídas por semana, últimas 8 semanas.
   const weeks = [];
@@ -676,9 +701,12 @@ async function viewDashboard() {
     const start = S.addDays(weekStart(now), -7 * i);
     const end = S.addDays(start, 6);
     const n = all.filter(t => t.status === 'done' && t.completed_on >= start && t.completed_on <= end).length;
-    weeks.push({ label: fmtShort(start), value: n, tip: `Semana de ${fmtDate(start)}: ${n} concluída${n === 1 ? '' : 's'}` });
+    weeks.push({ label: fmtShort(start), value: n, tip: `Semana de ${fmtDate(start)}: ${n} concluída${n === 1 ? '' : 's'}`,
+      go: () => goTasks({ col: 'done', since: start, until: end }, 'list') });
   }
-  const byStatus = boardColumns().map(c => ({ key: c.key, label: c.name, value: all.filter(t => t.column === c.key && (!['done_on_time', 'done_late', 'cancelled'].includes(c.key) || (t.completed_on || t.cancelled_on) >= since)).length }));
+  const closedCol = k => ['done_on_time', 'done_late', 'cancelled'].includes(k);
+  const byStatus = boardColumns().map(c => ({ key: c.key, label: c.name, value: all.filter(t => t.column === c.key && (!closedCol(c.key) || (t.completed_on || t.cancelled_on) >= since)).length,
+    go: () => goTasks({ col: c.key, since: closedCol(c.key) ? since : '' }, 'list') }));
 
   const filterRow = h('div', { class: 'dash-filters' },
     select('d-period', 'Período', dash.period, [[7, 'Últimos 7 dias'], [30, 'Últimos 30 dias'], [90, 'Últimos 90 dias'], [365, 'Últimos 12 meses']], x => { dash.period = Number(x); route(); }),
@@ -698,12 +726,13 @@ async function viewDashboard() {
     const m = new Map();
     for (const t of open) {
       const key = t.client_id || 'org';
-      const r = m.get(key) || { label: where(t), value: 0, late: 0, logo: taskLogo(t, 'xs') };
+      const r = m.get(key) || { key, label: where(t), value: 0, late: 0, logo: taskLogo(t, 'xs') };
       r.value++; if (t.column === 'overdue') r.late++;
       m.set(key, r);
     }
     return [...m.values()].sort((a, b) => b.value - a.value).slice(0, 8)
-      .map(r => ({ ...r, icon: r.logo, tip: `${r.label}: ${r.value} em aberto, ${r.late} atrasada${r.late === 1 ? '' : 's'}` }));
+      .map(r => ({ ...r, icon: r.logo, tip: `${r.label}: ${r.value} em aberto, ${r.late} atrasada${r.late === 1 ? '' : 's'}`,
+        go: () => goTasks({ client: String(r.key) }) }));
   })() : [];
 
   const content = h('div', { class: 'dash' },
@@ -711,22 +740,23 @@ async function viewDashboard() {
       h('div', {}, h('p', { class: 'hello-date' }, (d => d[0].toUpperCase() + d.slice(1))(new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }))),
         h('h2', { class: 'hello-title' }, `${greet()}, ${state.me.name.split(' ')[0]}!`)),
       h('div', { class: 'hello-chips' },
-        chip('check', 'Executadas', weekDone, 'esta semana', 'good'),
-        chip('alert', 'Atrasadas', overdue.length, 'pedem atenção', overdue.length ? 'bad' : ''),
-        chip('clock', 'Hoje', dueToday, 'vencendo', dueToday ? 'warn' : ''),
-        chip('calendar', 'Próximas', next7, '7 dias'))),
+        chip('check', 'Executadas', weekDone, 'esta semana', 'good', () => goTasks({ col: 'done', since: weekStart(now) }, 'list')),
+        chip('alert', 'Atrasadas', overdue.length, 'pedem atenção', overdue.length ? 'bad' : '', () => goTasks({ due: 'overdue' })),
+        chip('clock', 'Hoje', dueToday, 'vencendo', dueToday ? 'warn' : '', () => goTasks({ due: 'today' })),
+        chip('calendar', 'Próximas', next7, '7 dias', '', () => goTasks({ due: 'week' })))),
     filterRow,
     h('div', { class: 'dash-grid' },
       panel('Indicador de produtividade', `Concluídas nos últimos ${dash.period} dias`, h('div', { class: 'stats' },
-        stat('Concluídas', fmtNum(done.length), null),
-        stat('Concluídas no prazo', pctText(onTime, done.length), done.length ? `${onTime} de ${done.length}` : null, done.length ? (onTime / done.length >= 0.8 ? 'good' : 'bad') : ''),
+        stat('Concluídas', fmtNum(done.length), null, '', () => goTasks({ col: 'done', since }, 'list')),
+        stat('Concluídas no prazo', pctText(onTime, done.length), done.length ? `${onTime} de ${done.length}` : null, done.length ? (onTime / done.length >= 0.8 ? 'good' : 'bad') : '',
+          () => goTasks({ col: 'done_on_time', since }, 'list')),
         stat('Tempo médio de execução', avgDays === null ? '–' : `${fmtNum(avgDays)} d`, withStart.length ? 'do início ao término' : 'sem datas de início'),
-        stat('Canceladas', fmtNum(cancelled), null))),
+        stat('Canceladas', fmtNum(cancelled), null, '', () => goTasks({ col: 'cancelled', since }, 'list')))),
       panel('Tarefas por situação', 'Abertas agora; concluídas e canceladas no período',
         hbars(byStatus, { colorOf: r => r.key })),
       panel('Concluídas por semana', 'Últimas 8 semanas', columns(weeks)),
       isStaff() ? panel('Carga do time', 'Em aberto e atrasadas por responsável',
-        people.length ? h('div', { class: 'load' }, people.map(p => h('div', { class: 'load-row', tabindex: '0',
+        people.length ? h('div', { class: 'load' }, people.map(p => h('button', { type: 'button', class: 'load-row clickable', onclick: () => goTasks({ assignee: String(p.u.id) }),
           'data-tip': `${p.u.name}: ${p.open} em aberto, ${p.late} atrasada${p.late === 1 ? '' : 's'}, ${p.done} concluída${p.done === 1 ? '' : 's'} no período (${pctText(p.onTime, p.done)} no prazo)` },
           h('span', { class: 'avatar' }, initials(p.u.name)),
           h('span', { class: 'load-name' }, p.u.name),
@@ -777,22 +807,135 @@ async function viewRecurring() {
 }
 
 // ---------- alertas ----------
+// Alertas. Para a equipe: filtros de empresa e responsável e, com um deles escolhido, a mensagem pronta
+// para o WhatsApp (todas ou uma tarefa) e uma imagem das tarefas para anexar na conversa.
+const alertsFilter = { client: '', who: '' };
 async function viewAlerts() {
   document.title = 'Alertas';
-  const list = await api('GET', '/api/alerts');
-  const overdue = list.filter(t => t.alert.kind === 'overdue');
-  const soon = list.filter(t => t.alert.kind === 'soon');
-  const row = t => h('button', { class: 'alert-row', type: 'button', onclick: () => openTask(t.id) },
-    taskLogo(t),
-    h('span', { class: 'grow' }, h('strong', {}, t.title), h('span', { class: 'muted small' }, ` · ${where(t)} · prazo ${fmtDate(t.due_date)}`)),
-    h('span', { class: 'tag ' + (t.alert.kind === 'overdue' ? 'late' : 'warn') }, S.alertText(t.alert)));
+  const all = await api('GET', '/api/alerts');
+  const row = (t, tools) => h('div', { class: 'alert-row-wrap' },
+    h('button', { class: 'alert-row', type: 'button', onclick: () => openTask(t.id) },
+      taskLogo(t),
+      h('span', { class: 'grow' }, h('strong', {}, t.title), h('span', { class: 'muted small' }, ` · ${where(t)} · prazo ${fmtDate(t.due_date)}`,
+        t.assignees.length ? ` · ${t.assignees.map(a => a.name).join(', ')}` : '')),
+      h('span', { class: 'tag ' + (t.alert.kind === 'overdue' ? 'late' : 'warn') }, S.alertText(t.alert))),
+    tools ? h('div', { class: 'row-tools' },
+      h('button', { class: 'btn small ghost', type: 'button', onclick: () => copyText(waMessage([t])) }, 'Copiar texto'),
+      h('button', { class: 'btn small ghost', type: 'button', onclick: () => imageDialog([t]) }, 'Imagem')) : null);
+  if (!isStaff()) {
+    const overdue = all.filter(t => t.alert.kind === 'overdue'), soon = all.filter(t => t.alert.kind === 'soon');
+    return shell([
+      h('p', { class: 'muted' }, 'Suas entregas atrasadas ou com prazo chegando.'),
+      h('div', { class: 'card-box' }, h('h2', {}, `Atrasadas (${overdue.length})`), overdue.length ? overdue.map(t => row(t)) : h('p', { class: 'muted' }, 'Nenhuma.')),
+      h('div', { class: 'card-box' }, h('h2', {}, `Prazo chegando (${soon.length})`), soon.length ? soon.map(t => row(t)) : h('p', { class: 'muted' }, 'Nenhuma.'))]);
+  }
+  const f = alertsFilter;
+  const clients = [...new Map(all.filter(t => t.client_id).map(t => [t.client_id, t.client_name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const people = [...new Map(all.flatMap(t => t.assignees).map(a => [a.id, a])).values()].sort((a, b) => a.name.localeCompare(b.name));
+  const list = all.filter(t => (!f.client || (f.client === 'org' ? !t.client_id : t.client_id === Number(f.client)))
+    && (!f.who || t.assignees.some(a => a.id === Number(f.who))));
+  const overdue = list.filter(t => t.alert.kind === 'overdue'), soon = list.filter(t => t.alert.kind === 'soon');
+  const set = (k, v) => { f[k] = v; route(); };
+  const filtered = !!(f.client || f.who);
+  const whoName = f.who ? (people.find(p => p.id === Number(f.who)) || {}).name : null;
+  const clientName = f.client && f.client !== 'org' ? (clients.find(c => String(c[0]) === f.client) || [])[1] : null;
+  const preview = h('textarea', { class: 'wa-text', rows: 8, readonly: true, 'aria-label': 'Mensagem para o WhatsApp' }, waMessage(list, { to: whoName, client: clientName }));
   shell([
-    h('p', { class: 'muted' }, isStaff()
-      ? 'Tarefas atrasadas e as que entraram na janela de aviso escolhida em cada tarefa (no dia, 1 dia, 3 dias ou 1 semana antes).'
-      : 'Suas entregas atrasadas ou com prazo chegando.'),
-    h('div', { class: 'card-box' }, h('h2', {}, `Atrasadas (${overdue.length})`), overdue.length ? overdue.map(row) : h('p', { class: 'muted' }, 'Nenhuma.')),
-    h('div', { class: 'card-box' }, h('h2', {}, `Prazo chegando (${soon.length})`), soon.length ? soon.map(row) : h('p', { class: 'muted' }, 'Nenhuma.')),
+    h('p', { class: 'muted' }, 'Tarefas atrasadas e as que entraram na janela de aviso escolhida em cada tarefa (no dia, 1 dia, 3 dias ou 1 semana antes).'),
+    h('div', { class: 'toolbar' }, h('div', { class: 'filters open' },
+      select('a-client', 'Empresa', f.client, [['', 'Todas as empresas'], ['org', `${state.org.name} (interna)`], ...clients], x => set('client', x)),
+      select('a-who', 'Responsável', f.who, [['', 'Todos os responsáveis'], ...people.map(p => [p.id, p.name + (p.role === 'client' ? ' (cliente)' : '')])], x => set('who', x)))),
+    filtered && list.length ? h('div', { class: 'card-box wa-box' },
+      h('h2', {}, 'Mensagem para o WhatsApp'),
+      h('p', { class: 'muted small' }, `Para ${whoName || clientName || 'quem você escolher'}: copie o texto e cole na conversa, ou gere uma imagem para anexar. Cada tarefa também tem o seu botão.`),
+      preview,
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary', type: 'button', onclick: () => copyText(preview.value) }, `Copiar mensagem (${list.length})`),
+        h('a', { class: 'btn', href: `https://wa.me/?text=${encodeURIComponent(preview.value)}`, target: '_blank', rel: 'noopener' }, 'Abrir no WhatsApp'),
+        h('button', { class: 'btn', type: 'button', onclick: () => imageDialog(list, { to: whoName, client: clientName }) }, `Gerar imagem (${list.length})`)))
+      : !filtered ? h('p', { class: 'muted small' }, 'Escolha uma empresa ou um responsável para montar a mensagem pronta para o WhatsApp.') : null,
+    h('div', { class: 'card-box' }, h('h2', {}, `Atrasadas (${overdue.length})`), overdue.length ? overdue.map(t => row(t, true)) : h('p', { class: 'muted' }, 'Nenhuma.')),
+    h('div', { class: 'card-box' }, h('h2', {}, `Prazo chegando (${soon.length})`), soon.length ? soon.map(t => row(t, true)) : h('p', { class: 'muted' }, 'Nenhuma.')),
   ]);
+}
+
+// Texto pronto para o WhatsApp (negrito com *asteriscos*).
+function waMessage(tasks, { to, client } = {}) {
+  const first = to ? to.split(' ')[0] : null;
+  const line = t => `• *${t.title}*${t.client_name ? ` (${t.client_name})` : ''}: prazo ${fmtDate(t.due_date)}, ${S.alertText(t.alert).toLowerCase()}` +
+    (t.progress && !['done', 'cancelled'].includes(t.status) ? `, ${t.progress}% feito` : '');
+  const hello = `Olá${first ? `, ${first}` : ''}!`;
+  const sign = `\n\n${state.me.name.split(' ')[0]} · ${state.org.name}`;
+  if (tasks.length === 1) return `${hello} Passando para lembrar da tarefa ${line(tasks[0]).slice(2)}.${sign}`;
+  const late = tasks.filter(t => t.alert.kind === 'overdue'), soon = tasks.filter(t => t.alert.kind === 'soon');
+  return `${hello} Segue a situação das tarefas${client ? ` da ${client}` : ''}:` +
+    (late.length ? `\n\n🔴 *Atrasadas*\n${late.map(line).join('\n')}` : '') +
+    (soon.length ? `\n\n🟡 *Prazo chegando*\n${soon.map(line).join('\n')}` : '') +
+    `\n\nQualquer dúvida, é só falar.${sign}`;
+}
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast('Mensagem copiada. Agora é só colar no WhatsApp.'); return; } catch { /* sem acesso à área de transferência */ }
+  const ta = h('textarea', { style: 'position:fixed;opacity:0' }, text);
+  document.body.append(ta); ta.select();
+  const ok = document.execCommand && document.execCommand('copy'); ta.remove();
+  if (ok) { toast('Mensagem copiada. Agora é só colar no WhatsApp.'); return; }
+  modal(close => h('div', {}, h('h2', {}, 'Copie a mensagem'), h('p', { class: 'muted small' }, 'Este aparelho não deixou copiar sozinho: selecione o texto e copie.'),
+    h('textarea', { class: 'wa-text', rows: 10 }, text), h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar'))));
+}
+
+// Imagem das tarefas (PNG) para anexar no WhatsApp.
+function alertsImage(tasks, { to, client } = {}) {
+  const W = 1080, pad = 56, scale = 1;
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  const font = (w, size) => `${w} ${size}px "Plus Jakarta Sans", Arial, sans-serif`;
+  const wrap = (text, size, w, max) => {
+    ctx.font = font(700, size);
+    const words = text.split(' '); const lines = []; let cur = '';
+    for (const word of words) { const t = cur ? `${cur} ${word}` : word; if (ctx.measureText(t).width > max && cur) { lines.push(cur); cur = word; } else cur = t; }
+    if (cur) lines.push(cur);
+    return lines;
+  };
+  const rows = tasks.map(t => ({ t, lines: wrap(t.title, 34, 700, W - pad * 2 - 40) }));
+  const H = 230 + rows.reduce((n, r) => n + 40 + r.lines.length * 44 + 60, 0) + 90;
+  c.width = W * scale; c.height = H * scale; ctx.scale(scale, scale);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
+  const g = ctx.createLinearGradient(0, 0, W, 0); g.addColorStop(0, '#FBD200'); g.addColorStop(0.55, '#FF6A00'); g.addColorStop(1, '#FB4F14');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, 14);
+  ctx.fillStyle = '#121826'; ctx.font = font(800, 44); ctx.fillText(tasks.length === 1 ? 'Lembrete de tarefa' : 'Tarefas com prazo', pad, 100);
+  ctx.fillStyle = '#5b6475'; ctx.font = font(500, 28);
+  ctx.fillText([to ? `Para ${to}` : client ? client : null, `${state.org.name} · ${fmtDate(today())}`].filter(Boolean).join(' · '), pad, 148);
+  let y = 210;
+  for (const { t, lines } of rows) {
+    const late = t.alert.kind === 'overdue';
+    const h0 = 40 + lines.length * 44 + 60;
+    ctx.fillStyle = late ? '#fef3f2' : '#fffaeb'; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(pad, y, W - pad * 2, h0 - 16, 18); else ctx.rect(pad, y, W - pad * 2, h0 - 16); ctx.fill();
+    ctx.fillStyle = late ? '#b42318' : '#b54708'; ctx.beginPath(); ctx.arc(pad + 30, y + 46, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#121826'; ctx.font = font(700, 34);
+    lines.forEach((l, i) => ctx.fillText(l, pad + 56, y + 58 + i * 44));
+    ctx.fillStyle = late ? '#b42318' : '#b54708'; ctx.font = font(600, 26);
+    ctx.fillText([t.client_name || `${state.org.name}`, `Prazo ${fmtDate(t.due_date)}`, S.alertText(t.alert)].join(' · '), pad + 56, y + 58 + lines.length * 44 + 4);
+    y += h0;
+  }
+  ctx.fillStyle = '#8a93a3'; ctx.font = font(500, 24); ctx.fillText('Painel de Tarefas Opps', pad, H - 40);
+  return c;
+}
+function imageDialog(tasks, opts) {
+  const canvas = alertsImage(tasks, opts);
+  const url = canvas.toDataURL('image/png');
+  const name = `tarefas-${today()}.png`;
+  modal(close => h('div', {},
+    h('h2', {}, 'Imagem para o WhatsApp'),
+    h('img', { src: url, alt: 'Imagem das tarefas', class: 'wa-img' }),
+    h('div', { class: 'row', style: 'margin-top:12px' },
+      h('a', { class: 'btn primary', href: url, download: name }, 'Baixar imagem'),
+      navigator.canShare ? h('button', { class: 'btn', type: 'button', onclick: guard(async () => {
+        const blob = await (await fetch(url)).blob();
+        const file = new File([blob], name, { type: 'image/png' });
+        if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file] }); else toast('Este aparelho não compartilha imagens daqui: use Baixar imagem.');
+      }) }, 'Compartilhar') : null,
+      h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar'))));
 }
 
 // ---------- diálogos ----------
@@ -904,12 +1047,20 @@ function cancelDialog(t, after) {
 // ---------- campos de tarefa (nova e detalhe) ----------
 function staffUsers() { return state.users.filter(u => u.role !== 'client' && u.active); }
 // Responsáveis: a equipe e, se a tarefa aparece para o cliente, as pessoas daquele cliente.
-function assigneeChecks(selected = [], task = null) {
-  const clients = task ? state.users.filter(u => u.active && S.clientAssignable(u, task)) : [];
+// Com empresa: os administradores, quem da equipe acompanha o cliente (Clientes → Equipe) e as pessoas do cliente
+// quando ele vê a tarefa. Sem empresa: toda a equipe. Quem já está marcado continua aparecendo.
+function assigneeChecks(selected = [], task = null, { strict = false } = {}) {
+  const cid = task?.client_id ? Number(task.client_id) : null;
+  const kept = id => !strict && selected.includes(id);
+  const staff = staffUsers().filter(u => !cid || u.role === 'admin' || (u.client_ids || []).includes(cid) || kept(u.id));
+  const clients = task ? state.users.filter(u => u.active && (S.clientAssignable(u, task) || (u.role === 'client' && kept(u.id)))) : [];
   const box = (u, suffix) => h('label', {}, h('input', { type: 'checkbox', name: 'assignee', value: u.id, checked: selected.includes(u.id) }), u.name, suffix);
-  return h('div', { class: 'checks', role: 'group', 'aria-label': 'Responsáveis' },
-    staffUsers().map(u => box(u)),
-    clients.map(u => box(u, h('span', { class: 'muted small' }, ' (cliente)'))));
+  const noTeam = cid && !staffUsers().some(u => u.role === 'member' && (u.client_ids || []).includes(cid));
+  return h('div', {},
+    h('div', { class: 'checks', role: 'group', 'aria-label': 'Responsáveis' },
+      staff.map(u => box(u, u.role === 'admin' ? h('span', { class: 'muted small' }, ' (adm.)') : null)),
+      clients.map(u => box(u, h('span', { class: 'muted small' }, ' (cliente)')))),
+    noTeam ? h('p', { class: 'muted small' }, 'Ninguém da equipe acompanha este cliente ainda. Para incluir alguém, marque em Clientes → Equipe.') : null);
 }
 function alertChecks(selected = []) {
   return h('div', { class: 'checks', role: 'group', 'aria-label': 'Alertas' },
@@ -917,23 +1068,31 @@ function alertChecks(selected = []) {
 }
 // Tipo e empresa juntos: externa exige cliente; interna aceita a própria consultoria ou um cliente relacionado.
 // Interna ligada a um cliente pode ficar visível para ele; sem cliente, só quem criou e os responsáveis veem.
-function kindClientFields(prefix, kind, clientId, visible, onchange) {
+// Tipo, empresa e quem vê. Interna vem primeiro. "A equipe vê" (team_visible): na externa, a equipe que
+// acompanha o cliente (desmarcado: só os responsáveis e o administrador); na interna sem cliente, toda a equipe.
+function kindClientFields(prefix, kind, clientId, visible, onchange, { team, showTeam = true } = {}) {
   const clientSel = h('select', { id: `${prefix}-client`, name: 'client_id' });
   const hint = h('p', { class: 'muted small' });
   const vis = h('input', { type: 'checkbox', id: `${prefix}-vis`, checked: !!visible });
   const visRow = h('label', { class: 'check inline', for: `${prefix}-vis` }, vis, 'Visível para o cliente');
-  const value = () => ({ kind, client_id: clientSel.value ? Number(clientSel.value) : null, client_visible: kind === 'internal' && !!clientSel.value && vis.checked });
+  const teamBox = h('input', { type: 'checkbox', id: `${prefix}-team`, checked: team ?? kind === 'external' });
+  const teamText = h('span', {});
+  const teamRow = h('label', { class: 'check inline', for: `${prefix}-team`, hidden: !showTeam }, teamBox, teamText);
+  const value = () => ({ kind, client_id: clientSel.value ? Number(clientSel.value) : null, client_visible: kind === 'internal' && !!clientSel.value && vis.checked,
+    ...(showTeam ? { team_visible: teamBox.checked } : {}) });
   const refresh = () => {
-    const internalWithClient = kind === 'internal' && !!clientSel.value;
+    const withClient = !!clientSel.value;
+    const internalWithClient = kind === 'internal' && withClient;
     visRow.hidden = !internalWithClient;
+    teamText.textContent = withClient ? 'A equipe que acompanha o cliente vê' : 'Toda a equipe vê';
     const seen = kind === 'external' || (internalWithClient && vis.checked);
     const c = state.clients.find(x => x.id === Number(clientSel.value));
     const noAccess = seen && c && state.users && !state.users.some(u => u.role === 'client' && u.client_id === c.id && u.active);
-    hint.textContent = (kind === 'external'
-      ? 'Externa: a equipe toda vê, e o cliente vê no portal dele.'
-      : internalWithClient && vis.checked
-        ? 'Interna visível: o cliente vê; da equipe, só quem criou e os responsáveis.'
-        : 'Interna: só quem criou e os responsáveis veem. O cliente não vê.') +
+    const team = !showTeam ? '' : teamBox.checked
+      ? (withClient ? ' Da equipe: os responsáveis, o administrador e quem acompanha o cliente.' : ' Toda a equipe vê.')
+      : (kind === 'external' ? ' Da equipe: só os responsáveis e o administrador.' : ' Da equipe: só quem criou e os responsáveis.');
+    hint.textContent = (kind === 'external' ? 'Externa: o cliente vê no portal dele.'
+      : internalWithClient && vis.checked ? 'Interna visível: o cliente vê.' : 'Interna: o cliente não vê.') + team +
       (noAccess ? ` Atenção: ${c.name} ainda não tem acesso de cliente; cadastre a pessoa em Pessoas.` : '');
   };
   const fill = k => {
@@ -945,16 +1104,17 @@ function kindClientFields(prefix, kind, clientId, visible, onchange) {
   };
   const changed = () => { refresh(); onchange && onchange(value()); };
   const radios = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'Tipo' },
-    [['external', 'Externa (de cliente)'], ['internal', 'Interna (nossa)']].map(([v, l]) =>
+    [['internal', 'Interna (nossa)'], ['external', 'Externa (de cliente)']].map(([v, l]) =>
       h('label', { class: 'seg-btn' }, h('input', { type: 'radio', name: `${prefix}-kind`, value: v, checked: v === kind, class: 'sr-only',
-        onchange: () => { kind = v; clientId = clientSel.value; fill(v); changed(); } }), l)));
+        onchange: () => { kind = v; clientId = clientSel.value; teamBox.checked = v === 'external'; fill(v); changed(); } }), l)));
   clientSel.addEventListener('change', changed);
   vis.addEventListener('change', changed);
+  teamBox.addEventListener('change', changed);
   fill(kind);
   return {
     el: h('div', {},
       h('div', { class: 'field' }, h('span', { class: 'label' }, 'Tipo'), radios),
-      h('div', { class: 'field' }, h('label', { for: `${prefix}-client` }, 'Empresa'), clientSel, visRow, hint)),
+      h('div', { class: 'field' }, h('label', { for: `${prefix}-client` }, 'Empresa'), clientSel, h('div', { class: 'vis-rows' }, visRow, teamRow), hint)),
     value,
   };
 }
@@ -993,12 +1153,22 @@ function newTaskModal({ recurring = false } = {}) {
     const who = h('div', {});
     const paintWho = v => {
       const keep = [...who.querySelectorAll('input:checked')].map(i => Number(i.value));
-      who.replaceChildren(assigneeChecks(keep.length || who.dataset.init ? keep : [state.me.id], v)); who.dataset.init = '1';
+      who.replaceChildren(assigneeChecks(keep.length || who.dataset.init ? keep : [state.me.id], v, { strict: true })); who.dataset.init = '1';
     };
-    const kc = kindClientFields('n', state.clients.length ? 'external' : 'internal', state.view.client && state.view.client !== 'org' ? Number(state.view.client) : null, false, paintWho);
+    const kc = kindClientFields('n', 'internal', state.view.client && state.view.client !== 'org' ? Number(state.view.client) : null, false, paintWho);
     paintWho(kc.value());
     const rec = recurrenceFields('n', recurring ? 'monthly' : 'none', '', { required: recurring });
     const ck = checklistBuilder();
+    // Anexos escolhidos antes de criar: sobem logo depois que a tarefa é criada.
+    const files = [];
+    const fileList = h('ul', { class: 'attach-list' });
+    const hideFiles = h('input', { type: 'checkbox', id: 'n-at-hide' });
+    const paintFiles = () => fileList.replaceChildren(...files.map((f, i) => h('li', {}, h('span', { class: 'grow' }, '📎 ', f.name),
+      h('button', { class: 'btn ghost small', type: 'button', 'aria-label': `Tirar ${f.name}`, onclick: () => { files.splice(i, 1); paintFiles(); } }, '✕'))));
+    const filePick = h('input', { type: 'file', id: 'n-files', multiple: true, class: 'sr-only', onchange: e => {
+      for (const f of e.target.files) { if (f.size > 10 * 1024 * 1024) toast(`${f.name}: grande demais (máximo 10 MB)`); else files.push(f); }
+      e.target.value = ''; paintFiles();
+    } });
     const tplSel = h('select', { id: 'n-tpl', name: 'template_id', onchange: e => {
       const tpl = state.templates.find(x => String(x.id) === e.target.value);
       ck.set(tpl ? tpl.checklist : []);
@@ -1014,7 +1184,11 @@ function newTaskModal({ recurring = false } = {}) {
           due_date: fd.get('due_date') || null, priority: fd.get('priority'),
           alerts: fd.getAll('alert').map(Number), assignee_ids: fd.getAll('assignee').map(Number),
         });
-        close(); toastCreated(kc.value()); await route(); openTask(id);
+        for (const f of files) {
+          try { await api('POST', `/api/tasks/${id}/attachments`, { name: f.name, data: await readFileData(f), visible_to_client: !hideFiles.checked }); }
+          catch (ex) { toast(`Anexo ${f.name}: ${ex.message}`, 6000); }
+        }
+        close(); toastCreated(kc.value()); route();
       } catch (ex) { err.textContent = ex.message; }
     } },
       h('h2', {}, recurring ? 'Nova tarefa recorrente' : 'Nova tarefa'),
@@ -1032,6 +1206,10 @@ function newTaskModal({ recurring = false } = {}) {
       h('div', { class: 'field' }, h('span', { class: 'label' }, 'Alertas do prazo'), alertChecks([1])),
       recurring ? null : rec.el,
       h('div', { class: 'field' }, h('span', { class: 'label' }, 'Responsáveis'), who),
+      h('div', { class: 'field' }, h('span', { class: 'label' }, 'Anexos (opcional)'), fileList,
+        h('div', { class: 'row' }, h('label', { class: 'btn file-btn', for: 'n-files' }, filePick, '📎 Escolher arquivos'),
+          h('label', { class: 'check inline', for: 'n-at-hide' }, hideFiles, 'Só a equipe vê')),
+        h('p', { class: 'muted small' }, 'Até 10 MB por arquivo.')),
       err,
       h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, 'Criar tarefa'),
         h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
@@ -1152,13 +1330,19 @@ async function openTask(id) {
         t.recurrence !== 'none' ? h('span', { class: 'tag' }, '↻ ' + S.RECURRENCE[t.recurrence]) : null,
         t.archived_at ? h('span', { class: 'tag' }, 'Arquivada') : null),
 
+      h('p', { class: 'who-did detail' }, [
+        t.created_by_name ? `Criada por ${t.created_by_name} em ${fmtDate(t.created_at.slice(0, 10))}` : null,
+        t.start_date && t.started_by_name ? `Iniciada por ${t.started_by_name} em ${fmtDate(t.start_date)}` : null,
+        t.status === 'done' && t.completed_by_name ? `Concluída por ${t.completed_by_name} em ${fmtDate(t.completed_on)}` : null,
+        t.status === 'cancelled' && t.cancelled_by_name ? `Cancelada por ${t.cancelled_by_name} em ${fmtDate(t.cancelled_on)}` : null,
+      ].filter(Boolean).join(' · ') || null),
       !staff && t.status === 'review' ? clientDecision() : null,
       statusRow(status),
 
       // Principais, na ordem pedida.
       h('div', { class: 'card-box main-fields' },
         staff ? kindClientFields('d', val('kind'), val('client_id'), val('client_visible'), v => {
-          set('kind', v.kind); set('client_id', v.client_id); set('client_visible', v.client_visible, true);
+          set('kind', v.kind); set('client_id', v.client_id); set('team_visible', v.team_visible); set('client_visible', v.client_visible, true);
         }).el : field('Empresa', h('p', { class: 'with-logo' }, taskLogo(t), where(t))),
         field('Data de início (quando começou)', canEditProgress()
           ? h('input', { id: 'd-start', type: 'date', value: val('start_date') || '', onchange: e => set('start_date', e.target.value || null, true) })
@@ -1521,6 +1705,132 @@ async function viewTemplates() {
   ]);
 }
 
+// ---------- compromissos (agenda) ----------
+// Reuniões e compromissos marcados aqui. Depois: ligar com Google Agenda e Outlook.
+const evView = { layout: 'list', month: '', past: false };
+async function viewEvents() {
+  const v = evView;
+  const month = v.month || today().slice(0, 7);
+  const [y, m] = month.split('-').map(Number);
+  const from = v.layout === 'month' ? `${month}-01` : v.past ? S.addDays(today(), -90) : today();
+  const to = v.layout === 'month' ? S.addDays(S.addMonths(`${month}-01`, 1), -1) : v.past ? S.addDays(today(), -1) : S.addDays(today(), 90);
+  const events = await api('GET', `/api/events?from=${from}&to=${to}`);
+  const when = e => [e.start_time, e.end_time].filter(Boolean).join('–');
+  const byDay = new Map();
+  for (const e of events) (byDay.get(e.date) || byDay.set(e.date, []).get(e.date)).push(e);
+  const dayTitle = d => (s => s[0].toUpperCase() + s.slice(1))(new Date(d + 'T12:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }));
+  const item = e => h('button', { type: 'button', class: 'ev-item', onclick: () => eventDialog(e) },
+    h('span', { class: 'ev-time' }, when(e) || 'Dia todo'),
+    h('span', { class: 'grow' }, h('strong', {}, e.title),
+      h('span', { class: 'muted small' }, [e.client_name, e.location, e.participants.map(p => p.name.split(' ')[0]).join(', ')].filter(Boolean).map(x => ` · ${x}`).join(''))));
+  const chip = e => h('button', { type: 'button', class: 'chip ev-chip', onclick: () => eventDialog(e), title: `${when(e)} ${e.title}` },
+    h('span', {}, `${e.start_time ? e.start_time + ' ' : ''}${e.title}`));
+  const shift = n => { v.month = S.addMonths(`${month}-01`, n).slice(0, 7); route(); };
+  let body;
+  if (v.layout === 'month') {
+    const startDow = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+    const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const cells = [];
+    for (let i = 0; i < startDow; i++) cells.push(h('div', { class: 'cal-cell out', 'aria-hidden': 'true' }));
+    for (let d = 1; d <= days; d++) {
+      const iso = `${month}-${String(d).padStart(2, '0')}`;
+      cells.push(h('div', { class: 'cal-cell' + (iso === today() ? ' today' : '') }, h('div', { class: 'cal-day' }, d), (byDay.get(iso) || []).map(chip),
+        isStaff() ? h('button', { class: 'cal-add', type: 'button', 'aria-label': `Marcar em ${fmtDate(iso)}`, onclick: () => eventDialog(null, iso) }, '+') : null));
+    }
+    body = h('div', { class: 'card-box calendar' },
+      h('div', { class: 'cal-nav' },
+        h('button', { class: 'btn small', type: 'button', onclick: () => shift(-1), 'aria-label': 'Mês anterior' }, '‹'),
+        h('h2', {}, `${MONTHS[m - 1][0].toUpperCase()}${MONTHS[m - 1].slice(1)} de ${y}`),
+        h('button', { class: 'btn small', type: 'button', onclick: () => shift(1), 'aria-label': 'Próximo mês' }, '›'),
+        h('button', { class: 'btn small', type: 'button', onclick: () => { v.month = ''; route(); } }, 'Hoje')),
+      h('div', { class: 'cal-grid' }, ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => h('div', { class: 'cal-dow' }, d)), cells),
+      h('div', { class: 'agenda' }, byDay.size ? [...byDay.keys()].map(d => h('div', { class: 'agenda-day' + (d === today() ? ' today' : '') }, h('h3', {}, dayTitle(d)), byDay.get(d).map(item)))
+        : h('p', { class: 'muted' }, 'Nenhum compromisso neste mês.')));
+  } else {
+    const days = [...byDay.keys()];
+    if (v.past) days.reverse();
+    body = h('div', { class: 'card-box' },
+      days.length ? days.map(d => h('section', { class: 'ev-day' + (d === today() ? ' today' : '') }, h('h3', {}, d === today() ? `Hoje · ${dayTitle(d)}` : dayTitle(d)), byDay.get(d).map(item)))
+        : h('p', { class: 'empty' }, v.past ? 'Nenhum compromisso nos últimos 90 dias.' : 'Nenhum compromisso marcado nos próximos 90 dias.'));
+  }
+  shell([
+    h('div', { class: 'toolbar' },
+      h('div', { class: 'seg', role: 'group', 'aria-label': 'Visualização' },
+        [['list', 'Lista', 'list'], ['month', 'Mês', 'calendar']].map(([k, l, ic]) => h('button', { type: 'button', class: 'seg-btn', 'aria-pressed': String(v.layout === k),
+          onclick: () => { v.layout = k; route(); } }, icon(ic), l))),
+      v.layout === 'list' ? h('button', { class: 'btn', type: 'button', onclick: () => { v.past = !v.past; route(); } }, v.past ? 'Ver próximos' : 'Ver anteriores') : null,
+      isStaff() ? h('button', { class: 'btn primary', type: 'button', onclick: () => eventDialog(null) }, icon('plus'), 'Novo compromisso') : null),
+    body,
+    h('p', { class: 'muted small' }, 'Em breve: ligar com o Google Agenda e o Outlook.'),
+  ], { sub: isStaff() ? 'Reuniões e compromissos da equipe e com os clientes' : 'Reuniões e compromissos de que você participa' });
+}
+
+// Detalhe, criação e edição de um compromisso.
+function eventDialog(e, day) {
+  const mine = e && (isAdmin() || e.created_by === state.me.id);
+  if (e && !mine) {
+    return modal(close => h('div', {}, eventInfo(e), h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar'))));
+  }
+  modal(close => {
+    const err = h('p', { class: 'error', role: 'alert' });
+    const clientSel = h('select', { id: 'ev-client', name: 'client_id' }, h('option', { value: '' }, `Nenhuma (${state.org.name})`),
+      state.clients.map(c => h('option', { value: c.id, selected: e?.client_id === c.id }, c.name)));
+    const people = h('div', {});
+    const paintPeople = () => {
+      const keep = people.dataset.init ? [...people.querySelectorAll('input:checked')].map(i => Number(i.value)) : (e ? e.participants.map(p => p.id) : [state.me.id]);
+      people.dataset.init = '1';
+      const cid = Number(clientSel.value) || null;
+      const staff = state.users.filter(u => u.role !== 'client' && u.active);
+      const clientPeople = state.users.filter(u => u.role === 'client' && u.active && (u.client_id === cid || keep.includes(u.id)));
+      const box = u => h('label', {}, h('input', { type: 'checkbox', value: u.id, checked: keep.includes(u.id) }), u.name, u.role === 'client' ? h('span', { class: 'muted small' }, ' (cliente)') : null);
+      people.replaceChildren(h('div', { class: 'checks', role: 'group', 'aria-label': 'Participantes' }, staff.map(box), clientPeople.map(box)));
+    };
+    clientSel.addEventListener('change', paintPeople);
+    paintPeople();
+    const f = (label, id, input) => h('div', { class: 'field' }, h('label', { for: id }, label), input);
+    return h('form', { onsubmit: async ev => {
+      ev.preventDefault();
+      const fd = new FormData(ev.target);
+      const body = { title: fd.get('title'), date: fd.get('date'), start_time: fd.get('start_time') || null, end_time: fd.get('end_time') || null,
+        location: fd.get('location'), notes: fd.get('notes'), client_id: clientSel.value ? Number(clientSel.value) : null,
+        user_ids: [...people.querySelectorAll('input:checked')].map(i => Number(i.value)) };
+      try {
+        await api(e ? 'PATCH' : 'POST', e ? `/api/events/${e.id}` : '/api/events', body);
+        close(); toast(e ? 'Compromisso salvo' : 'Compromisso marcado'); route();
+      } catch (ex) { err.textContent = ex.message; }
+    } },
+      h('h2', {}, e ? 'Editar compromisso' : 'Novo compromisso'),
+      f('O quê', 'ev-title', h('input', { id: 'ev-title', name: 'title', required: true, maxlength: 200, value: e?.title || '', placeholder: 'Ex.: Reunião de alinhamento' })),
+      h('div', { class: 'grid3' },
+        f('Data', 'ev-date', h('input', { id: 'ev-date', name: 'date', type: 'date', required: true, value: e?.date || day || today() })),
+        f('Início', 'ev-start', h('input', { id: 'ev-start', name: 'start_time', type: 'time', value: e?.start_time || '' })),
+        f('Fim', 'ev-end', h('input', { id: 'ev-end', name: 'end_time', type: 'time', value: e?.end_time || '' }))),
+      f('Empresa', 'ev-client', clientSel),
+      h('div', { class: 'field' }, h('span', { class: 'label' }, 'Participantes'), people),
+      f('Local ou link (Meet, Teams, Zoom)', 'ev-loc', h('input', { id: 'ev-loc', name: 'location', maxlength: 500, value: e?.location || '', placeholder: 'https://meet.google.com/...' })),
+      f('Observações', 'ev-notes', h('textarea', { id: 'ev-notes', name: 'notes', rows: 3 }, e?.notes || '')),
+      err,
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary', type: 'submit' }, e ? 'Salvar' : 'Marcar'),
+        h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar'),
+        e ? h('button', { class: 'btn danger', type: 'button', style: 'margin-left:auto', onclick: guard(async () => {
+          if (!(await ask(`Apagar o compromisso "${e.title}"?`, { ok: 'Apagar', danger: true }))) return;
+          await api('DELETE', `/api/events/${e.id}`); close(); toast('Compromisso apagado'); route();
+        }) }, 'Apagar') : null));
+  });
+}
+function eventInfo(e) {
+  const link = /^https?:\/\//.test(e.location || '');
+  return h('div', {},
+    h('h2', {}, e.title),
+    h('p', {}, fmtDate(e.date), e.start_time ? ` · ${[e.start_time, e.end_time].filter(Boolean).join(' às ')}` : ' · dia todo'),
+    e.client_name ? h('p', { class: 'muted' }, e.client_name) : null,
+    e.location ? h('p', {}, link ? h('a', { href: e.location, target: '_blank', rel: 'noopener' }, 'Entrar na reunião') : e.location) : null,
+    e.participants.length ? h('p', { class: 'muted small' }, 'Participantes: ', e.participants.map(p => p.name).join(', ')) : null,
+    e.notes ? h('p', { class: 'pre' }, e.notes) : null,
+    h('p', { class: 'muted small' }, `Marcado por ${e.created_by_name || '–'}`));
+}
+
 // ---------- reuniões: ata em PDF, triagem e OK ----------
 const readFileData = file => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -1698,7 +2008,7 @@ function meetingItemCard(it) {
       saved.textContent = 'Salvo'; clearTimeout(timer); timer = setTimeout(() => { saved.textContent = ''; }, 1500);
     } catch (ex) { toast(ex.message, 5000); }
   }));
-  const kc = kindClientFields(p, it.kind, it.client_id, it.client_visible, v => save(v));
+  const kc = kindClientFields(p, it.kind, it.client_id, it.client_visible, v => save(v), { showTeam: false });
   const field = (label, id, input) => h('div', { class: 'field' }, h('label', { for: id }, label), input);
   const who = h('div', { class: 'checks', role: 'group', 'aria-label': 'Responsáveis' },
     staffUsers().map(u => h('label', {}, h('input', { type: 'checkbox', value: u.id, checked: it.assignee_ids.includes(u.id),
@@ -1736,18 +2046,162 @@ function meetingItemCard(it) {
 }
 
 // ---------- relatório ----------
+// Central de relatórios: escolhe o relatório, filtra e baixa em Excel ou PDF (public/exports.js).
+// Tudo sai das tarefas que a pessoa pode ver (inclusive arquivadas).
+const repState = { type: 'resumo', from: '', to: '', client: '', who: '', kind: '', col: '', horizon: 15 };
+const REPORTS = [
+  ['resumo', 'Resumo geral', 'Os números do período em uma tabela'],
+  ['empresa', 'Por empresa', 'Abertas, atrasadas, no prazo e ajustes de cada cliente'],
+  ['responsavel', 'Por responsável', 'Carga, atrasos, % no prazo e tempo de execução por pessoa'],
+  ['prazos', 'Prazos', 'Atrasadas e as que vencem nos próximos dias'],
+  ['concluidas', 'Concluídas', 'O que foi entregue no período, quem iniciou e quem concluiu'],
+  ['canceladas', 'Canceladas', 'O que foi cancelado, por quem e o motivo'],
+  ['evolucao', 'Evolução mensal', 'Criadas, concluídas e canceladas mês a mês'],
+  ['ajustes', 'Ajustes', 'Retrabalho interno e pedidos do cliente por empresa'],
+  ['recorrentes', 'Recorrentes', 'Tarefas que se repetem e o próximo prazo'],
+  ['lista', 'Lista completa', 'Todas as tarefas com os filtros escolhidos'],
+];
 async function viewReport() {
-  document.title = 'Relatório';
-  const rows = await api('GET', '/api/report/adjustments');
-  const pct = r => (r.on_time + r.late ? Math.round((r.on_time / (r.on_time + r.late)) * 100) + '%' : '–');
+  document.title = 'Relatórios';
+  const r = repState;
+  if (!r.from) { r.from = S.addDays(today(), -30); r.to = today(); }
+  const [active, archived] = await Promise.all([api('GET', '/api/tasks'), api('GET', '/api/tasks?archived=1')]);
+  const tasks = active.concat(archived).filter(t => (!r.client || (r.client === 'org' ? !t.client_id : t.client_id === Number(r.client)))
+    && (!r.who || t.assignees.some(a => a.id === Number(r.who))) && (!r.kind || t.kind === r.kind)
+    && (!r.col || (r.col === 'open' ? !['done', 'cancelled'].includes(t.status) : r.col === 'done' ? t.status === 'done' : t.column === r.col)));
+  const rep = buildReport(r.type, tasks, r);
+  const set = (k, v) => { r[k] = v; route(); };
+  const filters = h('div', { class: 'filters open rep-filters' },
+    h('label', { class: 'rep-date' }, 'De ', h('input', { type: 'date', id: 'r-from', value: r.from, onchange: e => set('from', e.target.value || r.from) })),
+    h('label', { class: 'rep-date' }, 'Até ', h('input', { type: 'date', id: 'r-to', value: r.to, onchange: e => set('to', e.target.value || r.to) })),
+    select('r-client', 'Empresa', r.client, [['', 'Todas as empresas'], ['org', `${state.org.name} (própria)`], ...state.clients.map(c => [c.id, c.name])], x => set('client', x)),
+    select('r-who', 'Responsável', r.who, [['', 'Todos os responsáveis'], ...state.users.filter(u => u.active).map(u => [u.id, u.name + (u.role === 'client' ? ' (cliente)' : '')])], x => set('who', x)),
+    select('r-kind', 'Tipo', r.kind, [['', 'Internas e externas'], ['external', 'Externas'], ['internal', 'Internas']], x => set('kind', x)),
+    select('r-col', 'Situação', r.col, [['', 'Todas as situações'], ['open', 'Em aberto'], ['done', 'Concluídas'], ...boardColumns().map(c => [c.key, c.name])], x => set('col', x)),
+    r.type === 'prazos' ? select('r-hz', 'Horizonte', r.horizon, [[7, 'Próximos 7 dias'], [15, 'Próximos 15 dias'], [30, 'Próximos 30 dias'], [60, 'Próximos 60 dias']], x => set('horizon', Number(x))) : null);
+  const fileName = ext => `relatorio-${r.type}-${today()}.${ext}`;
   shell([
-    h('p', { class: 'muted' }, 'Entregas no prazo e quantas vezes o trabalho voltou. Ajuste do cliente mostra o que passou pela revisão interna.'),
-    h('div', { class: 'card-box table-wrap' }, h('table', {},
-      h('thead', {}, h('tr', {}, ['Empresa', 'Tarefas', 'Concluídas no prazo', 'Fora do prazo', '% no prazo', 'Canceladas', 'Ajustes internos', 'Ajustes do cliente'].map((x, i) => h('th', { class: i ? 'num' : null }, x)))),
-      h('tbody', {}, rows.map(r => h('tr', {},
-        h('td', {}, r.name), h('td', { class: 'num' }, r.tasks), h('td', { class: 'num' }, r.on_time), h('td', { class: 'num' }, r.late),
-        h('td', { class: 'num' }, pct(r)), h('td', { class: 'num' }, r.cancelled), h('td', { class: 'num' }, r.internal), h('td', { class: 'num' }, r.client)))))),
-  ]);
+    h('div', { class: 'rep-picker', role: 'tablist', 'aria-label': 'Relatórios' }, REPORTS.map(([k, label, sub]) =>
+      h('button', { type: 'button', role: 'tab', class: 'rep-card' + (r.type === k ? ' on' : ''), 'aria-selected': String(r.type === k), onclick: () => set('type', k) },
+        h('strong', {}, label), h('span', { class: 'muted small' }, sub)))),
+    h('div', { class: 'card-box' }, filters,
+      h('div', { class: 'row rep-actions' },
+        h('div', { class: 'grow' }, h('h2', { style: 'margin:0' }, rep.title), h('p', { class: 'muted small', style: 'margin:2px 0 0' }, rep.subtitle)),
+        h('button', { class: 'btn', type: 'button', onclick: () => { Exports.download(Exports.xlsx(rep), fileName('xlsx')); toast('Planilha baixada'); } }, 'Baixar Excel'),
+        h('button', { class: 'btn primary', type: 'button', onclick: () => { Exports.download(Exports.pdf(rep), fileName('pdf')); toast('PDF baixado'); } }, 'Baixar PDF'))),
+    h('div', { class: 'card-box table-wrap' },
+      rep.rows.length ? h('table', { class: 'rep-table' },
+        h('thead', {}, h('tr', {}, rep.columns.map(c => h('th', { class: c.align === 'right' ? 'num' : null }, c.label)))),
+        h('tbody', {}, rep.rows.map((row, i) => h('tr', { class: rep.ids?.[i] ? 'row-link' : null, onclick: rep.ids?.[i] ? () => openTask(rep.ids[i]) : null },
+          row.map((v, j) => h('td', { class: rep.columns[j].align === 'right' ? 'num' : null, 'data-label': rep.columns[j].label }, v))))))
+        : h('p', { class: 'empty' }, 'Nenhum dado com estes filtros.'),
+      rep.footer ? h('p', { class: 'muted small', style: 'margin-top:10px' }, rep.footer) : null),
+  ], { title: 'Relatórios', sub: 'Escolha o relatório, filtre e baixe em Excel ou PDF' });
+}
+
+// Monta o relatório no formato comum da tela, do Excel e do PDF.
+function buildReport(type, tasks, f) {
+  const inP = d => d && d >= f.from && d <= f.to;
+  const open = t => !['done', 'cancelled'].includes(t.status);
+  const doneIn = tasks.filter(t => t.status === 'done' && inP(t.completed_on));
+  const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '–');
+  const execDays = list => { const w = list.filter(t => t.start_date); return w.length ? Math.round(w.reduce((n, t) => n + Math.max(0, S.daysBetween(t.start_date, t.completed_on)), 0) / w.length * 10) / 10 : '–'; };
+  const names = t => t.assignees.map(a => a.name).join(', ');
+  const kindName = t => (t.kind === 'external' ? 'Externa' : 'Interna');
+  const filtersText = [
+    `Período ${fmtDate(f.from)} a ${fmtDate(f.to)}`,
+    f.client ? (f.client === 'org' ? `${state.org.name} (própria)` : (state.clients.find(c => c.id === Number(f.client)) || {}).name) : null,
+    f.who ? (state.users.find(u => u.id === Number(f.who)) || {}).name : null,
+    f.kind ? (f.kind === 'external' ? 'Externas' : 'Internas') : null,
+  ].filter(Boolean).join(' · ');
+  const base = { subtitle: `${filtersText} · ${state.org.name}`, brand: `${state.org.name} · Painel de Tarefas · gerado em ${fmtDate(today())}` };
+  const R = (cols, rows, extra = {}) => ({ ...base, columns: cols.map(c => (typeof c === 'string' ? { label: c } : c)), rows, ...extra });
+  const n = label => ({ label, align: 'right' });
+  const group = (keyOf, nameOf) => { const m = new Map(); for (const t of tasks) for (const k of [].concat(keyOf(t))) { if (!m.has(k)) m.set(k, { name: nameOf(t, k), list: [] }); m.get(k).list.push(t); } return [...m.values()].sort((a, b) => a.name.localeCompare(b.name)); };
+
+  if (type === 'resumo') {
+    const late = tasks.filter(t => t.column === 'overdue');
+    const onTime = doneIn.filter(t => t.column === 'done_on_time').length;
+    return R(['Indicador', n('Valor')], [
+      ['Em aberto agora', tasks.filter(open).length],
+      ['Atrasadas agora', late.length],
+      ['Criadas no período', tasks.filter(t => inP((t.created_at || '').slice(0, 10))).length],
+      ['Concluídas no período', doneIn.length],
+      ['Concluídas no prazo', onTime],
+      ['Concluídas fora do prazo', doneIn.length - onTime],
+      ['% no prazo', pct(onTime, doneIn.length)],
+      ['Canceladas no período', tasks.filter(t => t.status === 'cancelled' && inP(t.cancelled_on)).length],
+      ['Tempo médio de execução (dias)', execDays(doneIn)],
+      ['Ajustes pedidos pelo cliente (total)', tasks.reduce((x, t) => x + (t.adjustments_client || 0), 0)],
+    ], { title: 'Resumo geral', sheet: 'Resumo' });
+  }
+  if (type === 'empresa') {
+    const g = group(t => t.client_id || 'org', t => (t.client_id ? t.client_name : `${state.org.name} (própria)`));
+    const rows = g.map(({ name, list }) => {
+      const d = list.filter(t => t.status === 'done' && inP(t.completed_on)), ot = d.filter(t => t.column === 'done_on_time').length;
+      return [name, list.filter(open).length, list.filter(t => t.column === 'overdue').length, d.length, ot, d.length - ot, pct(ot, d.length),
+        list.filter(t => t.status === 'cancelled' && inP(t.cancelled_on)).length, list.reduce((x, t) => x + (t.adjustments_internal || 0), 0), list.reduce((x, t) => x + (t.adjustments_client || 0), 0)];
+    });
+    return R(['Empresa', n('Em aberto'), n('Atrasadas'), n('Concluídas'), n('No prazo'), n('Fora do prazo'), n('% no prazo'), n('Canceladas'), n('Ajustes internos'), n('Ajustes do cliente')], rows,
+      { title: 'Relatório por empresa', sheet: 'Por empresa', footer: `${rows.length} empresa(s). Concluídas e canceladas no período; em aberto e atrasadas, agora.` });
+  }
+  if (type === 'responsavel') {
+    const people = state.users.filter(u => u.active || tasks.some(t => t.assignees.some(a => a.id === u.id)));
+    const rows = people.map(u => {
+      const mine = tasks.filter(t => t.assignees.some(a => a.id === u.id));
+      const d = mine.filter(t => t.status === 'done' && inP(t.completed_on)), ot = d.filter(t => t.column === 'done_on_time').length;
+      return [u.name + (u.role === 'client' ? ' (cliente)' : ''), mine.filter(open).length, mine.filter(t => t.column === 'overdue').length, d.length, pct(ot, d.length),
+        tasks.filter(t => t.started_by_name === u.name && inP(t.start_date)).length, tasks.filter(t => t.completed_by_name === u.name && inP(t.completed_on)).length, execDays(d)];
+    }).filter(row => row.slice(1, 7).some(v => v && v !== '–'));
+    return R(['Pessoa', n('Em aberto'), n('Atrasadas'), n('Concluídas'), n('% no prazo'), n('Iniciou'), n('Concluiu'), n('Dias médios')], rows,
+      { title: 'Relatório por responsável', sheet: 'Por responsável', footer: '"Iniciou" e "Concluiu": quem preencheu o início e quem concluiu, no período.' });
+  }
+  if (type === 'prazos') {
+    const limit = S.addDays(today(), f.horizon || 15);
+    const list = tasks.filter(t => open(t) && t.due_date && t.due_date <= limit).sort((a, b) => a.due_date.localeCompare(b.due_date));
+    return R(['Tarefa', 'Empresa', 'Responsáveis', 'Prazo', 'Situação', 'Alerta', n('%')],
+      list.map(t => [t.title, where(t), names(t), fmtDate(t.due_date), colName(t.column), t.alert ? S.alertText(t.alert) : `Vence em ${S.daysBetween(today(), t.due_date)} dias`, `${t.progress}%`]),
+      { title: `Prazos: atrasadas e próximos ${f.horizon || 15} dias`, sheet: 'Prazos', ids: list.map(t => t.id), footer: `${list.filter(t => t.column === 'overdue').length} atrasada(s) e ${list.filter(t => t.column !== 'overdue').length} vencendo.` });
+  }
+  if (type === 'concluidas') {
+    const list = doneIn.slice().sort((a, b) => b.completed_on.localeCompare(a.completed_on));
+    return R(['Tarefa', 'Empresa', 'Responsáveis', 'Início', 'Prazo', 'Término', 'No prazo?', 'Iniciada por', 'Concluída por', n('Dias')],
+      list.map(t => [t.title, where(t), names(t), fmtDate(t.start_date), fmtDate(t.due_date), fmtDate(t.completed_on), t.column === 'done_on_time' ? 'Sim' : 'Não',
+        t.started_by_name || '', t.completed_by_name || '', t.start_date ? S.daysBetween(t.start_date, t.completed_on) : '']),
+      { title: 'Tarefas concluídas', sheet: 'Concluídas', ids: list.map(t => t.id), footer: `${list.length} concluída(s), ${pct(list.filter(t => t.column === 'done_on_time').length, list.length)} no prazo.` });
+  }
+  if (type === 'canceladas') {
+    const list = tasks.filter(t => t.status === 'cancelled' && inP(t.cancelled_on)).sort((a, b) => b.cancelled_on.localeCompare(a.cancelled_on));
+    return R(['Tarefa', 'Empresa', 'Cancelada em', 'Por', 'Motivo'], list.map(t => [t.title, where(t), fmtDate(t.cancelled_on), t.cancelled_by_name || '', t.cancel_reason || '']),
+      { title: 'Tarefas canceladas', sheet: 'Canceladas', ids: list.map(t => t.id), footer: `${list.length} cancelada(s).` });
+  }
+  if (type === 'evolucao') {
+    const months = [];
+    for (let m = f.from.slice(0, 7); m <= f.to.slice(0, 7); m = S.addMonths(`${m}-01`, 1).slice(0, 7)) months.push(m);
+    const label = m => new Date(`${m}-15T12:00`).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }).replace('.', '');
+    return R(['Mês', n('Criadas'), n('Concluídas'), n('No prazo'), n('% no prazo'), n('Canceladas')], months.map(m => {
+      const d = tasks.filter(t => t.status === 'done' && (t.completed_on || '').startsWith(m)), ot = d.filter(t => t.column === 'done_on_time').length;
+      return [label(m), tasks.filter(t => (t.created_at || '').startsWith(m)).length, d.length, ot, pct(ot, d.length), tasks.filter(t => t.status === 'cancelled' && (t.cancelled_on || '').startsWith(m)).length];
+    }), { title: 'Evolução mês a mês', sheet: 'Evolução' });
+  }
+  if (type === 'ajustes') {
+    const g = group(t => t.client_id || 'org', t => (t.client_id ? t.client_name : `${state.org.name} (própria)`));
+    const rows = g.map(({ name, list }) => [name, list.length, list.reduce((x, t) => x + (t.adjustments_internal || 0), 0), list.reduce((x, t) => x + (t.adjustments_client || 0), 0),
+      list.reduce((x, t) => x + (t.adjustments_open || 0), 0)]).sort((a, b) => b[3] - a[3] || b[2] - a[2]);
+    return R(['Empresa', n('Tarefas'), n('Ajustes internos'), n('Ajustes do cliente'), n('Em aberto')], rows,
+      { title: 'Ajustes por empresa', sheet: 'Ajustes', footer: 'Ajuste interno: a revisão da equipe pediu correção. Ajuste do cliente: o cliente pediu na revisão.' });
+  }
+  if (type === 'recorrentes') {
+    const list = tasks.filter(t => t.recurrence !== 'none' && open(t)).sort((a, b) => (a.due_date || '9').localeCompare(b.due_date || '9'));
+    return R(['Tarefa', 'Empresa', 'Repetição', 'Próximo prazo', 'Responsáveis', 'Situação'],
+      list.map(t => [t.title, where(t), S.RECURRENCE[t.recurrence] + (t.recurrence === 'custom' ? ` (${t.recurrence_every} dias)` : ''), fmtDate(t.due_date), names(t), colName(t.column)]),
+      { title: 'Tarefas recorrentes', sheet: 'Recorrentes', ids: list.map(t => t.id), footer: `${list.length} recorrente(s) em aberto.` });
+  }
+  const list = tasks.slice().sort(S.boardSort);
+  return R(['Tarefa', 'Tipo', 'Empresa', 'Situação', 'Prioridade', 'Responsáveis', 'Início', 'Prazo', 'Término', n('%'), 'Criada por'],
+    list.map(t => [t.title, kindName(t), where(t), colName(t.column), PRIORITY[t.priority], names(t), fmtDate(t.start_date), fmtDate(t.due_date), fmtDate(t.completed_on || t.cancelled_on),
+      `${t.progress}%`, t.created_by_name || '']),
+    { title: 'Lista de tarefas', sheet: 'Tarefas', ids: list.map(t => t.id), footer: `${list.length} tarefa(s).` });
 }
 
 // ---------- configurações ----------

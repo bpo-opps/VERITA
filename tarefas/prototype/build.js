@@ -40,6 +40,9 @@ ${safe(read('../shared.js'))}
 ${safe(read('mock-api.js'))}
 </script>
 <script>
+${safe(read('../public/exports.js'))}
+</script>
+<script>
 ${safe(read('../public/main.js'))}
 </script>`;
 

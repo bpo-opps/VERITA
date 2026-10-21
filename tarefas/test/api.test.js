@@ -24,6 +24,8 @@ function setup() {
   createUser(db, { orgId, name: 'Cli A', email: 'a@t.local', password: pw, role: 'client', clientId: a });
   createUser(db, { orgId, name: 'Cli B', email: 'b@t.local', password: pw, role: 'client', clientId: b });
   createUser(db, { orgId: other, name: 'Admin X', email: 'x@t.local', password: pw, role: 'admin' });
+  // O membro acompanha os dois clientes (pode ser responsável nas tarefas deles); o membro 2, nenhum.
+  db.prepare('insert into user_clients (user_id, client_id) values (?, ?), (?, ?)').run(member, a, member, b);
   return { db, a, b, otherClient, admin, member, member2, pw };
 }
 
@@ -154,16 +156,16 @@ test('externa: administrador, responsáveis e a equipe que acompanha o cliente; 
   // Administrador liga o membro 2 ao cliente A: ele passa a ver as externas do A.
   assert.equal((await member('PUT', `/api/clients/${ids.a}/team`, { user_ids: [ids.member2] })).status, 403);
   assert.equal((await admin('PUT', `/api/clients/${ids.a}/team`, { user_ids: [cliAId] })).status, 400, 'só equipe');
-  assert.equal((await admin('PUT', `/api/clients/${ids.a}/team`, { user_ids: [ids.member2] })).status, 200);
+  assert.equal((await admin('PUT', `/api/clients/${ids.a}/team`, { user_ids: [ids.member, ids.member2] })).status, 200);
   assert.equal((await member2('GET', `/api/tasks/${t}`)).status, 200, 'acompanha o cliente, vê');
-  assert.deepEqual((await admin('GET', '/api/clients')).body.find(c => c.id === ids.a).team, [ids.member2]);
+  assert.deepEqual((await admin('GET', '/api/clients')).body.find(c => c.id === ids.a).team.sort(), [ids.member, ids.member2].sort());
   assert.deepEqual((await admin('GET', '/api/users')).body.find(u => u.id === ids.member2).client_ids, [ids.a]);
   // Pessoa de outro cliente não pode ser responsável; virar interna sem visibilidade tira o cliente.
   assert.equal((await admin('PATCH', `/api/tasks/${t}`, { assignee_ids: [cliBId] })).status, 400);
   d = (await admin('PATCH', `/api/tasks/${t}`, { kind: 'internal' })).body;
   assert.deepEqual(d.assignees.map(a => a.id), [ids.member]);
   assert.equal((await cliB('GET', `/api/tasks/${t}`)).status, 404);
-  await admin('PUT', `/api/clients/${ids.a}/team`, { user_ids: [] });
+  await admin('PUT', `/api/clients/${ids.a}/team`, { user_ids: [ids.member] });
 });
 
 test('quadro: ordem por prazo e prioridade; colunas criadas e reordenadas', async () => {
@@ -545,4 +547,70 @@ test('atualização segura: cópia antes de mudar o banco e versão nunca rebaix
   db = openDb(file); db.exec(`pragma user_version = ${SCHEMA_VERSION + 3}`); db.close();
   db = openDb(file);
   assert.equal(db.prepare('pragma user_version').get().user_version, SCHEMA_VERSION + 3);
+});
+
+test('a equipe vê ou só os responsáveis; responsável da equipe precisa acompanhar o cliente; quem iniciou e concluiu', async () => {
+  const admin = await login('admin@t.local');
+  const member = await login('membro@t.local');
+  const member2 = await login('membro2@t.local');
+  // Externa marcada "só os responsáveis": quem acompanha o cliente não vê; o administrador vê.
+  const ext = (await admin('POST', '/api/tasks', { kind: 'external', client_id: ids.a, title: 'Só responsáveis', team_visible: false })).body.id;
+  assert.equal((await member('GET', `/api/tasks/${ext}`)).status, 404, 'acompanha o cliente, mas a tarefa é só dos responsáveis');
+  assert.equal((await admin('GET', `/api/tasks/${ext}`)).body.team_visible, false);
+  await admin('PATCH', `/api/tasks/${ext}`, { team_visible: true });
+  assert.equal((await member('GET', `/api/tasks/${ext}`)).status, 200, 'virou visível para a equipe do cliente');
+  // Interna sem cliente com "a equipe vê": toda a equipe vê.
+  const all = (await member2('POST', '/api/tasks', { kind: 'internal', title: 'Para todos', team_visible: true })).body.id;
+  assert.equal((await member('GET', `/api/tasks/${all}`)).status, 200);
+  assert.equal((await admin('GET', `/api/tasks/${all}`)).status, 200);
+  // Interna ligada ao cliente com "a equipe vê": a equipe do cliente e o administrador; o membro 2 (não acompanha) não.
+  const intA = (await admin('POST', '/api/tasks', { kind: 'internal', client_id: ids.a, title: 'Interna do A', team_visible: true })).body.id;
+  assert.equal((await member('GET', `/api/tasks/${intA}`)).status, 200);
+  assert.equal((await member2('GET', `/api/tasks/${intA}`)).status, 404);
+  // Responsável: o membro 2 não acompanha o cliente A.
+  const r = await admin('POST', '/api/tasks', { kind: 'external', client_id: ids.a, title: 'x', assignee_ids: [ids.member2] });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /não acompanha/);
+  assert.equal((await admin('POST', '/api/tasks', { kind: 'internal', title: 'Sem cliente', assignee_ids: [ids.member2] })).status, 201, 'sem cliente, qualquer um da equipe');
+  // Quem iniciou e quem concluiu (pessoas diferentes).
+  const t = (await admin('POST', '/api/tasks', { kind: 'external', client_id: ids.a, title: 'Rastreio', assignee_ids: [ids.member] })).body.id;
+  let d = (await member('PATCH', `/api/tasks/${t}`, { status: 'doing' })).body;
+  assert.equal(d.started_by_name, 'Membro');
+  d = (await admin('POST', `/api/tasks/${t}/complete`, { completed_on: S.today() })).body;
+  assert.deepEqual([d.started_by_name, d.completed_by_name], ['Membro', 'Admin']);
+  d = (await admin('PATCH', `/api/tasks/${t}`, { status: 'doing' })).body;
+  assert.equal(d.completed_by_name, null, 'reabrir limpa quem concluiu');
+  d = (await admin('PATCH', `/api/tasks/${t}`, { start_date: null, status: 'todo' })).body;
+  assert.equal(d.started_by_name, null, 'sem início, sem quem iniciou');
+  d = (await admin('POST', `/api/tasks/${t}/cancel`, { reason: 'teste' })).body;
+  assert.equal(d.cancelled_by_name, 'Admin');
+});
+
+test('compromissos: quem marcou, participantes e administrador veem; cliente só o dele', async () => {
+  const admin = await login('admin@t.local');
+  const member = await login('membro@t.local');
+  const member2 = await login('membro2@t.local');
+  const cliAId = ids.db.prepare("select id from users where email = 'a@t.local'").get().id;
+  await admin('POST', `/api/users/${cliAId}/password`, { password: ids.pw }); // um teste anterior trocou a senha
+  const cliA = await login('a@t.local');
+  assert.equal((await cliA('POST', '/api/events', { title: 'x', date: day(1) })).status, 403, 'cliente não marca');
+  assert.equal((await member('POST', '/api/events', { title: 'x', date: day(1), start_time: '10:00', end_time: '09:00' })).status, 400);
+  assert.equal((await member('POST', '/api/events', { title: 'x', date: day(1), start_time: '25:00' })).status, 400);
+  const r = await member('POST', '/api/events', { title: 'Reunião mensal', date: day(2), start_time: '10:00', end_time: '11:00', client_id: ids.a,
+    location: 'https://meet.google.com/abc-defg-hij', user_ids: [ids.member, cliAId] });
+  assert.equal(r.status, 201);
+  assert.deepEqual(r.body.participants.map(p => p.id).sort(), [ids.member, cliAId].sort());
+  const eid = r.body.id;
+  assert.ok((await cliA('GET', '/api/events')).body.some(e => e.id === eid), 'cliente participante vê');
+  assert.ok((await admin('GET', '/api/events')).body.some(e => e.id === eid), 'administrador vê');
+  assert.equal((await member2('GET', '/api/events')).body.some(e => e.id === eid), false, 'quem não participa não vê');
+  assert.equal((await member2('PATCH', `/api/events/${eid}`, { title: 'y' })).status, 404);
+  assert.equal((await cliA('PATCH', `/api/events/${eid}`, { title: 'y' })).status, 403);
+  const ed = await member('PATCH', `/api/events/${eid}`, { title: 'Reunião mensal (remarcada)', date: day(3), user_ids: [ids.member, ids.member2] });
+  assert.equal(ed.body.title, 'Reunião mensal (remarcada)');
+  assert.ok((await member2('GET', '/api/events')).body.some(e => e.id === eid), 'virou participante, vê');
+  assert.equal((await cliA('GET', '/api/events')).body.some(e => e.id === eid), false, 'saiu da lista, não vê');
+  assert.equal((await member('GET', `/api/events?from=${day(10)}&to=${day(20)}`)).body.length, 0, 'filtro de datas');
+  assert.equal((await member2('DELETE', `/api/events/${eid}`)).status, 403);
+  assert.equal((await admin('DELETE', `/api/events/${eid}`)).status, 200);
 });

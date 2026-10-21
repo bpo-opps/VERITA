@@ -5,7 +5,7 @@
 // Os dados são fictícios e ficam só neste navegador (localStorage, quando disponível).
 (function () {
   const S = window.Shared;
-  const KEY = 'tarefas-prototipo-v5';
+  const KEY = 'tarefas-prototipo-v7';
   const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
   const d = n => S.addDays(S.today(), n);
 
@@ -19,7 +19,7 @@
     const OPPS_SYMBOL = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="24" y="6" width="16" height="36" rx="4" fill="#FB4F14"/><rect x="24" y="46" width="16" height="12" rx="4" fill="#FB4F14"/></svg>');
     const db = { seq: 100, org: { id: 1, name: 'Opps Consultoria', accent: '#FB4F14', logo: OPPS_SYMBOL },
       clients: [], users: [], tasks: [], assignees: [], checklist: [], comments: [], adjustments: [], templates: [], notifications: [], meetings: [], meeting_items: [],
-      user_clients: [{ user_id: 2, client_id: 1 }, { user_id: 3, client_id: 2 }], stages: [], board: [], attachments: [] };
+      user_clients: [{ user_id: 2, client_id: 1 }, { user_id: 3, client_id: 2 }], stages: [], board: [], attachments: [], events: [] };
     db.clients.push(
       { id: 1, name: 'Padaria Exemplo', logo: svgLogo('PE', '#b45309') },
       { id: 2, name: 'Clínica Modelo', logo: svgLogo('CM', '#4338ca') });
@@ -38,6 +38,8 @@
         cancel_reason: t.reason ?? null, progress: t.progress || 0,
         priority: t.priority || 'normal', alerts: t.alerts || [1], recurrence: t.recurrence || 'none', recurrence_every: null,
         next_task_id: null, position: tid, created_by: t.by || 1, created_at: now(), updated_at: now(), archived_at: t.archived ? now() : null,
+        team_visible: t.kind === 'external', started_by: t.start ? (who[0] || t.by || 1) : null, completed_by: t.done ? (who[0] || 1) : null,
+        cancelled_by: t.cancelled ? 1 : null,
       });
       who.forEach(u => db.assignees.push({ task_id: tid, user_id: u }));
       checklist.forEach(([text, done], i) => db.checklist.push({ id: 1000 + db.checklist.length, task_id: tid, text, done: done ? 1 : 0, position: i }));
@@ -58,6 +60,11 @@
     task({ kind: 'internal', client: 1, status: 'doing', title: 'Revisar margem do contrato da Padaria', due: d(0), progress: 20, alerts: [0], by: 2 }, [2]);
     task({ kind: 'internal', title: 'Atualizar modelo de relatório mensal', due: d(15), by: 3 }, [3]);
     task({ kind: 'external', client: 2, status: 'done', title: 'Levantamento inicial (antigo)', due: d(-40), done: d(-41), archived: true }, [1]);
+    db.events.push(
+      { id: 80, title: 'Alinhamento mensal com a Padaria', date: d(1), start_time: '10:00', end_time: '11:00', location: 'https://meet.google.com/abc-defg-hij',
+        notes: 'Pauta: fechamento de setembro e proposta de renovação.', client_id: 1, created_by: 1, user_ids: [1, 2, 4], created_at: now() },
+      { id: 81, title: 'Reunião interna de planejamento', date: d(3), start_time: '14:30', end_time: '15:30', location: 'Sala de reunião', notes: '',
+        client_id: null, created_by: 1, user_ids: [1, 2, 3], created_at: now() });
     // Pessoa do cliente como responsável e uma coluna criada pela organização.
     db.assignees.push({ task_id: 1, user_id: 4 });
     db.stages.push({ id: 90, name: 'Aguardando cliente' });
@@ -74,7 +81,7 @@
   db.notifications = db.notifications || [];
   db.meetings = db.meetings || [];
   db.meeting_items = db.meeting_items || [];
-  for (const k of ['user_clients', 'stages', 'board', 'attachments']) db[k] = db[k] || [];
+  for (const k of ['user_clients', 'stages', 'board', 'attachments', 'events']) db[k] = db[k] || [];
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sem armazenamento: fica só na memória */ } };
   let sessionUser = null;
   try { sessionUser = Number(sessionStorage.getItem(KEY + '-user')) || null; } catch { /* idem */ }
@@ -109,13 +116,15 @@
     return t;
   }
   function checkClient(cid) { if (!clientOf(cid)) fail(400, 'Cliente inválido'); }
-  function checkAssignees(ids, task) {
+  function checkAssignees(ids, task, keep = []) {
     if (!Array.isArray(ids)) fail(400, 'Campo inválido: responsáveis');
     const clean = [...new Set(ids.map(Number))];
     for (const uid of clean) {
       const u = db.users.find(x => x.id === uid);
       if (!u || !u.active) fail(400, 'Responsável inválido');
+      if (keep.includes(uid)) continue;
       if (u.role === 'client' && !(task && S.clientAssignable(u, task))) fail(400, 'A pessoa do cliente só pode ser responsável por tarefa da empresa dela que ela vê');
+      if (u.role === 'member' && task?.client_id && !clientIdsOf(u.id).includes(Number(task.client_id))) fail(400, 'Essa pessoa da equipe não acompanha este cliente (Clientes → Equipe)');
     }
     return clean;
   }
@@ -167,10 +176,10 @@
   function completeTask(t, completedOn, userId) {
     if (completedOn > S.today()) fail(400, 'A data de término não pode ser no futuro');
     if (t.start_date && completedOn < t.start_date) fail(400, 'A data de término não pode ser antes do início');
-    Object.assign(t, { status: 'done', completed_on: completedOn, cancelled_on: null, cancel_reason: null, progress: 100, stage_id: null }); touch(t);
+    Object.assign(t, { status: 'done', completed_on: completedOn, cancelled_on: null, cancel_reason: null, progress: 100, stage_id: null, completed_by: userId, cancelled_by: null }); touch(t);
     if (t.recurrence === 'none' || t.next_task_id) return null;
     const nid = nextId();
-    db.tasks.push({ ...t, id: nid, stage_id: null, status: 'todo', completed_on: null, progress: 0, next_task_id: null, archived_at: null,
+    db.tasks.push({ ...t, id: nid, stage_id: null, started_by: null, completed_by: null, cancelled_by: null, status: 'todo', completed_on: null, progress: 0, next_task_id: null, archived_at: null,
       start_date: null, due_date: S.nextDate(t.due_date || completedOn, t.recurrence, t.recurrence_every),
       position: Math.max(0, ...db.tasks.map(x => x.position)) + 1, created_by: t.created_by ?? userId, created_at: now(), updated_at: now() });
     setAssignees(nid, assigneeIds(t.id));
@@ -185,7 +194,9 @@
     const adj = db.adjustments.filter(a => a.task_id === t.id);
     const out = {
       id: t.id, kind: t.kind, client_id: t.client_id, client_name: t.client_id ? clientOf(t.client_id).name : null, client_visible: S.clientSees(t), status: t.status,
-      column: S.column(t), stage_id: t.stage_id || null, title: t.title, start_date: t.start_date, due_date: t.due_date, completed_on: t.completed_on,
+      column: S.column(t), stage_id: t.stage_id || null, team_visible: !!t.team_visible, title: t.title,
+      started_by_name: userName(t.started_by) || null, completed_by_name: userName(t.completed_by) || null, cancelled_by_name: userName(t.cancelled_by) || null,
+      created_at: t.created_at, created_by_name: userName(t.created_by) || null, start_date: t.start_date, due_date: t.due_date, completed_on: t.completed_on,
       cancelled_on: t.cancelled_on, cancel_reason: t.cancel_reason,
       progress: S.progress(t, cl.length, cl.filter(i => i.done).length), progress_from_checklist: cl.length > 0, priority: t.priority,
       alerts: t.alerts, alert: S.alert(t), recurrence: t.recurrence, recurrence_every: t.recurrence_every,
@@ -293,6 +304,50 @@
     ids.forEach(uid => { const u = db.users.find(x => x.id === uid); if (!u || u.role !== 'member') fail(400, 'Só pessoas da equipe (não administradores nem clientes)'); });
     db.user_clients = db.user_clients.filter(x => x.client_id !== id).concat(ids.map(user_id => ({ user_id, client_id: id })));
     return { ok: true };
+  });
+  // Compromissos: quem marcou, participantes e administrador veem; cliente só os de que participa.
+  const eventOut = e => ({ ...e, participants: e.user_ids.map(uid => db.users.find(u => u.id === uid)).filter(Boolean).map(({ id, name, role }) => ({ id, name, role }))
+    .sort((a, b) => a.name.localeCompare(b.name)), client_name: e.client_id ? (clientOf(e.client_id) || {}).name : null, created_by_name: userName(e.created_by) });
+  const seesEvent = (user, e) => user.role === 'admin' || e.created_by === user.id || e.user_ids.includes(user.id);
+  const loadEvent = (user, eid) => { const e = db.events.find(x => x.id === eid); if (!e || !seesEvent(user, e)) fail(404, 'Compromisso não encontrado'); return e; };
+  const hhmm = (v, f) => { if (!v) return null; if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail(400, `${f}: hora inválida (use HH:MM)`); return v; };
+  function eventFields(body, cur = {}) {
+    const v = {
+      title: 'title' in body ? str(body.title, 'título', { max: 200 }) : cur.title,
+      date: 'date' in body ? date(body.date, 'Data') : cur.date,
+      start_time: 'start_time' in body ? hhmm(body.start_time, 'Início') : cur.start_time ?? null,
+      end_time: 'end_time' in body ? hhmm(body.end_time, 'Fim') : cur.end_time ?? null,
+      location: 'location' in body ? str(body.location, 'local ou link', { max: 500, required: false }) : cur.location ?? '',
+      notes: 'notes' in body ? str(body.notes, 'observações', { max: 5000, required: false }) : cur.notes ?? '',
+      client_id: 'client_id' in body ? (body.client_id ? Number(body.client_id) : null) : cur.client_id ?? null,
+    };
+    if (!v.date) fail(400, 'Informe a data');
+    if (v.client_id) checkClient(v.client_id);
+    if (v.start_time && v.end_time && v.end_time < v.start_time) fail(400, 'O fim é antes do início');
+    return v;
+  }
+  const eventPeople = ids => { if (!Array.isArray(ids)) fail(400, 'Campo inválido: participantes'); const c = [...new Set(ids.map(Number))]; c.forEach(uid => { if (!db.users.some(u => u.id === uid && u.active)) fail(400, 'Participante inválido'); }); return c; };
+  route('GET', '/api/events', ({ user, query }) => {
+    const from = query.from || S.addDays(S.today(), -31), to = query.to || S.addDays(S.today(), 62);
+    return db.events.filter(e => e.date >= from && e.date <= to && seesEvent(user, e))
+      .sort((a, b) => a.date.localeCompare(b.date) || (a.start_time || '').localeCompare(b.start_time || '') || a.id - b.id).map(eventOut);
+  });
+  route('POST', '/api/events', ({ user, body }) => {
+    requireStaff(user);
+    const e = { id: nextId(), ...eventFields(body), user_ids: eventPeople(body.user_ids || []), created_by: user.id, created_at: now() };
+    db.events.push(e); return eventOut(e);
+  });
+  route('PATCH', '/api/events/:id', ({ user, body, id }) => {
+    const e = loadEvent(user, id);
+    if (user.role !== 'admin' && e.created_by !== user.id) fail(403, 'Só quem marcou ou um administrador pode alterar');
+    Object.assign(e, eventFields(body, e));
+    if ('user_ids' in body) e.user_ids = eventPeople(body.user_ids);
+    return eventOut(e);
+  });
+  route('DELETE', '/api/events/:id', ({ user, id }) => {
+    const e = loadEvent(user, id);
+    if (user.role !== 'admin' && e.created_by !== user.id) fail(403, 'Só quem marcou ou um administrador pode apagar');
+    db.events = db.events.filter(x => x.id !== id); return { ok: true };
   });
   // Anexos: arquivos pequenos ficam no navegador; os grandes, só até recarregar a página.
   const bigFiles = new Map();
@@ -446,7 +501,7 @@
       start_date: null, due_date: due, completed_on: null, cancelled_on: null, cancel_reason: null, progress: 0,
       priority: oneOf(body.priority, 'prioridade', ['low', 'normal', 'high'], 'normal'), alerts: body.alerts === undefined ? [1] : alerts(body.alerts),
       recurrence: rec, recurrence_every: every, next_task_id: null, position: Math.max(0, ...db.tasks.map(t => t.position)) + 1,
-      created_by: user.id, created_at: now(), updated_at: now(), archived_at: null });
+      created_by: user.id, created_at: now(), updated_at: now(), archived_at: null, team_visible: !!(body.team_visible ?? kind === "external") });
     setAssignees(id, assignees);
     checklist.forEach((text, i) => db.checklist.push({ id: nextId(), task_id: id, text, done: 0, position: i }));
     noticeCreated(id, user.id);
@@ -484,7 +539,8 @@
         t.progress = n;
       }
       if ('position' in body) t.position = Number(body.position);
-      if ('assignee_ids' in body) setAssignees(t.id, checkAssignees(body.assignee_ids, t));
+      if ('assignee_ids' in body) setAssignees(t.id, checkAssignees(body.assignee_ids, t, assigneeIds(t.id)));
+      if ('team_visible' in body) t.team_visible = !!body.team_visible;
       if ('status' in body) {
         if (body.status === 'done') fail(400, 'Para concluir, use Concluir e informe a data de término');
         if (body.status === 'cancelled') fail(400, 'Para cancelar, use Cancelar e informe o motivo');
@@ -492,9 +548,11 @@
         const stage = m ? Number(m[1]) : null;
         if (stage && !db.stages.some(x => x.id === stage)) fail(400, 'Coluna inválida');
         t.status = stage ? 'doing' : oneOf(body.status, 'situação', ['todo', 'doing', 'review']);
-        Object.assign(t, { stage_id: stage, completed_on: null, cancelled_on: null, cancel_reason: null });
+        Object.assign(t, { stage_id: stage, completed_on: null, cancelled_on: null, cancel_reason: null, completed_by: null, cancelled_by: null });
         if (t.status !== 'todo' && !('start_date' in body)) t.start_date = t.start_date || S.today();
       } else if (body.start_date && t.status === 'todo') t.status = 'doing';
+      if (!copy.start_date && t.start_date) t.started_by = user.id;
+      if (!t.start_date) t.started_by = null;
     } catch (err) { Object.assign(t, copy); throw err; }
     touch(t);
     return detail(user, id);
@@ -508,7 +566,7 @@
   route('POST', '/api/tasks/:id/cancel', ({ user, body, id }) => {
     requireStaff(user); const t = loadTask(user, id);
     const reason = str(body.reason, 'motivo do cancelamento', { max: 1000 });
-    Object.assign(t, { status: 'cancelled', cancel_reason: reason, cancelled_on: S.today(), completed_on: null }); touch(t);
+    Object.assign(t, { status: 'cancelled', cancel_reason: reason, cancelled_on: S.today(), completed_on: null, cancelled_by: user.id, completed_by: null }); touch(t);
     return detail(user, id);
   });
   route('POST', '/api/tasks/:id/archive', ({ user, body, id }) => {
@@ -534,7 +592,7 @@
     if (user.role === 'client' && (task.status === 'done' || task.status === 'cancelled')) fail(409, 'Esta tarefa já foi encerrada');
     if ('done' in body) i.done = body.done ? 1 : 0;
     const start = body.done ? S.startByChecklist(task, S.today()) : null;
-    if (start) { Object.assign(task, start); touch(task); }
+    if (start) { Object.assign(task, start, { started_by: task.start_date ? task.started_by : user.id }); touch(task); }
     if ('text' in body) i.text = str(body.text, 'item', { max: 300 });
     return detail(user, i.task_id);
   });
@@ -566,7 +624,7 @@
     if (user.role !== 'client') fail(403, 'Só o cliente aprova a entrega');
     const t = loadTask(user, id);
     if (t.status !== 'review') fail(409, 'Esta tarefa não está esperando sua revisão');
-    completeTask(t, S.today(), null);
+    completeTask(t, S.today(), user.id);
     db.comments.push({ id: nextId(), task_id: t.id, user_id: user.id, body: 'Entrega aprovada.', visible_to_client: 1, created_at: now() });
     return detail(user, id);
   });
@@ -581,7 +639,8 @@
     setTimeout(() => {
       const m = db.meetings.find(x => x.id === mid); if (!m) return;
       const people = m.attendee_ids.map(uid => db.users.find(u => u.id === uid)).filter(Boolean);
-      const staff = people.filter(u => u.role !== 'client'), cli = people.find(u => u.role === 'client');
+      // Responsável da equipe: administrador ou quem acompanha o cliente da reunião.
+      const staff = people.filter(u => u.role === 'admin' || (u.role === 'member' && (!m.client_id || clientIdsOf(u.id).includes(m.client_id)))), cli = people.find(u => u.role === 'client');
       const s1 = staff[0], s2 = staff[1] || staff[0];
       const first = u => (u ? u.name.split(' ')[0] : 'A equipe');
       const c = db.clients.find(x => x.id === m.client_id);

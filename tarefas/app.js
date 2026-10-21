@@ -92,9 +92,10 @@ function visibility(user) {
     return { sql: "t.client_id = ? and (t.kind = 'external' or t.client_visible = 1) and t.archived_at is null", args: [user.client_id] };
   }
   const own = 't.created_by = ? or exists (select 1 from task_assignees a where a.task_id = t.id and a.user_id = ?)';
-  if (user.role === 'admin') return { sql: `(${own} or t.kind = 'external')`, args: [user.id, user.id] };
+  if (user.role === 'admin') return { sql: `(${own} or t.kind = 'external' or t.team_visible = 1)`, args: [user.id, user.id] };
   return {
-    sql: `(${own} or (t.kind = 'external' and exists (select 1 from user_clients uc where uc.user_id = ? and uc.client_id = t.client_id)))`,
+    sql: `(${own} or (t.team_visible = 1 and ((t.kind = 'internal' and t.client_id is null)
+      or exists (select 1 from user_clients uc where uc.user_id = ? and uc.client_id = t.client_id))))`,
     args: [user.id, user.id, user.id],
   };
 }
@@ -102,13 +103,20 @@ function checkClient(db, user, clientId) {
   if (!db.prepare('select 1 from clients where id = ? and org_id = ?').get(clientId, user.org_id)) fail(400, 'Cliente inválido');
 }
 // Responsáveis: pessoas da equipe e, quando a tarefa aparece para o cliente, pessoas daquele cliente.
-function checkAssignees(db, user, ids, task) {
+// Responsáveis: sem empresa, qualquer pessoa da equipe. Com empresa: os administradores, quem da equipe
+// acompanha aquele cliente e, quando a tarefa aparece para o cliente, as pessoas dele.
+// Quem já era responsável pode continuar (`keep`), mesmo que a regra tenha mudado depois.
+function checkAssignees(db, user, ids, task, keep = []) {
   if (!Array.isArray(ids)) fail(400, 'Campo inválido: responsáveis');
   const clean = [...new Set(ids.map(x => id(x, 'responsáveis')))];
   for (const uid of clean) {
-    const u = db.prepare('select role, client_id from users where id = ? and org_id = ? and active = 1').get(uid, user.org_id);
+    const u = db.prepare('select id, role, client_id from users where id = ? and org_id = ? and active = 1').get(uid, user.org_id);
     if (!u) fail(400, 'Responsável inválido');
+    if (keep.includes(uid)) continue;
     if (u.role === 'client' && !(task && S.clientAssignable(u, task))) fail(400, 'A pessoa do cliente só pode ser responsável por tarefa da empresa dela que ela vê');
+    if (u.role === 'member' && task?.client_id && !clientIdsOf(db, u.id).includes(Number(task.client_id))) {
+      fail(400, 'Essa pessoa da equipe não acompanha este cliente (Clientes → Equipe)');
+    }
   }
   return clean;
 }
@@ -119,6 +127,7 @@ function dropInvalidClientAssignees(db, taskId) {
     if (!S.clientAssignable(u, t)) db.prepare('delete from task_assignees where task_id = ? and user_id = ?').run(taskId, u.id);
   }
 }
+const nameOf = (db, userId) => (userId ? (db.prepare('select name from users where id = ?').get(userId) || {}).name || null : null);
 const clientIdsOf = (db, userId) => db.prepare('select client_id from user_clients where user_id = ?').all(userId).map(r => r.client_id);
 function setAssignees(db, taskId, ids) {
   db.prepare('delete from task_assignees where task_id = ?').run(taskId);
@@ -135,6 +144,8 @@ function kindAndClient(db, user, kind, clientId) {
 }
 // "Visível para o cliente" só existe em interna ligada a um cliente.
 const clientVisible = (kind, clientId, flag) => (kind === 'internal' && clientId && flag ? 1 : 0);
+// "A equipe vê": se não vier, externa sim e interna não.
+const teamVisible = (kind, flag) => (flag === undefined || flag === null ? (kind === 'external' ? 1 : 0) : (flag ? 1 : 0));
 function checklistItems(v) {
   if (v === undefined) return null;
   if (!Array.isArray(v)) fail(400, 'Checklist inválido');
@@ -148,17 +159,17 @@ function completeTask(db, t, completedOn, userId) {
   return tx(db, () => {
     db.prepare(
       `update tasks set status = 'done', completed_on = ?, cancelled_on = null, cancel_reason = null, progress = 100, stage_id = null,
-         updated_at = datetime('now') where id = ?`
-    ).run(completedOn, t.id);
+         completed_by = ?, cancelled_by = null, updated_at = datetime('now') where id = ?`
+    ).run(completedOn, userId, t.id);
     if (t.recurrence === 'none' || t.next_task_id) return null;
     // O início fica vazio: ele é preenchido quando alguém começar a próxima.
     const nextDue = S.nextDate(t.due_date || completedOn, t.recurrence, t.recurrence_every);
     const r = db.prepare(
       `insert into tasks (org_id, kind, client_id, client_visible, title, description, due_date, priority, alerts, recurrence,
-                          recurrence_every, position, created_by)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (select coalesce(max(position), 0) + 1 from tasks where org_id = ?), ?)`
+                          recurrence_every, position, created_by, team_visible)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (select coalesce(max(position), 0) + 1 from tasks where org_id = ?), ?, ?)`
     ).run(t.org_id, t.kind, t.client_id, t.client_visible, t.title, t.description, nextDue, t.priority, t.alerts, t.recurrence,
-      t.recurrence_every, t.org_id, t.created_by ?? userId);
+      t.recurrence_every, t.org_id, t.created_by ?? userId, t.team_visible ?? 0);
     const nextId = Number(r.lastInsertRowid);
     setAssignees(db, nextId, assigneeIds(db, t.id));
     db.prepare('insert into checklist_items (task_id, text, position) select ?, text, position from checklist_items where task_id = ?').run(nextId, t.id);
@@ -177,7 +188,9 @@ function decorate(db, user, t, now) {
   t.alerts = JSON.parse(t.alerts);
   const out = {
     id: t.id, kind: t.kind, client_id: t.client_id, client_name: t.client_name || null, client_visible: S.clientSees(t), status: t.status,
-    column: S.column(t, now), stage_id: t.stage_id || null, title: t.title, start_date: t.start_date, due_date: t.due_date, completed_on: t.completed_on,
+    column: S.column(t, now), stage_id: t.stage_id || null, team_visible: !!t.team_visible, title: t.title,
+    started_by_name: nameOf(db, t.started_by), completed_by_name: nameOf(db, t.completed_by), cancelled_by_name: nameOf(db, t.cancelled_by),
+    created_at: t.created_at, created_by_name: nameOf(db, t.created_by), start_date: t.start_date, due_date: t.due_date, completed_on: t.completed_on,
     cancelled_on: t.cancelled_on, cancel_reason: t.cancel_reason,
     progress: S.progress(t, cl.total, cl.done), progress_from_checklist: cl.total > 0, priority: t.priority,
     alerts: t.alerts, alert: S.alert(t, now), recurrence: t.recurrence, recurrence_every: t.recurrence_every,
@@ -363,6 +376,13 @@ async function processMeeting(db, meetingId) {
   try {
     const out = await extractor({ pdf: m.pdf, meeting, attendees, others: m.other_attendees, clients });
     const items = out.tasks.map(t => require('./meetings').sanitize(t, { meeting, attendees, clients }));
+    // Da equipe, só fica responsável quem pode ser: em tarefa de cliente, quem acompanha o cliente (ou administrador).
+    for (const it of items) {
+      it.assignee_ids = it.assignee_ids.filter(uid => {
+        const u = attendees.find(x => x.id === uid);
+        return !u || u.role !== 'member' || !it.client_id || clientIdsOf(db, uid).includes(it.client_id);
+      });
+    }
     tx(db, () => {
       db.prepare("delete from meeting_items where meeting_id = ? and status = 'pending'").run(meetingId);
       const base = db.prepare('select coalesce(max(position), 0) as p from meeting_items where meeting_id = ?').get(meetingId).p;
@@ -573,6 +593,93 @@ route('PUT', '/api/board/order', ({ db, user, body }) => {
   return boardOf(db, user.org_id);
 });
 
+// ---------- compromissos (agenda) ----------
+// Quem vê: quem criou, os participantes e o administrador. Cliente só vê aquele de que participa.
+function eventOut(db, e) {
+  const people = db.prepare('select u.id, u.name, u.role from event_users eu join users u on u.id = eu.user_id where eu.event_id = ? order by u.name').all(e.id);
+  return { ...e, participants: people, client_name: e.client_id ? (db.prepare('select name from clients where id = ?').get(e.client_id) || {}).name : null,
+    created_by_name: nameOf(db, e.created_by) };
+}
+function canSeeEvent(db, user, e) {
+  if (user.role === 'admin' || e.created_by === user.id) return true;
+  return !!db.prepare('select 1 from event_users where event_id = ? and user_id = ?').get(e.id, user.id);
+}
+function loadEvent(db, user, eventId) {
+  const e = db.prepare('select * from events where id = ? and org_id = ?').get(eventId, user.org_id);
+  if (!e || !canSeeEvent(db, user, e)) fail(404, 'Compromisso não encontrado');
+  return e;
+}
+const time = (v, field) => {
+  if (v === undefined || v === null || v === '') return null;
+  if (typeof v !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail(400, `${field}: hora inválida (use HH:MM)`);
+  return v;
+};
+function eventFields(db, user, body, cur = {}) {
+  const v = {
+    title: 'title' in body ? str(body.title, 'título', { max: 200 }) : cur.title,
+    date: 'date' in body ? date(body.date, 'Data') : cur.date,
+    start_time: 'start_time' in body ? time(body.start_time, 'Início') : cur.start_time ?? null,
+    end_time: 'end_time' in body ? time(body.end_time, 'Fim') : cur.end_time ?? null,
+    location: 'location' in body ? str(body.location, 'local ou link', { max: 500, required: false }) : cur.location ?? '',
+    notes: 'notes' in body ? str(body.notes, 'observações', { max: 5000, required: false }) : cur.notes ?? '',
+    client_id: 'client_id' in body ? (body.client_id ? id(body.client_id, 'cliente') : null) : cur.client_id ?? null,
+  };
+  if (!v.title) fail(400, 'Informe o título');
+  if (!v.date) fail(400, 'Informe a data');
+  if (v.client_id) checkClient(db, user, v.client_id);
+  if (v.start_time && v.end_time && v.end_time < v.start_time) fail(400, 'O fim é antes do início');
+  return v;
+}
+function eventPeople(db, user, ids) {
+  if (!Array.isArray(ids)) fail(400, 'Campo inválido: participantes');
+  const clean = [...new Set(ids.map(x => id(x, 'participantes')))];
+  for (const uid of clean) if (!db.prepare('select 1 from users where id = ? and org_id = ? and active = 1').get(uid, user.org_id)) fail(400, 'Participante inválido');
+  return clean;
+}
+const setEventPeople = (db, eventId, ids) => {
+  db.prepare('delete from event_users where event_id = ?').run(eventId);
+  const ins = db.prepare('insert into event_users (event_id, user_id) values (?, ?)');
+  for (const uid of ids) ins.run(eventId, uid);
+};
+
+route('GET', '/api/events', ({ db, user, query }) => {
+  const from = date(query.from, 'De') || S.addDays(S.today(), -31);
+  const to = date(query.to, 'Até') || S.addDays(S.today(), 62);
+  const own = user.role === 'admin' ? '1 = 1' : '(e.created_by = ? or exists (select 1 from event_users eu where eu.event_id = e.id and eu.user_id = ?))';
+  return db.prepare(`select e.* from events e where e.org_id = ? and e.date between ? and ? and ${own} order by e.date, coalesce(e.start_time, ''), e.id`)
+    .all(user.org_id, from, to, ...(user.role === 'admin' ? [] : [user.id, user.id])).map(e => eventOut(db, e));
+});
+route('POST', '/api/events', ({ db, user, body }) => {
+  requireStaff(user);
+  const v = eventFields(db, user, body);
+  const people = eventPeople(db, user, body.user_ids || []);
+  const newId = tx(db, () => {
+    const r = db.prepare('insert into events (org_id, title, date, start_time, end_time, location, notes, client_id, created_by) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(user.org_id, v.title, v.date, v.start_time, v.end_time, v.location, v.notes, v.client_id, user.id);
+    const eid = Number(r.lastInsertRowid);
+    setEventPeople(db, eid, people);
+    return eid;
+  });
+  return reply(201, eventOut(db, db.prepare('select * from events where id = ?').get(newId)));
+});
+route('PATCH', '/api/events/:id', ({ db, user, body, params }) => {
+  const e = loadEvent(db, user, params.id);
+  if (user.role !== 'admin' && e.created_by !== user.id) fail(403, 'Só quem marcou ou um administrador pode alterar');
+  const v = eventFields(db, user, body, e);
+  tx(db, () => {
+    db.prepare('update events set title = ?, date = ?, start_time = ?, end_time = ?, location = ?, notes = ?, client_id = ? where id = ?')
+      .run(v.title, v.date, v.start_time, v.end_time, v.location, v.notes, v.client_id, e.id);
+    if ('user_ids' in body) setEventPeople(db, e.id, eventPeople(db, user, body.user_ids));
+  });
+  return eventOut(db, db.prepare('select * from events where id = ?').get(e.id));
+});
+route('DELETE', '/api/events/:id', ({ db, user, params }) => {
+  const e = loadEvent(db, user, params.id);
+  if (user.role !== 'admin' && e.created_by !== user.id) fail(403, 'Só quem marcou ou um administrador pode apagar');
+  db.prepare('delete from events where id = ?').run(e.id);
+  return { ok: true };
+});
+
 // ---------- anexos ----------
 const MAX_ATTACHMENT = 10 * 1024 * 1024;
 function loadAttachment(db, user, attId) {
@@ -743,14 +850,14 @@ function createTask(db, user, body) {
   const priority = oneOf(body.priority, 'prioridade', ['low', 'normal', 'high'], 'normal');
   const al = body.alerts === undefined ? [1] : alerts(body.alerts);
   const { rec, every } = recurrence(body);
-  const assignees = checkAssignees(db, user, body.assignee_ids || [], { kind, client_id: clientId, client_visible: clientVisible(kind, clientId, body.client_visible) });
+  const assignees = checkAssignees(db, user, body.assignee_ids || [], { kind, client_id: clientId, client_visible: clientVisible(kind, clientId, body.client_visible) }, body.keep_assignee_ids || []);
   const newId = tx(db, () => {
     const r = db.prepare(
       `insert into tasks (org_id, kind, client_id, client_visible, title, description, due_date, priority, alerts, recurrence,
-                          recurrence_every, position, created_by)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (select coalesce(max(position), 0) + 1 from tasks where org_id = ?), ?)`
+                          recurrence_every, position, created_by, team_visible)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (select coalesce(max(position), 0) + 1 from tasks where org_id = ?), ?, ?)`
     ).run(user.org_id, kind, clientId, clientVisible(kind, clientId, body.client_visible), title, description, due, priority,
-      JSON.stringify(al), rec, every, user.org_id, user.id);
+      JSON.stringify(al), rec, every, user.org_id, user.id, teamVisible(kind, body.team_visible));
     const taskId = Number(r.lastInsertRowid);
     setAssignees(db, taskId, assignees);
     const ins = db.prepare('insert into checklist_items (task_id, text, position) values (?, ?, ?)');
@@ -785,6 +892,7 @@ route('PATCH', '/api/tasks/:id', ({ db, user, body, params }) => {
         .run(kind, clientId, clientVisible(kind, clientId, 'client_visible' in body ? body.client_visible : t.client_visible), t.id);
       if (!('assignee_ids' in body)) dropInvalidClientAssignees(db, t.id);
     }
+    if ('team_visible' in body) set('team_visible', body.team_visible ? 1 : 0);
     if ('start_date' in body) set('start_date', date(body.start_date, 'Início'));
     if ('due_date' in body) set('due_date', date(body.due_date, 'Prazo'));
     if ('priority' in body) set('priority', oneOf(body.priority, 'prioridade', ['low', 'normal', 'high']));
@@ -805,7 +913,7 @@ route('PATCH', '/api/tasks/:id', ({ db, user, body, params }) => {
       if (!Number.isFinite(p)) fail(400, 'Campo inválido: posição');
       set('position', p);
     }
-    if ('assignee_ids' in body) setAssignees(db, t.id, checkAssignees(db, user, body.assignee_ids, db.prepare('select * from tasks where id = ?').get(t.id)));
+    if ('assignee_ids' in body) setAssignees(db, t.id, checkAssignees(db, user, body.assignee_ids, db.prepare('select * from tasks where id = ?').get(t.id), assigneeIds(db, t.id)));
     // Concluir e cancelar têm rotas próprias (pedem data e motivo). Voltar a uma situação aberta reabre.
     // Ao entrar em andamento pela primeira vez, o início é preenchido com hoje.
     if ('status' in body) {
@@ -816,12 +924,16 @@ route('PATCH', '/api/tasks/:id', ({ db, user, body, params }) => {
       const stageId = m ? Number(m[1]) : null;
       if (stageId && !db.prepare('select 1 from board_stages where id = ? and org_id = ?').get(stageId, user.org_id)) fail(400, 'Coluna inválida');
       const status = stageId ? 'doing' : oneOf(body.status, 'situação', ['todo', 'doing', 'review']);
-      db.prepare('update tasks set status = ?, stage_id = ?, completed_on = null, cancelled_on = null, cancel_reason = null where id = ?').run(status, stageId, t.id);
+      db.prepare('update tasks set status = ?, stage_id = ?, completed_on = null, cancelled_on = null, cancel_reason = null, completed_by = null, cancelled_by = null where id = ?').run(status, stageId, t.id);
       if (status !== 'todo' && !('start_date' in body)) db.prepare('update tasks set start_date = coalesce(start_date, ?) where id = ?').run(S.today(), t.id);
     } else if (body.start_date) {
       // Informar o início de uma tarefa a fazer já a coloca em andamento.
       db.prepare("update tasks set status = 'doing' where id = ? and status = 'todo'").run(t.id);
     }
+    // Quem iniciou: quem preencheu o início (direto, ao mudar a situação ou ao marcar o checklist).
+    const startNow = db.prepare('select start_date from tasks where id = ?').get(t.id).start_date;
+    if (!t.start_date && startNow) set('started_by', user.id);
+    if (!startNow) set('started_by', null);
     touch(db, t.id);
   });
   return taskDetail(db, user, t.id);
@@ -841,9 +953,9 @@ route('POST', '/api/tasks/:id/cancel', ({ db, user, body, params }) => {
   const t = loadTask(db, user, params.id);
   const reason = str(body.reason, 'motivo do cancelamento', { max: 1000 });
   db.prepare(
-    `update tasks set status = 'cancelled', cancel_reason = ?, cancelled_on = ?, completed_on = null, updated_at = datetime('now')
-      where id = ?`
-  ).run(reason, S.today(), t.id);
+    `update tasks set status = 'cancelled', cancel_reason = ?, cancelled_on = ?, completed_on = null, cancelled_by = ?, completed_by = null,
+       updated_at = datetime('now') where id = ?`
+  ).run(reason, S.today(), user.id, t.id);
   return taskDetail(db, user, t.id);
 });
 
@@ -884,7 +996,7 @@ route('PATCH', '/api/checklist/:id', ({ db, user, body, params }) => {
   if (user.role === 'client' && (task.status === 'done' || task.status === 'cancelled')) fail(409, 'Esta tarefa já foi encerrada');
   if ('done' in body) db.prepare('update checklist_items set done = ? where id = ?').run(body.done ? 1 : 0, item.id);
   const start = body.done ? S.startByChecklist(task, S.today()) : null;
-  if (start) db.prepare('update tasks set status = ?, start_date = ? where id = ?').run(start.status, start.start_date, task.id);
+  if (start) db.prepare('update tasks set status = ?, start_date = ?, started_by = coalesce(started_by, ?) where id = ?').run(start.status, start.start_date, task.start_date ? task.started_by : user.id, task.id);
   if ('text' in body) db.prepare('update checklist_items set text = ? where id = ?').run(str(body.text, 'item', { max: 300 }), item.id);
   touch(db, task.id);
   return taskDetail(db, user, task.id);
@@ -935,7 +1047,7 @@ route('POST', '/api/tasks/:id/approve', ({ db, user, params }) => {
   if (user.role !== 'client') fail(403, 'Só o cliente aprova a entrega');
   const t = loadTask(db, user, params.id);
   if (t.status !== 'review') fail(409, 'Esta tarefa não está esperando sua revisão');
-  const nextId = completeTask(db, t, S.today(), null);
+  const nextId = completeTask(db, t, S.today(), user.id);
   if (nextId) notifier?.onTaskCreated(nextId, null);
   db.prepare("insert into comments (task_id, user_id, body, visible_to_client) values (?, ?, 'Entrega aprovada.', 1)").run(t.id, user.id);
   return taskDetail(db, user, t.id);

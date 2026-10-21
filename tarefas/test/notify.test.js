@@ -28,6 +28,7 @@ function world() {
   const caio = createUser(db, { orgId, name: 'Caio Equipe', email: 'caio@opps.test', password: pw, role: 'member' });
   const cliA = createUser(db, { orgId, name: 'Dora Cliente', email: 'dora@clientea.test', password: pw, role: 'client', clientId: a });
   const cliB = createUser(db, { orgId, name: 'Edu Cliente', email: 'edu@clienteb.test', password: pw, role: 'client', clientId: b });
+  db.prepare('insert into user_clients (user_id, client_id) values (?, ?), (?, ?), (?, ?), (?, ?)').run(bia, a, bia, b, caio, a, caio, b);
   const task = (t, who = []) => {
     const id = Number(db.prepare(
       `insert into tasks (org_id, kind, client_id, client_visible, status, cancel_reason, title, due_date, alerts, created_by, archived_at)
