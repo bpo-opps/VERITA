@@ -146,12 +146,11 @@ Sem `APP_URL`, os links dos e-mails usam o endereço `.onrender.com`. Para usar 
 
 ## Mudanças depois de publicado
 
-O sistema no ar não muda sozinho (`autoDeploy: false` no `render.yaml`). Cada ajuste segue:
+O Render publica sozinho cada envio ao ramo `claude/replica-skill-sakpz4`. Por isso, cada ajuste segue:
 
 1. A mudança é feita e testada aqui (testes automáticos e teste de tela).
 2. O protótipo é atualizado com a mudança: é a prévia para conferir antes, sem tocar nos dados reais.
-3. Com o OK, a mudança é enviada ao GitHub. No ar continua tudo como estava.
-4. No Render, no serviço `tarefas-opps`: **Manual Deploy → Deploy latest commit**. Leva uns 3 a 5 minutos.
+3. Só com o "pode publicar" a mudança é enviada ao GitHub. Em uns 3 a 5 minutos está no ar.
 
 Os dados ficam no disco e uma publicação não apaga nada. Proteções:
 - Backup diário (14 dias) e, quando a atualização muda a estrutura do banco, uma cópia de antes (`antes-da-atualizacao-*.db`, últimas 5), em `/app/data/backups`.

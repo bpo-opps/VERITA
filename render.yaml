@@ -11,8 +11,7 @@ services:
     plan: starter            # o plano gratuito não tem disco: os dados se perderiam a cada reinício
     region: virginia         # a região do Render mais perto do Brasil
     healthCheckPath: /api/health
-    # Nada vai ao ar sozinho: depois de aprovar uma mudança, publique em Manual Deploy → Deploy latest commit.
-    autoDeploy: false
+    # Publica sozinho a cada envio ao GitHub: só envie mudanças aprovadas.
     disk:
       name: dados
       mountPath: /app/data   # banco SQLite e backups diários
