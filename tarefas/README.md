@@ -150,7 +150,7 @@ O Render publica sozinho cada envio ao ramo `claude/replica-skill-sakpz4`. Por i
 
 1. A mudança é feita e testada aqui (testes automáticos e teste de tela).
 2. O protótipo é atualizado com a mudança: é a prévia para conferir antes, sem tocar nos dados reais.
-3. Só com o "pode publicar" a mudança é enviada ao GitHub. Em uns 3 a 5 minutos está no ar.
+3. Só depois de duas confirmações na conversa ("pode publicar" e a confirmação final) a mudança é enviada ao GitHub. Em uns 3 a 5 minutos está no ar.
 
 Os dados ficam no disco e uma publicação não apaga nada. Proteções:
 - Backup diário (14 dias) e, quando a atualização muda a estrutura do banco, uma cópia de antes (`antes-da-atualizacao-*.db`, últimas 5), em `/app/data/backups`.
