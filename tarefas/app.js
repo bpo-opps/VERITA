@@ -7,6 +7,7 @@ const S = require('./shared');
 const whatsapp = require('./whatsapp');
 const zlib = require('node:zlib');
 const { PdfText } = require('./public/pdftext.js');
+const calendar = require('./calendar');
 
 const PUBLIC = path.join(__dirname, 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
@@ -677,13 +678,50 @@ const setEventPeople = (db, eventId, ids) => {
   for (const uid of ids) ins.run(eventId, uid);
 };
 
-route('GET', '/api/events', ({ db, user, query }) => {
-  const from = date(query.from, 'De') || S.addDays(S.today(), -31);
-  const to = date(query.to, 'Até') || S.addDays(S.today(), 62);
+// Compromissos que a pessoa vê (o administrador vê todos; os outros, os que marcaram ou em que participam).
+function eventsFor(db, user, from, to) {
   const own = user.role === 'admin' ? '1 = 1' : '(e.created_by = ? or exists (select 1 from event_users eu where eu.event_id = e.id and eu.user_id = ?))';
   return db.prepare(`select e.* from events e where e.org_id = ? and e.date between ? and ? and ${own} order by e.date, coalesce(e.start_time, ''), e.id`)
     .all(user.org_id, from, to, ...(user.role === 'admin' ? [] : [user.id, user.id])).map(e => eventOut(db, e));
+}
+route('GET', '/api/events', ({ db, user, query }) => {
+  const from = date(query.from, 'De') || S.addDays(S.today(), -31);
+  const to = date(query.to, 'Até') || S.addDays(S.today(), 62);
+  return eventsFor(db, user, from, to);
 });
+
+// ---------- link de agenda (Google Agenda, Outlook, iPhone) ----------
+const calendarUrl = (origin, token) => `${origin}/agenda/${token}.ics`;
+route('GET', '/api/me/calendar', ({ db, user, origin }) => {
+  const row = db.prepare('select token from calendar_links where user_id = ?').get(user.id);
+  return { url: row ? calendarUrl(origin, row.token) : null };
+});
+// Cria o link ou troca por um novo (o anterior para de funcionar).
+route('POST', '/api/me/calendar', ({ db, user, origin }) => {
+  const token = calendar.newToken();
+  db.prepare("insert into calendar_links (user_id, token) values (?, ?) on conflict(user_id) do update set token = excluded.token, created_at = datetime('now')").run(user.id, token);
+  return { url: calendarUrl(origin, token) };
+});
+route('DELETE', '/api/me/calendar', ({ db, user }) => {
+  db.prepare('delete from calendar_links where user_id = ?').run(user.id);
+  return { ok: true };
+});
+// O arquivo da agenda: compromissos de 2 meses atrás até 1 ano à frente e os prazos das tarefas abertas que a pessoa vê.
+function calendarFeed(db, token, origin) {
+  const user = db.prepare(`select u.id, u.org_id, u.name, u.email, u.role, u.client_id from calendar_links k
+    join users u on u.id = k.user_id where k.token = ? and u.active = 1`).get(token);
+  if (!user) return null;
+  if (user.role === 'member') user.client_ids = clientIdsOf(db, user.id);
+  const now = S.today();
+  const events = eventsFor(db, user, S.addDays(now, -62), S.addDays(now, 366));
+  const v = visibility(user);
+  const tasks = db.prepare(`select t.id, t.title, t.status, t.due_date, c.name as client_name from tasks t left join clients c on c.id = t.client_id
+    where t.org_id = ? and ${v.sql} and t.archived_at is null and t.status not in ('done', 'cancelled') and t.due_date between ? and ?
+    order by t.due_date, t.id`).all(user.org_id, ...v.args, S.addDays(now, -62), S.addDays(now, 366));
+  const names = db.prepare('select u.name from task_assignees a join users u on u.id = a.user_id where a.task_id = ? order by u.name');
+  for (const t of tasks) t.assignees = names.all(t.id).map(r => r.name);
+  return calendar.feed({ name: user.name, events, tasks, appUrl: origin });
+}
 route('POST', '/api/events', ({ db, user, body }) => {
   requireStaff(user);
   const v = eventFields(db, user, body);
@@ -1154,6 +1192,15 @@ function clientIp(req) {
   return xff ? String(xff).split(',').pop().trim() : req.socket.remoteAddress;
 }
 
+// Endereço público do sistema, para os links (agenda): APP_URL, o endereço do Render ou o do próprio pedido.
+function appOrigin(req) {
+  const fixed = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL;
+  if (fixed) return fixed.replace(/\/$/, '');
+  const proto = process.env.TRUST_PROXY === '1' && /^https?$/.test(String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim())
+    ? String(req.headers['x-forwarded-proto']).split(',')[0].trim() : 'http';
+  return `${proto}://${req.headers.host || 'localhost'}`;
+}
+
 function cookieToken(req) {
   const m = /(?:^|;\s*)sid=([a-f0-9]{64})/.exec(req.headers.cookie || '');
   return m ? m[1] : null;
@@ -1191,6 +1238,17 @@ function createHandler(db, opts = {}) {
   db.prepare("update meetings set status = 'error', error = 'A leitura foi interrompida. Clique em \"Ler de novo\".' where status = 'processing'").run();
   return async (req, res) => {
     const url = new URL(req.url, 'http://x');
+    const origin = appOrigin(req);
+    const cal = /^\/agenda\/([A-Za-z0-9_-]{20,64})\.ics$/.exec(url.pathname);
+    if (cal && (req.method === 'GET' || req.method === 'HEAD')) {
+      try {
+        const ics = calendarFeed(db, cal[1], origin);
+        if (!ics) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Link de agenda inválido ou trocado.'); return; }
+        res.writeHead(200, { 'Content-Type': 'text/calendar; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': 'inline; filename="tarefas-opps.ics"', 'X-Content-Type-Options': 'nosniff' });
+        res.end(req.method === 'HEAD' ? undefined : ics);
+      } catch (err) { console.error(err); res.writeHead(500).end(); }
+      return;
+    }
     if (!url.pathname.startsWith('/api/')) {
       if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return; }
       serveStatic(req, res);
@@ -1221,7 +1279,7 @@ function createHandler(db, opts = {}) {
       if (user && user.role === 'member') user.client_ids = clientIdsOf(db, user.id);
       if (!r.public && !user) fail(401, 'Faça login');
 
-      const out = await r.handler({ db, user, body, params, query: Object.fromEntries(url.searchParams), token, ip: clientIp(req) });
+      const out = await r.handler({ db, user, body, params, query: Object.fromEntries(url.searchParams), token, ip: clientIp(req), origin });
       if (out && out[REPLY]) {
         const cookie = out.cookie && process.env.COOKIE_SECURE === '1' ? out.cookie + '; Secure' : out.cookie;
         send(res, out.code, out.body, cookie ? { 'Set-Cookie': cookie } : {});

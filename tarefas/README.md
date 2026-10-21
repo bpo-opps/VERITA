@@ -62,7 +62,7 @@ A senha temporária aparece uma vez no terminal; troque em Configurações. O ba
 - **Alertas:** filtros de empresa e responsável. Com um deles escolhido, aparece a mensagem pronta para o WhatsApp (copiar ou abrir no WhatsApp) e a imagem das tarefas para anexar; cada tarefa também tem o seu botão. Serve enquanto o envio automático por WhatsApp não está ligado.
 - **Dashboard clicável:** cada número e barra abre Tarefas com o filtro correspondente.
 - **Relatórios:** resumo, por empresa, por responsável, prazos, concluídas, canceladas, evolução mensal, ajustes, recorrentes e lista completa, com filtros de período, empresa, responsável, tipo e situação; baixam em Excel (.xlsx) e PDF, gerados no próprio navegador (`public/exports.js`).
-- **Compromissos:** agenda de reuniões e compromissos (lista ou mês), com empresa, participantes (equipe e cliente) e local ou link. Veem quem marcou, os participantes e o administrador; o cliente só os de que participa. A ligação com Google Agenda e Outlook vem depois.
+- **Compromissos:** agenda de reuniões e compromissos (lista ou mês), com empresa, participantes (equipe e cliente) e local ou link. Veem quem marcou, os participantes e o administrador; o cliente só os de que participa. Em "Ligar à minha agenda" cada pessoa gera um link particular (`/agenda/<código>.ics`, em `calendar.js`) que o Google Agenda, o Outlook e o iPhone assinam: traz os compromissos dela e os prazos das tarefas abertas que ela vê, só leitura. Gerar um novo link invalida o anterior.
 
 ## Painel e Recorrentes
 

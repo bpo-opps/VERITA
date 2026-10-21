@@ -577,3 +577,12 @@ button.stat.clickable { text-align: center; }
 .grid3 { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 0 12px; }
 @media (max-width: 480px) { .grid3 { grid-template-columns: 1fr 1fr; } .grid3 > :first-child { grid-column: 1 / -1; } }
 .notes-box summary { cursor: pointer; font-weight: 600; } .notes-box textarea { width: 100%; }
+
+/* Ligar à minha agenda */
+.row.nowrap { flex-wrap: nowrap; }
+.row.nowrap input { flex: 1; min-width: 0; }
+.cal-steps { margin: 12px 0; }
+.cal-steps summary { cursor: pointer; font-weight: 600; }
+.cal-step { margin-top: 10px; }
+.cal-step ol { margin: 4px 0 0; padding-left: 20px; }
+.cal-step li { margin: 2px 0; }

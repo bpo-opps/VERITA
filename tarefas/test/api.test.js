@@ -614,3 +614,42 @@ test('compromissos: quem marcou, participantes e administrador veem; cliente só
   assert.equal((await member2('DELETE', `/api/events/${eid}`)).status, 403);
   assert.equal((await admin('DELETE', `/api/events/${eid}`)).status, 200);
 });
+
+test('link de agenda: compromissos e prazos que a pessoa vê; trocar o link invalida o anterior', async () => {
+  const member = await login('membro@t.local');
+  const member2 = await login('membro2@t.local');
+  assert.equal((await member('GET', '/api/me/calendar')).body.url, null);
+  const ev = await member('POST', '/api/events', { title: 'Visita, cliente; revisão', date: day(4), start_time: '14:30', client_id: ids.a,
+    location: 'Sala 2', notes: 'Levar\nrelatório', user_ids: [ids.member] });
+  const own = await member('POST', '/api/tasks', { title: 'Prazo do membro', kind: 'internal', due_date: day(5), assignee_ids: [ids.member] });
+  const hidden = await member2('POST', '/api/tasks', { title: 'Só do membro dois', kind: 'internal', due_date: day(5), assignee_ids: [ids.member2] });
+  const done = await member('POST', '/api/tasks', { title: 'Já concluída', kind: 'internal', due_date: day(6), assignee_ids: [ids.member] });
+  await member('POST', `/api/tasks/${done.body.id}/complete`, {});
+  const { url } = (await member('POST', '/api/me/calendar')).body;
+  assert.match(url, /^http:\/\/127\.0\.0\.1:\d+\/agenda\/[A-Za-z0-9_-]{32}\.ics$/);
+  assert.equal((await member('GET', '/api/me/calendar')).body.url, url);
+  const res = await fetch(url);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /^text\/calendar/);
+  const ics = await res.text();
+  assert.ok(ics.startsWith('BEGIN:VCALENDAR\r\n') && ics.endsWith('END:VCALENDAR\r\n'));
+  assert.ok(ics.split('\r\n').every(l => Buffer.byteLength(l) <= 75), 'linhas dobradas em 75 bytes');
+  const flat = ics.replace(/\r\n /g, '');
+  assert.ok(flat.includes(`UID:compromisso-${ev.body.id}@tarefas-opps`));
+  assert.ok(flat.includes(String.raw`SUMMARY:Visita\, cliente\; revisão`));
+  assert.ok(flat.includes(`DTSTART;TZID=America/Sao_Paulo:${day(4).replace(/-/g, '')}T143000`));
+  assert.ok(flat.includes(`DTEND;TZID=America/Sao_Paulo:${day(4).replace(/-/g, '')}T153000`), 'sem fim: uma hora');
+  assert.ok(flat.includes('Levar\\nrelatório'));
+  assert.ok(flat.includes(`UID:tarefa-${own.body.id}@tarefas-opps`));
+  assert.ok(flat.includes(`DTSTART;VALUE=DATE:${day(5).replace(/-/g, '')}`));
+  assert.ok(flat.includes('SUMMARY:Prazo: Prazo do membro'));
+  assert.ok(!flat.includes(`tarefa-${hidden.body.id}@`), 'não mostra tarefa que a pessoa não vê');
+  assert.ok(!flat.includes(`tarefa-${done.body.id}@`), 'não mostra tarefa concluída');
+  const novo = (await member('POST', '/api/me/calendar')).body.url;
+  assert.notEqual(novo, url);
+  assert.equal((await fetch(url)).status, 404, 'o link antigo para de funcionar');
+  assert.equal((await fetch(novo)).status, 200);
+  await member('DELETE', '/api/me/calendar');
+  assert.equal((await fetch(novo)).status, 404);
+  assert.equal((await fetch(base + '/agenda/curto.ics')).status, 200, 'formato estranho cai na página normal');
+});

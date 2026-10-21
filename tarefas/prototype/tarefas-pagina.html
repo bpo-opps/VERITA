@@ -584,6 +584,15 @@ button.stat.clickable { text-align: center; }
 @media (max-width: 480px) { .grid3 { grid-template-columns: 1fr 1fr; } .grid3 > :first-child { grid-column: 1 / -1; } }
 .notes-box summary { cursor: pointer; font-weight: 600; } .notes-box textarea { width: 100%; }
 
+/* Ligar à minha agenda */
+.row.nowrap { flex-wrap: nowrap; }
+.row.nowrap input { flex: 1; min-width: 0; }
+.cal-steps { margin: 12px 0; }
+.cal-steps summary { cursor: pointer; font-weight: 600; }
+.cal-step { margin-top: 10px; }
+.cal-step ol { margin: 4px 0 0; padding-left: 20px; }
+.cal-step li { margin: 2px 0; }
+
 #demo-bar { position: relative; z-index: 45; background: #0b0f17; color: #ffffff; padding-block: 8px; padding-left: var(--gutter-l); padding-right: var(--gutter-r); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
 #demo-bar strong { margin-right: 4px; }
 @media (min-width: 861px) { .sidebar { height: calc(100dvh - 44px); } }
@@ -995,6 +1004,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
   db.notifications = db.notifications || [];
   db.meetings = db.meetings || [];
   db.meeting_items = db.meeting_items || [];
+  db.calendar_links = db.calendar_links || {};
   for (const k of ['user_clients', 'stages', 'board', 'attachments', 'events']) db[k] = db[k] || [];
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sem armazenamento: fica só na memória */ } };
   let sessionUser = null;
@@ -1246,6 +1256,15 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     return db.events.filter(e => e.date >= from && e.date <= to && seesEvent(user, e))
       .sort((a, b) => a.date.localeCompare(b.date) || (a.start_time || '').localeCompare(b.start_time || '') || a.id - b.id).map(eventOut);
   });
+  // Link de agenda: no protótipo é só um exemplo (o arquivo da agenda existe só no sistema de verdade).
+  const calUrl = token => `https://tarefas-opps.onrender.com/agenda/${token}.ics`;
+  route('GET', '/api/me/calendar', ({ user }) => ({ url: db.calendar_links[user.id] ? calUrl(db.calendar_links[user.id]) : null }));
+  route('POST', '/api/me/calendar', ({ user }) => {
+    const token = 'exemplo-do-prototipo-' + Math.random().toString(36).slice(2, 10);
+    db.calendar_links[user.id] = token;
+    return { url: calUrl(token) };
+  });
+  route('DELETE', '/api/me/calendar', ({ user }) => { delete db.calendar_links[user.id]; return { ok: true }; });
   route('POST', '/api/events', ({ user, body }) => {
     requireStaff(user);
     const e = { id: nextId(), ...eventFields(body), user_ids: eventPeople(body.user_ids || []), created_by: user.id, created_at: now() };
@@ -3057,13 +3076,13 @@ function waMessage(tasks, { to, client } = {}) {
     `\n\nQualquer dúvida, é só falar.${sign}`;
 }
 
-async function copyText(text) {
-  try { await navigator.clipboard.writeText(text); toast('Mensagem copiada. Agora é só colar no WhatsApp.'); return; } catch { /* sem acesso à área de transferência */ }
+async function copyText(text, done = 'Mensagem copiada. Agora é só colar no WhatsApp.') {
+  try { await navigator.clipboard.writeText(text); toast(done); return; } catch { /* sem acesso à área de transferência */ }
   const ta = h('textarea', { style: 'position:fixed;opacity:0' }, text);
   document.body.append(ta); ta.select();
   const ok = document.execCommand && document.execCommand('copy'); ta.remove();
-  if (ok) { toast('Mensagem copiada. Agora é só colar no WhatsApp.'); return; }
-  modal(close => h('div', {}, h('h2', {}, 'Copie a mensagem'), h('p', { class: 'muted small' }, 'Este aparelho não deixou copiar sozinho: selecione o texto e copie.'),
+  if (ok) { toast(done); return; }
+  modal(close => h('div', {}, h('h2', {}, 'Copie o texto'), h('p', { class: 'muted small' }, 'Este aparelho não deixou copiar sozinho: selecione o texto e copie.'),
     h('textarea', { class: 'wa-text', rows: 10 }, text), h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar'))));
 }
 
@@ -3940,10 +3959,56 @@ async function viewEvents() {
         [['list', 'Lista', 'list'], ['month', 'Mês', 'calendar']].map(([k, l, ic]) => h('button', { type: 'button', class: 'seg-btn', 'aria-pressed': String(v.layout === k),
           onclick: () => { v.layout = k; route(); } }, icon(ic), l))),
       v.layout === 'list' ? h('button', { class: 'btn', type: 'button', onclick: () => { v.past = !v.past; route(); } }, v.past ? 'Ver próximos' : 'Ver anteriores') : null,
+      h('button', { class: 'btn', type: 'button', onclick: guard(calendarDialog) }, icon('calendar'), 'Ligar à minha agenda'),
       isStaff() ? h('button', { class: 'btn primary', type: 'button', onclick: () => eventDialog(null) }, icon('plus'), 'Novo compromisso') : null),
     body,
-    h('p', { class: 'muted small' }, 'Em breve: ligar com o Google Agenda e o Outlook.'),
   ], { sub: isStaff() ? 'Reuniões e compromissos da equipe e com os clientes' : 'Reuniões e compromissos de que você participa' });
+}
+
+// Link de agenda da pessoa: Google Agenda, Outlook e iPhone assinam e atualizam sozinhos.
+async function calendarDialog() {
+  let { url } = await api('GET', '/api/me/calendar');
+  modal(close => {
+    const box = h('div', {});
+    const paint = () => {
+      box.replaceChildren();
+      const webcal = url && url.replace(/^https?:/, 'webcal:');
+      const step = (title, ...lines) => h('div', { class: 'cal-step' }, h('strong', {}, title), h('ol', {}, lines.map(l => h('li', {}, l))));
+      box.append(
+        h('h2', {}, 'Ligar à minha agenda'),
+        h('p', {}, 'Seus compromissos e os prazos das tarefas que você vê aparecem no Google Agenda, no Outlook ou no iPhone, e se atualizam sozinhos.'),
+        h('p', { class: 'muted small' }, 'É só para ver: para marcar ou mudar, use o sistema. Tarefa concluída sai da agenda.'),
+        url ? h('div', {},
+          h('div', { class: 'field' }, h('label', { for: 'cal-url' }, 'Seu link'),
+            h('div', { class: 'row nowrap' }, h('input', { id: 'cal-url', value: url, readonly: true, onfocus: e => e.target.select() }),
+              h('button', { class: 'btn primary', type: 'button', onclick: () => copyText(url, 'Link copiado. Agora cole na sua agenda.') }, 'Copiar'))),
+          h('div', { class: 'row' },
+            h('a', { class: 'btn', href: `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(webcal)}`, target: '_blank', rel: 'noopener' }, 'Abrir no Google Agenda'),
+            h('a', { class: 'btn', href: webcal }, 'Abrir no iPhone ou Outlook')),
+          h('details', { class: 'cal-steps' }, h('summary', {}, 'Passo a passo'),
+            step('Google Agenda (no computador)', 'Copie o link acima.', 'No Google Agenda, ao lado de "Outras agendas", clique em +.', 'Escolha "Do URL", cole o link e clique em "Adicionar agenda".',
+              'No celular ela aparece sozinha depois (no app do Google Agenda, confira se a agenda está marcada).'),
+            step('Outlook', 'Copie o link acima.', 'No Outlook na web: Calendário → Adicionar calendário → "Assinar da Web".', 'Cole o link, dê um nome e clique em Importar.'),
+            step('iPhone', 'Copie o link acima.', 'Ajustes → Calendário → Contas → Adicionar Conta → Outra.', 'Toque em "Adicionar Calendário Assinado", cole o link e toque em Seguinte e Salvar.')),
+          h('p', { class: 'muted small' }, 'O Google Agenda busca as novidades a cada algumas horas (às vezes até um dia); o iPhone e o Outlook, mais rápido.'),
+          h('p', { class: 'muted small' }, 'Quem tiver este link vê a sua agenda: não compartilhe. Se ele vazar, gere um novo (o anterior para de funcionar e você precisa colar o novo na agenda).'),
+          h('div', { class: 'row' },
+            h('button', { class: 'btn', type: 'button', onclick: guard(async () => {
+              if (!await ask('Gerar um link novo? O link atual para de funcionar e você vai precisar colar o novo na sua agenda.', { ok: 'Gerar novo link' })) return;
+              url = (await api('POST', '/api/me/calendar')).url; paint(); toast('Link novo gerado.');
+            }) }, 'Gerar novo link'),
+            h('button', { class: 'btn danger', type: 'button', onclick: guard(async () => {
+              if (!await ask('Desligar o link? A sua agenda para de receber os compromissos e prazos.', { ok: 'Desligar', danger: true })) return;
+              await api('DELETE', '/api/me/calendar'); url = null; paint(); toast('Link desligado.');
+            }) }, 'Desligar'),
+            h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar')),
+        ) : h('div', { class: 'row' },
+          h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => { url = (await api('POST', '/api/me/calendar')).url; paint(); }) }, 'Criar meu link'),
+          h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar')));
+    };
+    paint();
+    return box;
+  });
 }
 
 // Detalhe, criação e edição de um compromisso.

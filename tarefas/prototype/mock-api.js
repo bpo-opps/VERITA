@@ -81,6 +81,7 @@
   db.notifications = db.notifications || [];
   db.meetings = db.meetings || [];
   db.meeting_items = db.meeting_items || [];
+  db.calendar_links = db.calendar_links || {};
   for (const k of ['user_clients', 'stages', 'board', 'attachments', 'events']) db[k] = db[k] || [];
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sem armazenamento: fica só na memória */ } };
   let sessionUser = null;
@@ -332,6 +333,15 @@
     return db.events.filter(e => e.date >= from && e.date <= to && seesEvent(user, e))
       .sort((a, b) => a.date.localeCompare(b.date) || (a.start_time || '').localeCompare(b.start_time || '') || a.id - b.id).map(eventOut);
   });
+  // Link de agenda: no protótipo é só um exemplo (o arquivo da agenda existe só no sistema de verdade).
+  const calUrl = token => `https://tarefas-opps.onrender.com/agenda/${token}.ics`;
+  route('GET', '/api/me/calendar', ({ user }) => ({ url: db.calendar_links[user.id] ? calUrl(db.calendar_links[user.id]) : null }));
+  route('POST', '/api/me/calendar', ({ user }) => {
+    const token = 'exemplo-do-prototipo-' + Math.random().toString(36).slice(2, 10);
+    db.calendar_links[user.id] = token;
+    return { url: calUrl(token) };
+  });
+  route('DELETE', '/api/me/calendar', ({ user }) => { delete db.calendar_links[user.id]; return { ok: true }; });
   route('POST', '/api/events', ({ user, body }) => {
     requireStaff(user);
     const e = { id: nextId(), ...eventFields(body), user_ids: eventPeople(body.user_ids || []), created_by: user.id, created_at: now() };

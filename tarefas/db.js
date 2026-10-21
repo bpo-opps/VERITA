@@ -3,7 +3,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { hashPassword } = require('./auth');
 const { today, addDays } = require('./shared');
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 const SCHEMA = `
 pragma foreign_keys = on;
@@ -217,6 +217,12 @@ create table if not exists event_users (
   event_id integer not null references events(id) on delete cascade,
   user_id integer not null references users(id) on delete cascade,
   primary key (event_id, user_id)
+);
+-- Versão 8: link de agenda de cada pessoa (Google Agenda, Outlook, iPhone). Trocar o link invalida o anterior.
+create table if not exists calendar_links (
+  user_id integer primary key references users(id) on delete cascade,
+  token text not null unique,
+  created_at text not null default (datetime('now'))
 );
 create table if not exists templates (
   id integer primary key,
