@@ -929,7 +929,7 @@ function imageDialog(tasks, opts) {
     h('h2', {}, 'Imagem para o WhatsApp'),
     h('img', { src: url, alt: 'Imagem das tarefas', class: 'wa-img' }),
     h('div', { class: 'row', style: 'margin-top:12px' },
-      h('a', { class: 'btn primary', href: url, download: name }, 'Baixar imagem'),
+      h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => Exports.download(await (await fetch(url)).blob(), name)) }, 'Baixar imagem'),
       navigator.canShare ? h('button', { class: 'btn', type: 'button', onclick: guard(async () => {
         const blob = await (await fetch(url)).blob();
         const file = new File([blob], name, { type: 'image/png' });
@@ -1518,10 +1518,7 @@ async function openTask(id) {
     const download = guard(async a => {
       const f = await api('GET', `/api/attachments/${a.id}`);
       const bytes = Uint8Array.from(atob(f.data), c => c.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes], { type: f.mime }));
-      const link = h('a', { href: url, download: f.name, target: '_blank', rel: 'noopener' });
-      document.body.append(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      await Exports.download(new Blob([bytes], { type: f.mime }), f.name);
     });
     const size = n => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB`);
     return h('div', { class: 'section' },
@@ -1930,10 +1927,7 @@ async function viewMeeting(meetingId) {
   const openPdf = guard(async () => {
     const f = await api('GET', `/api/meetings/${meetingId}/pdf`);
     const bytes = Uint8Array.from(atob(f.data), c => c.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-    const a = h('a', { href: url, download: f.name, target: '_blank', rel: 'noopener' });
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    await Exports.download(new Blob([bytes], { type: 'application/pdf' }), f.name);
   });
   const header = h('div', { class: 'card-box meeting-head' },
     h('div', { class: 'row', style: 'align-items:flex-start' },

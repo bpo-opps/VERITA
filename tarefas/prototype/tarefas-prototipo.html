@@ -1759,7 +1759,22 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     return new Blob([bytes], { type: 'application/pdf' });
   }
 
-  function download(blob, name) {
+  // Baixa um arquivo. Dentro do visualizador de artefatos do Claude (a prévia), o download direto é
+  // bloqueado: lá o arquivo vai pela permissão de salvar do visualizador, que pede confirmação.
+  let saver;
+  const viewerSaver = () => (saver ??= root.claude && typeof root.claude.use === 'function'
+    ? root.claude.use('downloads').catch(() => null) : Promise.resolve(null));
+  async function download(blob, name) {
+    const viewer = await viewerSaver();
+    if (viewer) {
+      try { await viewer.save({ filename: name, data: blob }); }
+      catch (e) {
+        const say = typeof root.toast === 'function' ? root.toast : () => {};
+        if (e && e.code === 'rejected_extension') say('Este tipo de arquivo não pode ser baixado na prévia; no sistema funciona.');
+        else if (e && e.code !== 'declined') say('Não deu para baixar o arquivo agora.');
+      }
+      return;
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = name; a.rel = 'noopener';
@@ -2703,7 +2718,7 @@ function imageDialog(tasks, opts) {
     h('h2', {}, 'Imagem para o WhatsApp'),
     h('img', { src: url, alt: 'Imagem das tarefas', class: 'wa-img' }),
     h('div', { class: 'row', style: 'margin-top:12px' },
-      h('a', { class: 'btn primary', href: url, download: name }, 'Baixar imagem'),
+      h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => Exports.download(await (await fetch(url)).blob(), name)) }, 'Baixar imagem'),
       navigator.canShare ? h('button', { class: 'btn', type: 'button', onclick: guard(async () => {
         const blob = await (await fetch(url)).blob();
         const file = new File([blob], name, { type: 'image/png' });
@@ -3292,10 +3307,7 @@ async function openTask(id) {
     const download = guard(async a => {
       const f = await api('GET', `/api/attachments/${a.id}`);
       const bytes = Uint8Array.from(atob(f.data), c => c.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes], { type: f.mime }));
-      const link = h('a', { href: url, download: f.name, target: '_blank', rel: 'noopener' });
-      document.body.append(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      await Exports.download(new Blob([bytes], { type: f.mime }), f.name);
     });
     const size = n => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB`);
     return h('div', { class: 'section' },
@@ -3704,10 +3716,7 @@ async function viewMeeting(meetingId) {
   const openPdf = guard(async () => {
     const f = await api('GET', `/api/meetings/${meetingId}/pdf`);
     const bytes = Uint8Array.from(atob(f.data), c => c.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-    const a = h('a', { href: url, download: f.name, target: '_blank', rel: 'noopener' });
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    await Exports.download(new Blob([bytes], { type: 'application/pdf' }), f.name);
   });
   const header = h('div', { class: 'card-box meeting-head' },
     h('div', { class: 'row', style: 'align-items:flex-start' },

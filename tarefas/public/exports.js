@@ -152,7 +152,22 @@
     return new Blob([bytes], { type: 'application/pdf' });
   }
 
-  function download(blob, name) {
+  // Baixa um arquivo. Dentro do visualizador de artefatos do Claude (a prévia), o download direto é
+  // bloqueado: lá o arquivo vai pela permissão de salvar do visualizador, que pede confirmação.
+  let saver;
+  const viewerSaver = () => (saver ??= root.claude && typeof root.claude.use === 'function'
+    ? root.claude.use('downloads').catch(() => null) : Promise.resolve(null));
+  async function download(blob, name) {
+    const viewer = await viewerSaver();
+    if (viewer) {
+      try { await viewer.save({ filename: name, data: blob }); }
+      catch (e) {
+        const say = typeof root.toast === 'function' ? root.toast : () => {};
+        if (e && e.code === 'rejected_extension') say('Este tipo de arquivo não pode ser baixado na prévia; no sistema funciona.');
+        else if (e && e.code !== 'declined') say('Não deu para baixar o arquivo agora.');
+      }
+      return;
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = name; a.rel = 'noopener';
