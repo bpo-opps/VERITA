@@ -86,7 +86,7 @@
     db.diary = [];
     let did = 200;
     const diary = (uid, date, title, start, end, cat, done, taskId = null) => db.diary.push({ id: ++did, user_id: uid, date, title, start_time: start, end_time: end, category: cat,
-      done: done ? 1 : 0, done_at: null, task_id: taskId, created_at: now() });
+      done: done ? 1 : 0, done_at: null, task_id: taskId, position: did, created_at: now() });
     for (const uid of [1, 2, 3]) {
       diary(uid, d(0), 'Planejar o dia e revisar prazos', '08:00', '08:20', 'important', true);
       diary(uid, d(0), 'Responder e-mails de clientes', '08:20', '09:00', 'circumstantial', true);
@@ -995,7 +995,13 @@
     if (v.start_time && v.end_time && v.end_time < v.start_time) fail(400, 'O fim é antes do início');
     return v;
   }
-  const byTime = (a, b) => a.date.localeCompare(b.date) || (!a.start_time - !b.start_time) || (a.start_time || '').localeCompare(b.start_time || '') || a.id - b.id;
+  const byTime = (a, b) => a.date.localeCompare(b.date) || (a.position || 0) - (b.position || 0) || a.id - b.id;
+  const insertDiary = (user, v, taskId) => {
+    const e = { id: nextId(), user_id: user.id, ...v, done: 0, done_at: null, task_id: taskId, created_at: now(),
+      position: Math.max(0, ...db.diary.filter(x => x.user_id === user.id && x.date === v.date).map(x => x.position || 0)) + 1 };
+    db.diary.push(e);
+    return e;
+  };
   route('GET', '/api/diary', ({ user, query }) => {
     const owner = diaryOwner(user, query.user_id);
     const from = query.from || query.date || S.today(), to = query.to || from;
@@ -1014,14 +1020,23 @@
     requireStaff(user);
     let taskId = null;
     if (body.task_id) { const t = loadTask(user, Number(body.task_id)); taskId = t.id; body = { ...body, title: body.title || t.title }; }
-    const v = diaryFields({ date: S.today(), ...body });
-    const e = { id: nextId(), user_id: user.id, ...v, done: 0, done_at: null, task_id: taskId, created_at: now() };
-    db.diary.push(e);
-    return diaryOut(user, e);
+    return diaryOut(user, insertDiary(user, diaryFields({ date: S.today(), ...body }), taskId));
+  });
+  route('PUT', '/api/diary/order', ({ user, body }) => {
+    requireStaff(user);
+    if (!Array.isArray(body.ids)) fail(400, 'Campo inválido: ordem');
+    body.ids.forEach((x, i) => { const e = db.diary.find(y => y.id === Number(x) && y.user_id === user.id); if (e) e.position = i + 1; });
+    return { ok: true };
+  });
+  route('POST', '/api/diary/:id/clone', ({ user, body, id }) => {
+    const e = loadDiary(user, id);
+    return diaryOut(user, insertDiary(user, { date: date(body.date, 'Data') || S.addDays(e.date, 1), title: e.title, start_time: null, end_time: null, category: e.category }, e.task_id));
   });
   route('PATCH', '/api/diary/:id', ({ user, body, id }) => {
     const e = loadDiary(user, id);
-    Object.assign(e, diaryFields(body, e));
+    const v = diaryFields(body, e);
+    if (body.done && !e.done && (!v.start_time || !v.end_time)) fail(400, 'Para concluir, informe a hora de início e de término');
+    Object.assign(e, v);
     if ('done' in body) { e.done = body.done ? 1 : 0; e.done_at = body.done ? now() : null; }
     return diaryOut(user, e);
   });

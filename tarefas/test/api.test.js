@@ -751,7 +751,8 @@ test('diário de bordo: só o dono e o administrador; vira tarefa; feito no diá
   assert.equal((await member2('GET', `/api/diary?date=${today}&user_id=${ids.member}`)).status, 403);
   assert.equal((await admin('GET', `/api/diary?date=${today}&user_id=${ids.member}`)).body.entries.length, 2, 'administrador vê');
   assert.equal((await member2('PATCH', `/api/diary/${e1.id}`, { done: true })).status, 404);
-  assert.equal((await member('PATCH', `/api/diary/${fromTask.id}`, { done: true })).body.done, true);
+  assert.equal((await member('PATCH', `/api/diary/${fromTask.id}`, { done: true })).status, 400, 'concluir pede início e término');
+  assert.equal((await member('PATCH', `/api/diary/${fromTask.id}`, { done: true, start_time: '09:00', end_time: '10:15' })).body.done, true);
   assert.equal((await member('GET', `/api/tasks/${assigned}`)).body.diary_done, true, 'a tarefa avisa que foi feita no diário');
   await member('POST', `/api/tasks/${assigned}/complete`, {});
   assert.equal((await member('GET', `/api/tasks/${assigned}`)).body.diary_done, false);
@@ -766,5 +767,17 @@ test('diário de bordo: só o dono e o administrador; vira tarefa; feito no diá
   assert.equal((await member('GET', `/api/diary?date=${today}`)).body.entries.find(e => e.id === done.id).done, true, 'concluir a tarefa marca o diário');
   const sum = S.diarySummary((await member('GET', `/api/diary?date=${today}`)).body.entries);
   assert.equal(sum.total, 3);
+  // Ordem e clonar para o dia seguinte.
+  const ids0 = (await member('GET', `/api/diary?date=${today}`)).body.entries.map(e => e.id);
+  assert.equal((await member('PUT', '/api/diary/order', { ids: [...ids0].reverse() })).status, 200);
+  assert.deepEqual((await member('GET', `/api/diary?date=${today}`)).body.entries.map(e => e.id), [...ids0].reverse());
+  const cl = await member('POST', `/api/diary/${fromTask.id}/clone`, {});
+  assert.equal(cl.status, 201);
+  assert.equal(cl.body.date, S.addDays(today, 1));
+  assert.equal(cl.body.title, 'Para hoje');
+  assert.equal(cl.body.done, false);
+  assert.equal(cl.body.start_time, null);
+  assert.equal(cl.body.task_id, assigned, 'continua ligada à tarefa');
+  assert.equal((await member2('POST', `/api/diary/${fromTask.id}/clone`, {})).status, 404);
   assert.equal((await member('DELETE', `/api/diary/${e1.id}`)).status, 200);
 });

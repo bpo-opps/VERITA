@@ -709,3 +709,14 @@ tr.total td { border-top: 2px solid var(--border); }
   .triad-bar-row { grid-template-columns: 104px 1fr 40px; }
   .triad-bar-row > .muted { display: none; }
 }
+.drag-handle { cursor: grab; color: var(--text-muted); font-size: 14px; line-height: 26px; user-select: none; letter-spacing: -2px; flex: none; }
+.diary-item.dragging { opacity: .45; }
+.diary-item.drop-here { box-shadow: inset 0 2px 0 var(--accent); }
+.diary-side { display: flex; gap: 4px; flex: none; }
+.icon-btn.small { width: 30px; height: 30px; font-size: 14px; }
+.icon-btn:disabled { opacity: .35; cursor: default; }
+.start-btn { border-color: var(--s-ontime); color: var(--s-ontime); }
+@media (max-width: 600px) {
+  .drag-handle { display: none; }
+  .diary-side { flex-direction: column; }
+}

@@ -1861,17 +1861,39 @@ async function viewDiary() {
     title: editable ? 'Trocar a classificação' : S.TRIAD[e.category].hint,
     onclick: editable ? guard(async () => { await api('PATCH', `/api/diary/${e.id}`, { category: TRIAD_KEYS[(TRIAD_KEYS.indexOf(e.category) + 1) % 3] }); route(); }) : null },
     S.TRIAD[e.category].label);
-  const toggle = guard(async (e, done) => {
-    await api('PATCH', `/api/diary/${e.id}`, { done });
-    if (done && e.task && !['done', 'cancelled'].includes(e.task.status)) {
+  // Concluir: com início e término (Iniciar e Encerrar já preenchem; pela caixinha, pergunta).
+  const finish = async (e, patch) => {
+    await api('PATCH', `/api/diary/${e.id}`, { ...patch, done: true });
+    if (e.task && !['done', 'cancelled'].includes(e.task.status)) {
       if (await ask(`Feito! A tarefa "${e.task.title}" ainda está aberta no quadro. Concluir lá também?`, { ok: 'Concluir a tarefa' })) {
         completeDialog(await api('GET', `/api/tasks/${e.task.id}`), () => route());
         return;
       }
     }
     route();
+  };
+  const toggle = guard(async (e, done) => {
+    if (!done) { await api('PATCH', `/api/diary/${e.id}`, { done: false }); route(); return; }
+    if (e.start_time && e.end_time) { await finish(e, {}); return; }
+    const times = await askTimes(e);
+    if (!times) { route(); return; }
+    await finish(e, times);
   });
-  const row = e => h('li', { class: 'diary-item' + (e.done ? ' done' : '') },
+  const ids = d.entries.map(e => e.id);
+  const reorder = guard(async list => { await api('PUT', '/api/diary/order', { ids: list }); route(); });
+  const move = (e, dir) => { const l = [...ids]; const i = l.indexOf(e.id); const j = i + dir; if (j < 0 || j >= l.length) return; [l[i], l[j]] = [l[j], l[i]]; reorder(l); };
+  let dragId = null;
+  const row = (e, i) => h('li', { class: 'diary-item' + (e.done ? ' done' : ''), draggable: mine ? 'true' : null, 'data-id': e.id,
+    ondragstart: mine ? ev => { dragId = e.id; ev.dataTransfer.effectAllowed = 'move'; ev.currentTarget.classList.add('dragging'); } : null,
+    ondragend: mine ? ev => ev.currentTarget.classList.remove('dragging') : null,
+    ondragover: mine ? ev => { if (dragId && dragId !== e.id) { ev.preventDefault(); ev.currentTarget.classList.add('drop-here'); } } : null,
+    ondragleave: mine ? ev => ev.currentTarget.classList.remove('drop-here') : null,
+    ondrop: mine ? ev => {
+      ev.preventDefault(); ev.currentTarget.classList.remove('drop-here');
+      if (!dragId || dragId === e.id) return;
+      const l = ids.filter(x => x !== dragId); l.splice(l.indexOf(e.id) + (ids.indexOf(dragId) < ids.indexOf(e.id) ? 1 : 0), 0, dragId); dragId = null; reorder(l);
+    } : null },
+    mine ? h('span', { class: 'drag-handle', title: 'Arraste para mudar de lugar', 'aria-hidden': 'true' }, '⋮⋮') : null,
     mine ? h('input', { type: 'checkbox', class: 'big-check', checked: e.done, 'aria-label': `Feito: ${e.title}`, onchange: ev => toggle(e, ev.target.checked) })
       : h('span', { class: 'big-check ro', 'aria-label': e.done ? 'Feito' : 'Não feito' }, e.done ? '✔' : ''),
     h('div', { class: 'grow diary-main' },
@@ -1879,16 +1901,22 @@ async function viewDiary() {
       h('div', { class: 'diary-meta' },
         catChip(e, mine),
         e.start_time || e.end_time ? h('span', { class: 'tag' }, icon('clock'), ` ${e.start_time || '?'}–${e.end_time || '…'}`, S.minutesOf(e) ? ` · ${hm(S.minutesOf(e))}` : '') : null,
-        mine && !e.start_time && !e.done ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => { await api('PATCH', `/api/diary/${e.id}`, { start_time: nowTime() }); route(); }) }, '▶ Começar agora') : null,
-        mine && e.start_time && !e.end_time ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
+        mine && !e.start_time && !e.done ? h('button', { class: 'btn small start-btn', type: 'button', onclick: guard(async () => { await api('PATCH', `/api/diary/${e.id}`, { start_time: nowTime() }); route(); }) }, '▶ Iniciar') : null,
+        mine && e.start_time && !e.end_time && !e.done ? h('button', { class: 'btn small primary', type: 'button', onclick: guard(async () => {
           const end = nowTime();
-          await api('PATCH', `/api/diary/${e.id}`, end < e.start_time ? { end_time: e.start_time } : { end_time: end }); route();
-        }) }, '■ Terminar agora') : null,
+          await finish(e, { end_time: end < e.start_time ? e.start_time : end });
+        }) }, '■ Encerrar') : null,
         e.task ? h('button', { class: 'tag task-link', type: 'button', onclick: () => openTask(e.task.id), title: 'Abrir a tarefa' }, icon('board'), ' Tarefa', ['done', 'cancelled'].includes(e.task.status) ? ' (concluída)' : '') : null,
-        mine && !e.task_id && !e.done ? h('button', { class: 'btn small', type: 'button', onclick: () => diaryToTask(e) }, '→ Virar tarefa') : null)),
-    mine ? h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Apagar ${e.title}`, title: 'Apagar', onclick: guard(async () => {
-      if (await ask(`Apagar "${e.title}" do diário?`, { ok: 'Apagar', danger: true })) { await api('DELETE', `/api/diary/${e.id}`); route(); }
-    }) }, '×') : null);
+        mine && !e.task_id && !e.done ? h('button', { class: 'btn small', type: 'button', onclick: () => diaryToTask(e) }, '→ Virar tarefa') : null,
+        mine ? h('button', { class: 'btn small', type: 'button', title: 'Copiar para o dia seguinte', onclick: guard(async () => {
+          const c = await api('POST', `/api/diary/${e.id}/clone`, {}); toast(`Clonada para ${fmtDate(c.date)}.`);
+        }) }, '⧉ Clonar') : null)),
+    mine ? h('div', { class: 'diary-side' },
+      h('button', { class: 'icon-btn small', type: 'button', 'aria-label': `Subir ${e.title}`, title: 'Subir', disabled: i === 0, onclick: () => move(e, -1) }, '↑'),
+      h('button', { class: 'icon-btn small', type: 'button', 'aria-label': `Descer ${e.title}`, title: 'Descer', disabled: i === ids.length - 1, onclick: () => move(e, 1) }, '↓'),
+      h('button', { class: 'icon-btn small', type: 'button', 'aria-label': `Apagar ${e.title}`, title: 'Apagar', onclick: guard(async () => {
+        if (await ask(`Apagar "${e.title}" do diário?`, { ok: 'Apagar', danger: true })) { await api('DELETE', `/api/diary/${e.id}`); route(); }
+      }) }, '×')) : null);
 
   // Anotar rápido: o que, início, fim e a Tríade.
   const addForm = () => {
@@ -1899,14 +1927,12 @@ async function viewDiary() {
     return h('form', { class: 'card-box diary-add', onsubmit: guard(async ev => {
       ev.preventDefault();
       const f = ev.target.elements;
-      await api('POST', '/api/diary', { date, title: f.title.value, start_time: f.start.value || null, end_time: f.end.value || null, category: v.cat });
+      await api('POST', '/api/diary', { date, title: f.title.value, category: v.cat });
       await route();
       document.getElementById('dy-title')?.focus();
     }) },
       h('label', { for: 'dy-title', class: 'sr-only' }, 'O que você vai fazer'), title,
       h('div', { class: 'row' },
-        h('label', { class: 'time-field' }, 'Início', h('input', { name: 'start', type: 'time' })),
-        h('label', { class: 'time-field' }, 'Fim', h('input', { name: 'end', type: 'time' })),
         seg,
         h('button', { class: 'btn primary', type: 'submit' }, icon('plus'), 'Anotar')));
   };
@@ -1979,6 +2005,29 @@ async function viewDiary() {
             }) }, '+ Diário'))))) : null),
       h('div', {}, report, weekTable)),
   ], { title: 'Diário de bordo', sub: 'O rumo do dia: o que fazer, quando e se é importante, urgente ou circunstancial' });
+}
+// Ao concluir pela caixinha: pede a hora de início e de término.
+function askTimes(e) {
+  return new Promise(resolve => {
+    modal(close => {
+      const err = h('p', { class: 'error', role: 'alert' });
+      const start = h('input', { id: 'at-start', type: 'time', value: e.start_time || '', required: true });
+      const end = h('input', { id: 'at-end', type: 'time', value: e.end_time || nowTime(), required: true });
+      return h('form', { onsubmit: ev => {
+        ev.preventDefault();
+        if (end.value < start.value) { err.textContent = 'O término é antes do início.'; return; }
+        resolve({ start_time: start.value, end_time: end.value }); close();
+      } },
+        h('h2', {}, 'Concluir'),
+        h('p', {}, e.title),
+        h('div', { class: 'grid2' },
+          h('div', { class: 'field' }, h('label', { for: 'at-start' }, 'Início'), start),
+          h('div', { class: 'field' }, h('label', { for: 'at-end' }, 'Término'), end)),
+        h('p', { class: 'muted small' }, 'Dica: use ▶ Iniciar quando começar e ■ Encerrar quando terminar, e os horários entram sozinhos.'),
+        err,
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, 'Concluir'), h('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Cancelar')));
+    }, { onclose: () => resolve(null) });
+  });
 }
 function diaryEdit(e) {
   modal(close => {

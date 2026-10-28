@@ -961,7 +961,7 @@ route('GET', '/api/diary', ({ db, user, query }) => {
   const from = date(query.from, 'De') || date(query.date, 'Data') || S.today();
   const to = date(query.to, 'Até') || from;
   const entries = db.prepare(`select * from diary_entries where user_id = ? and date between ? and ?
-    order by date, start_time is null, start_time, id`).all(owner, from, to).map(e => diaryOut(db, user, e));
+    order by date, position, id`).all(owner, from, to).map(e => diaryOut(db, user, e));
   // Tarefas do dia que ainda não estão no diário: as abertas em que a pessoa é responsável, vencendo até a data ou em andamento.
   let tasks = [];
   if (owner === user.id && from === to) {
@@ -982,13 +982,34 @@ route('POST', '/api/diary', ({ db, user, body }) => {
     body = { ...body, title: body.title || t.title };
   }
   const v = diaryFields({ date: S.today(), ...body });
-  const r = db.prepare('insert into diary_entries (org_id, user_id, date, title, start_time, end_time, category, task_id) values (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(user.org_id, user.id, v.date, v.title, v.start_time, v.end_time, v.category, taskId);
-  return reply(201, diaryOut(db, user, db.prepare('select * from diary_entries where id = ?').get(Number(r.lastInsertRowid))));
+  return reply(201, diaryOut(db, user, db.prepare('select * from diary_entries where id = ?').get(insertDiary(db, user, v, taskId))));
+});
+// Novo item entra no fim da lista do dia.
+function insertDiary(db, user, v, taskId) {
+  return Number(db.prepare(`insert into diary_entries (org_id, user_id, date, title, start_time, end_time, category, task_id, position)
+    values (?, ?, ?, ?, ?, ?, ?, ?, (select coalesce(max(position), 0) + 1 from diary_entries where user_id = ? and date = ?))`)
+    .run(user.org_id, user.id, v.date, v.title, v.start_time, v.end_time, v.category, taskId, user.id, v.date).lastInsertRowid);
+}
+// Mudar a ordem dos itens de um dia (arrastar ou setas).
+route('PUT', '/api/diary/order', ({ db, user, body }) => {
+  requireStaff(user);
+  if (!Array.isArray(body.ids)) fail(400, 'Campo inválido: ordem');
+  const upd = db.prepare('update diary_entries set position = ? where id = ? and user_id = ?');
+  tx(db, () => body.ids.forEach((x, i) => upd.run(i + 1, id(x, 'item'), user.id)));
+  return { ok: true };
+});
+// Clonar para outro dia (por padrão, o dia seguinte): mesmo nome, Tríade e tarefa ligada; sem horários e não feito.
+route('POST', '/api/diary/:id/clone', ({ db, user, body, params }) => {
+  const e = loadDiary(db, user, params.id);
+  const to = date(body.date, 'Data') || S.addDays(e.date, 1);
+  const nid = insertDiary(db, user, { date: to, title: e.title, start_time: null, end_time: null, category: e.category }, e.task_id);
+  return reply(201, diaryOut(db, user, db.prepare('select * from diary_entries where id = ?').get(nid)));
 });
 route('PATCH', '/api/diary/:id', ({ db, user, body, params }) => {
   const e = loadDiary(db, user, params.id);
   const v = diaryFields(body, e);
+  // Concluir pede a hora de início e de término (Iniciar e Encerrar já preenchem).
+  if (body.done && !e.done && (!v.start_time || !v.end_time)) fail(400, 'Para concluir, informe a hora de início e de término');
   db.prepare('update diary_entries set date = ?, title = ?, start_time = ?, end_time = ?, category = ? where id = ?')
     .run(v.date, v.title, v.start_time, v.end_time, v.category, e.id);
   if ('done' in body) db.prepare(`update diary_entries set done = ?, done_at = ${body.done ? "datetime('now')" : 'null'} where id = ?`).run(body.done ? 1 : 0, e.id);
