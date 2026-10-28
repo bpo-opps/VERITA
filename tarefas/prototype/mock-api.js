@@ -5,7 +5,7 @@
 // Os dados são fictícios e ficam só neste navegador (localStorage, quando disponível).
 (function () {
   const S = window.Shared;
-  const KEY = 'tarefas-prototipo-v7';
+  const KEY = 'tarefas-prototipo-v8';
   const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
   const d = n => S.addDays(S.today(), n);
 
@@ -70,8 +70,32 @@
     db.stages.push({ id: 90, name: 'Aguardando cliente' });
     db.board = ['stage-90', 'review', 'overdue', 'done_on_time', 'done_late', 'cancelled'];
     db.tasks[1].stage_id = 90;
-    db.templates.push({ id: 1, name: 'Fechamento mensal', title: 'Fechamento do mês', description: '',
+    db.templates.push({ id: 1, name: 'Fechamento mensal', title: 'Fechamento do mês', description: '', created_by: 1,
       checklist: ['Conciliar bancos', 'Conferir notas fiscais', 'Lançar provisões', 'Enviar relatório ao cliente'] });
+    // Chats, chat da tarefa e diário de bordo de exemplo.
+    const ago = m => new Date(Date.now() - m * 60000).toISOString().slice(0, 19).replace('T', ' ');
+    db.conversations = [{ id: 60, title: 'Equipe Opps', is_group: 1, created_by: 1, created_at: ago(60), last_message_at: ago(7) },
+      { id: 61, title: null, is_group: 0, created_by: 2, created_at: ago(60), last_message_at: ago(7) }];
+    db.conv_members = [[60, 1, 72], [60, 2, 0], [60, 3, 0], [61, 2, 74], [61, 4, 0]].map(([c, u, r]) => ({ conversation_id: c, user_id: u, last_read_id: r }));
+    db.messages = [[70, 60, 1, 'Bom dia! Hoje às 15h alinhamos o fechamento da Clínica.', 21], [71, 60, 3, 'Combinado. Levo a conciliação pronta.', 14],
+      [72, 60, 2, 'Eu entro depois da visita na Padaria.', 7], [73, 61, 4, 'Oi! Mandei as notas de setembro por e-mail.', 14], [74, 61, 2, 'Recebi, obrigada. Lanço hoje e te aviso.', 7]]
+      .map(([id, c, u, body, m]) => ({ id, conversation_id: c, user_id: u, body, created_at: ago(m) }));
+    db.comments.push({ id: 2, task_id: 3, user_id: 1, body: 'Faltam as provisões de férias. Consegue fechar até amanhã?', visible_to_client: 0, created_at: ago(30) },
+      { id: 3, task_id: 3, user_id: 3, body: 'Consigo, fecho amanhã cedo.', visible_to_client: 0, created_at: ago(25) });
+    db.inbox = [];
+    db.diary = [];
+    let did = 200;
+    const diary = (uid, date, title, start, end, cat, done, taskId = null) => db.diary.push({ id: ++did, user_id: uid, date, title, start_time: start, end_time: end, category: cat,
+      done: done ? 1 : 0, done_at: null, task_id: taskId, created_at: now() });
+    for (const uid of [1, 2, 3]) {
+      diary(uid, d(0), 'Planejar o dia e revisar prazos', '08:00', '08:20', 'important', true);
+      diary(uid, d(0), 'Responder e-mails de clientes', '08:20', '09:00', 'circumstantial', true);
+      diary(uid, d(0), uid === 3 ? 'Fechamento contábil de setembro' : 'Mapear fluxo de contas a pagar', '09:00', '11:30', 'important', false, uid === 3 ? 3 : 2);
+      diary(uid, d(0), 'Ligação de última hora do banco', '11:30', '12:00', 'urgent', true);
+      diary(uid, d(-1), 'Reunião de equipe', '09:00', '10:00', 'important', true);
+      diary(uid, d(-1), 'Corrigir lançamento duplicado', '10:00', '11:30', 'urgent', true);
+      diary(uid, d(-1), 'Organizar pastas do drive', '14:00', '15:00', 'circumstantial', false);
+    }
     return db;
   }
 
@@ -82,7 +106,7 @@
   db.meetings = db.meetings || [];
   db.meeting_items = db.meeting_items || [];
   db.calendar_links = db.calendar_links || {};
-  for (const k of ['user_clients', 'stages', 'board', 'attachments', 'events']) db[k] = db[k] || [];
+  for (const k of ['user_clients', 'stages', 'board', 'attachments', 'events', 'conversations', 'conv_members', 'messages', 'inbox', 'diary']) db[k] = db[k] || [];
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sem armazenamento: fica só na memória */ } };
   let sessionUser = null;
   try { sessionUser = Number(sessionStorage.getItem(KEY + '-user')) || null; } catch { /* idem */ }
@@ -117,6 +141,20 @@
     return t;
   }
   function checkClient(cid) { if (!clientOf(cid)) fail(400, 'Cliente inválido'); }
+  // Notificações (sino): uma por assunto enquanto não lida, igual ao servidor.
+  function pushInbox(userIds, { kind, ref = '', title, body = '', link = '' }, except = null) {
+    const clip = v => String(v).replace(/\s+/g, ' ').trim().slice(0, 200);
+    for (const uid of new Set(userIds)) {
+      if (!uid || uid === except) continue;
+      const open = ref && db.inbox.find(n => n.user_id === uid && n.kind === kind && n.ref === ref && !n.read_at);
+      if (open) Object.assign(open, { count: open.count + 1, title: clip(title), body: clip(body), link, created_at: now() });
+      else db.inbox.push({ id: nextId(), user_id: uid, kind, ref, title: clip(title), body: clip(body), link, count: 1, created_at: now(), read_at: null });
+    }
+  }
+  const taskChatPeople = t => [...new Set([...db.users.filter(u => u.role === 'admin' && u.active).map(u => u.id),
+    ...(db.users.find(u => u.id === t.created_by && u.role !== 'client' && u.active) ? [t.created_by] : []),
+    ...assigneeIds(t.id).filter(uid => { const u = db.users.find(x => x.id === uid); return u && u.role !== 'client' && u.active; })])];
+  const canTaskChat = (user, t) => user.role !== 'client' && taskChatPeople(t).includes(user.id);
   function checkAssignees(ids, task, keep = []) {
     if (!Array.isArray(ids)) fail(400, 'Campo inválido: responsáveis');
     const clean = [...new Set(ids.map(Number))];
@@ -178,6 +216,7 @@
     if (completedOn > S.today()) fail(400, 'A data de término não pode ser no futuro');
     if (t.start_date && completedOn < t.start_date) fail(400, 'A data de término não pode ser antes do início');
     Object.assign(t, { status: 'done', completed_on: completedOn, cancelled_on: null, cancel_reason: null, progress: 100, stage_id: null, completed_by: userId, cancelled_by: null }); touch(t);
+    db.diary.filter(e => e.task_id === t.id).forEach(e => { e.done = 1; e.done_at = e.done_at || now(); });
     if (t.recurrence === 'none' || t.next_task_id) return null;
     const nid = nextId();
     db.tasks.push({ ...t, id: nid, stage_id: null, started_by: null, completed_by: null, cancelled_by: null, status: 'todo', completed_on: null, progress: 0, next_task_id: null, archived_at: null,
@@ -209,19 +248,24 @@
         .sort((a, b) => a.name.localeCompare(b.name)),
       attachments_count: db.attachments.filter(a => a.task_id === t.id && (user.role !== 'client' || a.visible_to_client)).length,
     };
+    out.diary_done = user.role !== 'client' && !['done', 'cancelled'].includes(t.status) && db.diary.some(e => e.task_id === t.id && e.done);
     if (user.role === 'client') { delete out.adjustments_internal; delete out.created_by; }
     return out;
   }
+  const comments = (t, visible) => db.comments.filter(c => c.task_id === t.id && Number(c.visible_to_client) === visible).map(c => {
+    const u = db.users.find(x => x.id === c.user_id) || {};
+    return { id: c.id, body: c.body, visible_to_client: c.visible_to_client, created_at: c.created_at, user_id: c.user_id, author: u.name, author_role: u.role };
+  });
   function detail(user, tid) {
     const t = loadTask(user, tid);
     const client = user.role === 'client';
     return {
       ...decorate(user, t), description: t.description, next_task_id: t.next_task_id,
       checklist: db.checklist.filter(i => i.task_id === t.id).sort((a, b) => a.position - b.position || a.id - b.id).map(({ id, text, done }) => ({ id, text, done })),
-      comments: db.comments.filter(c => c.task_id === t.id && (!client || c.visible_to_client)).map(c => {
-        const u = db.users.find(x => x.id === c.user_id) || {};
-        return { id: c.id, body: c.body, visible_to_client: c.visible_to_client, created_at: c.created_at, author: u.name, author_role: u.role };
-      }),
+      comments: comments(t, 1),
+      can_chat: canTaskChat(user, t),
+      chat: canTaskChat(user, t) ? comments(t, 0) : [],
+      ...(client ? {} : { chat_people: taskChatPeople(t).map(uid => ({ id: uid, name: userName(uid) })).sort((a, b) => a.name.localeCompare(b.name)) }),
       attachments: db.attachments.filter(a => a.task_id === t.id && (!client || a.visible_to_client))
         .map(({ id, name, mime, size, visible_to_client, created_at, user_id }) => ({ id, name, mime, size, visible_to_client, created_at, user_id, author: userName(user_id) })),
       adjustments: db.adjustments.filter(a => a.task_id === t.id && (!client || a.origin === 'client'))
@@ -441,7 +485,7 @@
   route('GET', '/api/clients', ({ user }) => {
     if (user.role === 'client') return db.clients.filter(c => c.id === user.client_id).map(({ id, name, logo: l }) => ({ id, name, logo: l }));
     const open = (cid, kind) => db.tasks.filter(t => t.client_id === cid && t.kind === kind && !['done', 'cancelled'].includes(t.status) && !t.archived_at).length;
-    return db.clients.map(c => ({ id: c.id, name: c.name, logo: c.logo, team: db.user_clients.filter(x => x.client_id === c.id).map(x => x.user_id),
+    return db.clients.map(c => ({ id: c.id, name: c.name, logo: c.logo, ...(user.role === 'admin' ? { team: db.user_clients.filter(x => x.client_id === c.id).map(x => x.user_id) } : {}),
       open_external: open(c.id, 'external'), open_internal: open(c.id, 'internal') }))
       .sort((a, b) => a.name.localeCompare(b.name));
   });
@@ -499,7 +543,7 @@
     let description = str(body.description, 'descrição', { max: 10000, required: false });
     let checklist = checklistItems(body.checklist);
     if (body.template_id) {
-      const tpl = db.templates.find(t => t.id === Number(body.template_id)); if (!tpl) fail(400, 'Modelo inválido');
+      const tpl = db.templates.find(t => t.id === Number(body.template_id) && (user.role === 'admin' || t.created_by === user.id)); if (!tpl) fail(400, 'Modelo inválido');
       title = title || tpl.title; description = description || tpl.description; checklist = checklist ?? tpl.checklist;
     }
     checklist = checklist || [];
@@ -515,6 +559,8 @@
     setAssignees(id, assignees);
     checklist.forEach((text, i) => db.checklist.push({ id: nextId(), task_id: id, text, done: 0, position: i }));
     noticeCreated(id, user.id);
+    pushInbox(assignees, { kind: 'task', ref: `task-new-${id}`, title: `${user.name} criou uma tarefa para você`,
+      body: title + (due ? ` · prazo ${due.split('-').reverse().join('/')}` : ''), link: `#/tarefa/${id}` }, user.id);
     return id;
   }
   route('POST', '/api/tasks', ({ user, body }) => ({ id: createTask(user, body) }));
@@ -549,7 +595,12 @@
         t.progress = n;
       }
       if ('position' in body) t.position = Number(body.position);
-      if ('assignee_ids' in body) setAssignees(t.id, checkAssignees(body.assignee_ids, t, assigneeIds(t.id)));
+      if ('assignee_ids' in body) {
+        const before = assigneeIds(t.id);
+        const after = checkAssignees(body.assignee_ids, t, before);
+        setAssignees(t.id, after);
+        pushInbox(after.filter(x => !before.includes(x)), { kind: 'task', ref: `task-new-${t.id}`, title: `${user.name} incluiu você numa tarefa`, body: t.title, link: `#/tarefa/${t.id}` }, user.id);
+      }
       if ('team_visible' in body) t.team_visible = !!body.team_visible;
       if ('status' in body) {
         if (body.status === 'done') fail(400, 'Para concluir, use Concluir e informe a data de término');
@@ -612,9 +663,18 @@
   });
   route('POST', '/api/tasks/:id/comments', ({ user, body, id }) => {
     const t = loadTask(user, id);
-    db.comments.push({ id: nextId(), task_id: t.id, user_id: user.id, body: str(body.body, 'comentário', { max: 5000 }),
-      visible_to_client: user.role === 'client' ? 1 : (S.clientSees(t) && body.visible_to_client ? 1 : 0), created_at: now() });
-    touch(t); return detail(user, id);
+    const text = str(body.body, 'comentário', { max: 5000 });
+    const visible = user.role === 'client' ? 1 : (S.clientSees(t) && body.visible_to_client ? 1 : 0);
+    if (!visible && !canTaskChat(user, t)) fail(403, 'O chat da tarefa é de quem criou, dos responsáveis e do administrador');
+    db.comments.push({ id: nextId(), task_id: t.id, user_id: user.id, body: text, visible_to_client: visible, created_at: now() });
+    touch(t);
+    if (!visible) pushInbox(taskChatPeople(t), { kind: 'task_chat', ref: `task-${t.id}`, title: `${user.name} no chat da tarefa`, body: `${t.title}: ${text}`, link: `#/tarefa/${t.id}` }, user.id);
+    else {
+      const people = [t.created_by, ...assigneeIds(t.id), ...(user.role !== 'client' ? db.users.filter(u => u.role === 'client' && u.client_id === t.client_id && u.active).map(u => u.id) : [])]
+        .filter(uid => { const u = db.users.find(x => x.id === uid && x.active); return u && (u.role !== 'client' || u.client_id === t.client_id); });
+      pushInbox(people, { kind: 'task_comment', ref: `task-c-${t.id}`, title: `${user.name} comentou numa tarefa`, body: `${t.title}: ${text}`, link: `#/tarefa/${t.id}` }, user.id);
+    }
+    return detail(user, id);
   });
   route('POST', '/api/tasks/:id/adjustments', ({ user, body, id }) => {
     const t = loadTask(user, id);
@@ -795,16 +855,184 @@
     if (it.status !== 'discarded') fail(409, 'Só dá para voltar uma tarefa descartada');
     Object.assign(it, { status: 'pending', decided_at: null }); return { ok: true };
   });
-  route('GET', '/api/templates', ({ user }) => { requireStaff(user); return db.templates.slice().sort((a, b) => a.name.localeCompare(b.name)); });
+  const myTemplate = (user, t) => user.role === 'admin' || t.created_by === user.id;
+  route('GET', '/api/templates', ({ user }) => {
+    requireStaff(user);
+    return db.templates.filter(t => myTemplate(user, t)).sort((a, b) => a.name.localeCompare(b.name))
+      .map(t => ({ ...t, ...(user.role === 'admin' ? { created_by_name: userName(t.created_by) || null } : {}) }));
+  });
   route('POST', '/api/templates', ({ user, body }) => {
     requireStaff(user);
     const id = nextId();
     db.templates.push({ id, name: str(body.name, 'nome', { max: 120 }), title: str(body.title, 'título', { max: 200 }),
       description: str(body.description, 'descrição', { max: 10000, required: false }),
-      checklist: (Array.isArray(body.checklist) ? body.checklist : []).map(x => String(x).trim()).filter(Boolean).slice(0, 100) });
+      checklist: (Array.isArray(body.checklist) ? body.checklist : []).map(x => String(x).trim()).filter(Boolean).slice(0, 100), created_by: user.id });
     return { id };
   });
-  route('DELETE', '/api/templates/:id', ({ user, id }) => { requireStaff(user); db.templates = db.templates.filter(t => t.id !== id); return { ok: true }; });
+  route('DELETE', '/api/templates/:id', ({ user, id }) => {
+    requireStaff(user);
+    if (!db.templates.some(t => t.id === id && myTemplate(user, t))) fail(404, 'Modelo não encontrado');
+    db.templates = db.templates.filter(t => t.id !== id); return { ok: true };
+  });
+
+  // ---------- notificações (sino) ----------
+  const unreadChats = user => db.conv_members.filter(m => m.user_id === user.id
+    && db.messages.some(x => x.conversation_id === m.conversation_id && x.id > m.last_read_id && x.user_id !== user.id)).length;
+  route('GET', '/api/inbox', ({ user }) => ({ unread: db.inbox.filter(n => n.user_id === user.id && !n.read_at).length,
+    items: db.inbox.filter(n => n.user_id === user.id).sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id).slice(0, 100) }));
+  route('GET', '/api/inbox/count', ({ user }) => ({ unread: db.inbox.filter(n => n.user_id === user.id && !n.read_at).length, chats: unreadChats(user) }));
+  route('POST', '/api/inbox/:id/read', ({ user, id }) => { const n = db.inbox.find(x => x.id === id && x.user_id === user.id); if (n && !n.read_at) n.read_at = now(); return { ok: true }; });
+  route('POST', '/api/inbox/read-all', ({ user }) => { db.inbox.filter(n => n.user_id === user.id && !n.read_at).forEach(n => { n.read_at = now(); }); return { ok: true }; });
+
+  // ---------- chats ----------
+  const chatUser = uid => { const u = db.users.find(x => x.id === uid && x.active); return u && { ...u, client_ids: clientIdsOf(u.id) }; };
+  const roleOf = u => ({ id: u.id, name: u.name, role: u.role, client_name: u.client_id ? (clientOf(u.client_id) || {}).name : null });
+  function loadConv(user, cid) {
+    const c = db.conversations.find(x => x.id === cid);
+    if (!c || !db.conv_members.some(m => m.conversation_id === cid && m.user_id === user.id)) fail(404, 'Conversa não encontrada');
+    return c;
+  }
+  const msgOut = m => ({ id: m.id, body: m.body, created_at: m.created_at, user_id: m.user_id, author: userName(m.user_id) || null });
+  function convOut(user, c) {
+    const members = db.conv_members.filter(m => m.conversation_id === c.id).map(m => roleOf(db.users.find(u => u.id === m.user_id))).sort((a, b) => a.name.localeCompare(b.name));
+    const mine = db.conv_members.find(m => m.conversation_id === c.id && m.user_id === user.id);
+    const msgs = db.messages.filter(m => m.conversation_id === c.id);
+    const last = msgs[msgs.length - 1];
+    const others = members.filter(m => m.id !== user.id);
+    return { id: c.id, is_group: !!c.is_group, created_by: c.created_by,
+      title: c.is_group ? (c.title || others.map(m => m.name.split(' ')[0]).join(', ')) : (others[0]?.name || 'Só você'),
+      members, last: last ? { id: last.id, body: last.body, created_at: last.created_at, author: userName(last.user_id) } : null,
+      last_message_at: c.last_message_at || c.created_at, unread: msgs.filter(m => m.id > mine.last_read_id && m.user_id !== user.id).length };
+  }
+  function checkChatPeople(user, ids, existing = []) {
+    if (!Array.isArray(ids)) fail(400, 'Campo inválido: pessoas');
+    const clean = [...new Set(ids.map(Number))].filter(x => x !== user.id && !existing.includes(x));
+    const people = [...new Set([user.id, ...existing, ...clean])].map(chatUser);
+    if (people.some(p => !p)) fail(400, 'Pessoa inválida');
+    for (const a of people) for (const b of people) if (a.id < b.id && !S.related(a, b)) fail(400, `${a.name} e ${b.name} não têm empresa em comum para conversar`);
+    return clean;
+  }
+  route('GET', '/api/chat/contacts', ({ user }) => {
+    const me = chatUser(user.id);
+    return db.users.filter(u => u.active && u.id !== user.id && S.related(me, chatUser(u.id))).map(roleOf).sort((a, b) => a.name.localeCompare(b.name));
+  });
+  route('GET', '/api/conversations', ({ user }) => db.conversations.filter(c => db.conv_members.some(m => m.conversation_id === c.id && m.user_id === user.id))
+    .map(c => convOut(user, c)).sort((a, b) => b.last_message_at.localeCompare(a.last_message_at) || b.id - a.id));
+  route('POST', '/api/conversations', ({ user, body }) => {
+    const people = checkChatPeople(user, body.user_ids || []);
+    if (!people.length) fail(400, 'Escolha com quem conversar');
+    const group = people.length > 1 || !!body.group;
+    if (!group) {
+      const found = db.conversations.find(c => !c.is_group && [user.id, people[0]].every(uid => db.conv_members.some(m => m.conversation_id === c.id && m.user_id === uid)));
+      if (found) return convOut(user, found);
+    }
+    const c = { id: nextId(), title: group ? (str(body.title, 'nome do grupo', { max: 80, required: false }) || null) : null, is_group: group ? 1 : 0, created_by: user.id, created_at: now(), last_message_at: null };
+    db.conversations.push(c);
+    [user.id, ...people].forEach(uid => db.conv_members.push({ conversation_id: c.id, user_id: uid, last_read_id: 0 }));
+    return convOut(user, c);
+  });
+  route('PATCH', '/api/conversations/:id', ({ user, body, id }) => {
+    const c = loadConv(user, id);
+    if (!c.is_group) fail(400, 'Só grupos têm nome e participantes para mudar');
+    if (user.role !== 'admin' && c.created_by !== user.id) fail(403, 'Só quem criou o grupo ou um administrador pode mudar');
+    if ('add_user_ids' in body) {
+      const existing = db.conv_members.filter(m => m.conversation_id === c.id).map(m => m.user_id).filter(x => x !== user.id);
+      const top = Math.max(0, ...db.messages.filter(m => m.conversation_id === c.id).map(m => m.id));
+      checkChatPeople(user, body.add_user_ids, existing).forEach(uid => db.conv_members.push({ conversation_id: c.id, user_id: uid, last_read_id: top }));
+    }
+    if ('title' in body) c.title = str(body.title, 'nome do grupo', { max: 80, required: false }) || null;
+    return convOut(user, c);
+  });
+  route('POST', '/api/conversations/:id/leave', ({ user, id }) => {
+    const c = loadConv(user, id);
+    if (!c.is_group) fail(400, 'Conversa 1 a 1 não tem como sair');
+    db.conv_members = db.conv_members.filter(m => !(m.conversation_id === c.id && m.user_id === user.id));
+    if (!db.conv_members.some(m => m.conversation_id === c.id)) db.conversations = db.conversations.filter(x => x.id !== c.id);
+    return { ok: true };
+  });
+  route('GET', '/api/conversations/:id/messages', ({ user, id, query }) => {
+    const c = loadConv(user, id);
+    const after = Number(query.after) || 0;
+    const msgs = db.messages.filter(m => m.conversation_id === c.id);
+    const mine = db.conv_members.find(m => m.conversation_id === c.id && m.user_id === user.id);
+    mine.last_read_id = Math.max(0, ...msgs.map(m => m.id));
+    db.inbox.filter(n => n.user_id === user.id && n.kind === 'chat' && n.ref === `conv-${c.id}` && !n.read_at).forEach(n => { n.read_at = now(); });
+    return { conversation: convOut(user, c), messages: msgs.filter(m => m.id > after).slice(-300).map(msgOut) };
+  });
+  route('POST', '/api/conversations/:id/messages', ({ user, body, id }) => {
+    const c = loadConv(user, id);
+    const m = { id: nextId(), conversation_id: c.id, user_id: user.id, body: str(body.body, 'mensagem', { max: 5000 }), created_at: now() };
+    db.messages.push(m);
+    c.last_message_at = now();
+    db.conv_members.find(x => x.conversation_id === c.id && x.user_id === user.id).last_read_id = m.id;
+    const title = convOut(user, c).title;
+    pushInbox(db.conv_members.filter(x => x.conversation_id === c.id).map(x => x.user_id), { kind: 'chat', ref: `conv-${c.id}`,
+      title: c.is_group ? `${user.name} em ${title}` : `Mensagem de ${user.name}`, body: m.body, link: `#/chats/${c.id}` }, user.id);
+    return msgOut(m);
+  });
+
+  // ---------- diário de bordo ----------
+  const CATS = Object.keys(S.TRIAD);
+  const time = (v, field) => { if (v === undefined || v === null || v === '') return null; if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail(400, `${field}: hora inválida (use HH:MM)`); return v; };
+  function diaryOwner(user, uid) {
+    requireStaff(user);
+    if (!uid || Number(uid) === user.id) return user.id;
+    if (user.role !== 'admin') fail(403, 'Cada pessoa vê só o próprio diário');
+    const u = db.users.find(x => x.id === Number(uid) && x.role !== 'client');
+    if (!u) fail(404, 'Pessoa não encontrada');
+    return u.id;
+  }
+  function diaryOut(user, e) {
+    const t = e.task_id && db.tasks.find(x => x.id === e.task_id);
+    return { ...e, done: !!e.done, task: t && sees(user, t) ? { id: t.id, title: t.title, status: t.status, due_date: t.due_date } : null };
+  }
+  function loadDiary(user, eid) { requireStaff(user); const e = db.diary.find(x => x.id === eid && x.user_id === user.id); if (!e) fail(404, 'Item do diário não encontrado'); return e; }
+  function diaryFields(body, cur = {}) {
+    const v = { date: 'date' in body ? date(body.date, 'Data') : cur.date, title: 'title' in body ? str(body.title, 'o que fazer', { max: 200 }) : cur.title,
+      start_time: 'start_time' in body ? time(body.start_time, 'Início') : cur.start_time ?? null, end_time: 'end_time' in body ? time(body.end_time, 'Fim') : cur.end_time ?? null,
+      category: 'category' in body ? oneOf(body.category, 'tríade', CATS) : cur.category || 'important' };
+    if (!v.date) fail(400, 'Informe a data');
+    if (v.start_time && v.end_time && v.end_time < v.start_time) fail(400, 'O fim é antes do início');
+    return v;
+  }
+  const byTime = (a, b) => a.date.localeCompare(b.date) || (!a.start_time - !b.start_time) || (a.start_time || '').localeCompare(b.start_time || '') || a.id - b.id;
+  route('GET', '/api/diary', ({ user, query }) => {
+    const owner = diaryOwner(user, query.user_id);
+    const from = query.from || query.date || S.today(), to = query.to || from;
+    const entries = db.diary.filter(e => e.user_id === owner && e.date >= from && e.date <= to).sort(byTime).map(e => diaryOut(user, e));
+    let tasks = [];
+    if (owner === user.id && from === to) {
+      const inDiary = new Set(entries.map(e => e.task_id).filter(Boolean));
+      tasks = db.tasks.filter(t => assigneeIds(t.id).includes(user.id) && !t.archived_at && !['done', 'cancelled'].includes(t.status)
+        && ((t.due_date && t.due_date <= from) || t.status === 'doing') && !inDiary.has(t.id))
+        .sort((a, b) => (!a.due_date - !b.due_date) || (a.due_date || '').localeCompare(b.due_date || '') || a.id - b.id)
+        .map(t => ({ id: t.id, title: t.title, status: t.status, due_date: t.due_date, priority: t.priority, client_name: t.client_id ? clientOf(t.client_id).name : null }));
+    }
+    return { user_id: owner, from, to, entries, tasks };
+  });
+  route('POST', '/api/diary', ({ user, body }) => {
+    requireStaff(user);
+    let taskId = null;
+    if (body.task_id) { const t = loadTask(user, Number(body.task_id)); taskId = t.id; body = { ...body, title: body.title || t.title }; }
+    const v = diaryFields({ date: S.today(), ...body });
+    const e = { id: nextId(), user_id: user.id, ...v, done: 0, done_at: null, task_id: taskId, created_at: now() };
+    db.diary.push(e);
+    return diaryOut(user, e);
+  });
+  route('PATCH', '/api/diary/:id', ({ user, body, id }) => {
+    const e = loadDiary(user, id);
+    Object.assign(e, diaryFields(body, e));
+    if ('done' in body) { e.done = body.done ? 1 : 0; e.done_at = body.done ? now() : null; }
+    return diaryOut(user, e);
+  });
+  route('DELETE', '/api/diary/:id', ({ user, id }) => { const e = loadDiary(user, id); db.diary = db.diary.filter(x => x.id !== e.id); return { ok: true }; });
+  route('POST', '/api/diary/:id/task', ({ user, body, id }) => {
+    const e = loadDiary(user, id);
+    if (e.task_id && db.tasks.some(t => t.id === e.task_id)) fail(409, 'Este item já virou tarefa');
+    e.task_id = createTask(user, { kind: body.kind || 'internal', client_id: body.client_id || null, title: e.title,
+      due_date: 'due_date' in body ? body.due_date : e.date, priority: e.category === 'urgent' ? 'high' : 'normal', assignee_ids: [user.id] });
+    return diaryOut(user, e);
+  });
   route('GET', '/api/report/adjustments', ({ user }) => {
     requireStaff(user);
     const rows = new Map();

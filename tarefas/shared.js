@@ -295,10 +295,52 @@
   // Para a leitura do PDF parar logo depois da seção (o resto é a transcrição, com dezenas de páginas).
   const pastNextSteps = lines => { const i = lines.findIndex(l => NS_START.test(l)); return i >= 0 && lines.slice(i + 1).some(l => NS_END.test(l)); };
 
+  // Chats: quem pode conversar com quem. O administrador fala com todos; a equipe (a própria consultoria) entre si;
+  // a equipe com as pessoas dos clientes que acompanha; as pessoas de um cliente entre elas.
+  // Na equipe (member), `client_ids` traz os clientes que ela acompanha.
+  function related(a, b) {
+    if (!a || !b) return false;
+    if (a.id === b.id || a.role === 'admin' || b.role === 'admin') return true;
+    if (a.role !== 'client' && b.role !== 'client') return true;
+    if (a.role === 'client' && b.role === 'client') return a.client_id === b.client_id;
+    const [m, c] = a.role === 'client' ? [b, a] : [a, b];
+    return (m.client_ids || []).includes(c.client_id);
+  }
+
+  // Diário de bordo: a Tríade do Tempo (Christian Barbosa). A referência é passar a maior parte do tempo no importante.
+  const TRIAD = {
+    important: { label: 'Importante', hint: 'traz resultado e tem prazo com folga', ideal: 70 },
+    urgent: { label: 'Urgente', hint: 'tem de ser feita agora, sem folga', ideal: 20 },
+    circumstantial: { label: 'Circunstancial', hint: 'não traz resultado: interrupções, pedidos de última hora', ideal: 10 },
+  };
+  const minutesOf = e => {
+    if (!e.start_time || !e.end_time) return 0;
+    const m = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+    return Math.max(0, m(e.end_time) - m(e.start_time));
+  };
+  // Resumo de um dia (ou período): quantas, quantas feitas, tempo e divisão pela Tríade.
+  // A divisão usa o tempo quando há horários; sem horários, a quantidade.
+  function diarySummary(entries) {
+    const by = {};
+    for (const k of Object.keys(TRIAD)) by[k] = { count: 0, done: 0, minutes: 0, share: 0 };
+    let minutes = 0;
+    for (const e of entries) {
+      const b = by[e.category] || by.important;
+      b.count++; if (e.done) b.done++;
+      const mi = minutesOf(e); b.minutes += mi; minutes += mi;
+    }
+    const total = entries.length;
+    const done = entries.filter(e => e.done).length;
+    const basis = minutes > 0 ? 'minutes' : 'count';
+    const base = basis === 'minutes' ? minutes : total;
+    for (const k of Object.keys(by)) by[k].share = base ? Math.round((by[k][basis] / base) * 100) : 0;
+    return { total, done, pct: total ? Math.round((done / total) * 100) : 0, minutes, basis, by };
+  }
+
   function validAlerts(list) {
     if (!Array.isArray(list) || !list.every(n => ALERT_DAYS.includes(Number(n)))) return null;
     return [...new Set(list.map(Number))].sort((a, b) => a - b);
   }
 
-  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, startByChecklist, clientSees, canSee, clientAssignable, boardColumns, boardSort, PRIORITY_RANK, parseNextSteps, dueFromText, nextStepsSection, pastNextSteps, validAlerts };
+  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, startByChecklist, clientSees, canSee, clientAssignable, boardColumns, boardSort, PRIORITY_RANK, parseNextSteps, dueFromText, nextStepsSection, pastNextSteps, validAlerts, related, TRIAD, minutesOf, diarySummary };
 });

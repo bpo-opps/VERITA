@@ -3,7 +3,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { hashPassword } = require('./auth');
 const { today, addDays } = require('./shared');
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 const SCHEMA = `
 pragma foreign_keys = on;
@@ -230,8 +230,63 @@ create table if not exists templates (
   name text not null,
   title text not null,
   description text not null default '',
-  checklist text not null default '[]'
+  checklist text not null default '[]',
+  created_by integer references users(id) on delete set null
 );
+-- Versão 9: chats (1 a 1 ou em grupo), notificações dentro do sistema e diário de bordo.
+create table if not exists conversations (
+  id integer primary key,
+  org_id integer not null references orgs(id) on delete cascade,
+  title text,
+  is_group integer not null default 0,
+  created_by integer references users(id) on delete set null,
+  created_at text not null default (datetime('now')),
+  last_message_at text
+);
+create table if not exists conversation_members (
+  conversation_id integer not null references conversations(id) on delete cascade,
+  user_id integer not null references users(id) on delete cascade,
+  last_read_id integer not null default 0,
+  primary key (conversation_id, user_id)
+);
+create index if not exists conversation_members_user on conversation_members (user_id);
+create table if not exists messages (
+  id integer primary key,
+  conversation_id integer not null references conversations(id) on delete cascade,
+  user_id integer references users(id) on delete set null,
+  body text not null,
+  created_at text not null default (datetime('now'))
+);
+create index if not exists messages_conv on messages (conversation_id, id);
+create table if not exists inbox (
+  id integer primary key,
+  user_id integer not null references users(id) on delete cascade,
+  kind text not null,
+  ref text not null default '',
+  title text not null,
+  body text not null default '',
+  link text not null default '',
+  count integer not null default 1,
+  created_at text not null default (datetime('now')),
+  read_at text
+);
+create index if not exists inbox_user on inbox (user_id, read_at, id);
+create table if not exists diary_entries (
+  id integer primary key,
+  org_id integer not null references orgs(id) on delete cascade,
+  user_id integer not null references users(id) on delete cascade,
+  date text not null,
+  title text not null,
+  start_time text,
+  end_time text,
+  category text not null default 'important' check (category in ('important', 'urgent', 'circumstantial')),
+  done integer not null default 0,
+  done_at text,
+  task_id integer references tasks(id) on delete set null,
+  created_at text not null default (datetime('now'))
+);
+create index if not exists diary_user_date on diary_entries (user_id, date);
+create index if not exists diary_task on diary_entries (task_id);
 `;
 
 // Acrescenta a coluna se ainda não existe. Devolve true quando acrescentou.
@@ -265,6 +320,8 @@ function open(file) {
     addColumn(db, 'tasks', 'completed_by', 'integer references users(id) on delete set null');
     addColumn(db, 'tasks', 'cancelled_by', 'integer references users(id) on delete set null');
     if (db.prepare("select 1 from sqlite_master where type = 'table' and name = 'meetings'").get()) addColumn(db, 'meetings', 'notes_text', 'text');
+    // Versão 8 -> 9: dono de cada modelo (os antigos ficam sem dono: só o administrador vê).
+    if (db.prepare("select 1 from sqlite_master where type = 'table' and name = 'templates'").get()) addColumn(db, 'templates', 'created_by', 'integer references users(id) on delete set null');
   }
   db.exec(SCHEMA);
   // Nunca rebaixa a versão: se o código voltou para uma versão anterior (rollback), o banco continua
@@ -320,7 +377,7 @@ function seedDemo(db) {
   const admin = createUser(db, { orgId, name: 'Admin Demo', email: 'admin@demo.local', password: pw, role: 'admin' });
   const ana = createUser(db, { orgId, name: 'Membro Demo', email: 'equipe@demo.local', password: pw, role: 'member' });
   const bia = createUser(db, { orgId, name: 'Analista Demo', email: 'analista@demo.local', password: pw, role: 'member' });
-  createUser(db, { orgId, name: 'Cliente Padaria', email: 'cliente@demo.local', password: pw, role: 'client', clientId: padaria });
+  const cliPadaria = createUser(db, { orgId, name: 'Cliente Padaria', email: 'cliente@demo.local', password: pw, role: 'client', clientId: padaria });
 
   let pos = 0;
   const task = (t, who = [], checklist = []) => {
@@ -358,8 +415,33 @@ function seedDemo(db) {
   db.prepare("update tasks set completed_by = coalesce((select user_id from task_assignees a where a.task_id = tasks.id limit 1), created_by) where status = 'done'").run();
   db.prepare("update tasks set cancelled_by = created_by where status = 'cancelled'").run();
   db.prepare('insert into user_clients (user_id, client_id) values (?, ?), (?, ?)').run(ana, padaria, bia, clinica);
-  db.prepare("insert into templates (org_id, name, title, checklist) values (?, 'Fechamento mensal', 'Fechamento do mês', ?)")
-    .run(orgId, JSON.stringify(['Conciliar bancos', 'Conferir notas fiscais', 'Lançar provisões', 'Enviar relatório ao cliente']));
+  db.prepare("insert into templates (org_id, name, title, checklist, created_by) values (?, 'Fechamento mensal', 'Fechamento do mês', ?, ?)")
+    .run(orgId, JSON.stringify(['Conciliar bancos', 'Conferir notas fiscais', 'Lançar provisões', 'Enviar relatório ao cliente']), admin);
+
+  // Chats, chat da tarefa e diário de bordo de exemplo.
+  const conv = (title, group, by, members, msgs) => {
+    const cid = Number(db.prepare("insert into conversations (org_id, title, is_group, created_by, last_message_at) values (?, ?, ?, ?, datetime('now', '-10 minutes'))").run(orgId, title, group, by).lastInsertRowid);
+    for (const uid of members) db.prepare('insert into conversation_members (conversation_id, user_id) values (?, ?)').run(cid, uid);
+    msgs.forEach(([uid, body], i) => db.prepare(`insert into messages (conversation_id, user_id, body, created_at) values (?, ?, ?, datetime('now', '-${(msgs.length - i) * 7} minutes'))`).run(cid, uid, body));
+    const top = db.prepare('select max(id) as n from messages where conversation_id = ?').get(cid).n;
+    db.prepare('update conversation_members set last_read_id = ? where conversation_id = ? and user_id = ?').run(top, cid, by);
+  };
+  conv('Equipe Opps', 1, admin, [admin, ana, bia], [[admin, 'Bom dia! Hoje às 15h alinhamos o fechamento da Clínica.'], [bia, 'Combinado. Levo a conciliação pronta.'], [ana, 'Eu entro depois da visita na Padaria.']]);
+  conv(null, 0, ana, [ana, cliPadaria], [[cliPadaria, 'Oi! Mandei as notas de setembro por e-mail.'], [ana, 'Recebi, obrigada. Lanço hoje e te aviso.']]);
+  const fech = db.prepare("select id from tasks where title = 'Fechamento contábil de setembro'").get().id;
+  db.prepare("insert into comments (task_id, user_id, body, visible_to_client) values (?, ?, 'Faltam as provisões de férias. Consegue fechar até amanhã?', 0), (?, ?, 'Consigo, fecho amanhã cedo.', 0)").run(fech, admin, fech, bia);
+  const diary = (uid, date, title, start, end, cat, done, taskId = null) => db.prepare('insert into diary_entries (org_id, user_id, date, title, start_time, end_time, category, done, task_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(orgId, uid, date, title, start, end, cat, done ? 1 : 0, taskId);
+  for (const uid of [admin, ana, bia]) {
+    diary(uid, d(0), 'Planejar o dia e revisar prazos', '08:00', '08:20', 'important', true);
+    diary(uid, d(0), 'Responder e-mails de clientes', '08:20', '09:00', 'circumstantial', true);
+    diary(uid, d(0), uid === bia ? 'Fechamento contábil de setembro' : 'Mapear fluxo de contas a pagar', '09:00', '11:30', 'important', false,
+      db.prepare('select id from tasks where title = ?').get(uid === bia ? 'Fechamento contábil de setembro' : 'Mapear fluxo de contas a pagar').id);
+    diary(uid, d(0), 'Ligação de última hora do banco', '11:30', '12:00', 'urgent', true);
+    diary(uid, d(-1), 'Reunião de equipe', '09:00', '10:00', 'important', true);
+    diary(uid, d(-1), 'Corrigir lançamento duplicado', '10:00', '11:30', 'urgent', true);
+    diary(uid, d(-1), 'Organizar pastas do drive', '14:00', '15:00', 'circumstantial', false);
+  }
 }
 
 // Cópia do banco do dia (VACUUM INTO gera um arquivo consistente com o sistema rodando).

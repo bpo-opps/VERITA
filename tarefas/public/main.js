@@ -4,7 +4,7 @@ const S = window.Shared;
 
 // ---------- utilidades ----------
 const state = {
-  me: null, org: null, clients: [], users: [], templates: [], alertCount: 0,
+  me: null, org: null, clients: [], users: [], templates: [], alertCount: 0, inboxUnread: 0, chatUnread: 0,
   view: { layout: 'kanban', kind: '', client: '', assignee: '', due: '', rec: '', q: '', group: 'column', archived: false, month: '' },
 };
 const VIEW_KEY = 'tarefas-visao';
@@ -195,6 +195,9 @@ const ICONS = {
   repeat: '<path d="M17 3l3 3-3 3"/><path d="M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3"/><path d="M20 13v2a3 3 0 0 1-3 3H4"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
+  chat: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 4v-4h0A1.5 1.5 0 0 1 4 14.5z"/>',
+  book: '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3M9 7.5h6M9 11h4"/>',
+  send: '<path d="M4 12l16-8-6 16-2.5-6.5z"/><path d="M11.5 13.5L20 4"/>',
 };
 function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -234,14 +237,14 @@ function renderLogin(message) {
 // Estrutura: menu lateral (gaveta no celular) + barra superior com o título e a ação da página.
 function shell(content, { title, sub } = {}) {
   const nav = isStaff()
-    ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/reunioes', 'Reuniões', 'meet'], ['#/alertas', 'Alertas', 'bell'],
+    ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/diario', 'Diário de bordo', 'book'], ['#/chats', 'Chats', 'chat'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/reunioes', 'Reuniões', 'meet'], ['#/alertas', 'Alertas', 'alert'],
       ['#/clientes', 'Clientes', 'building'], ['#/modelos', 'Modelos', 'copy'], ['#/relatorio', 'Relatórios', 'chart'], ['#/equipe', 'Pessoas', 'users'],
       ...(isAdmin() ? [['#/avisos', 'Avisos', 'mail']] : []),
       ['#/config', 'Configurações', 'settings']]
-    : [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Minhas entregas', 'board'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/alertas', 'Alertas', 'bell'],
+    : [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Minhas entregas', 'board'], ['#/chats', 'Chats', 'chat'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/alertas', 'Alertas', 'alert'],
       ['#/config', 'Minha conta', 'settings']];
-  const current = location.hash.split('?')[0] || nav[0][0];
-  const page = nav.find(n => n[0] === current) || nav[0];
+  const current = (location.hash.split('?')[0] || nav[0][0]).replace(/^#\/chats\/\d+$/, '#/chats');
+  const page = nav.find(n => n[0] === current) || (current === '#/notificacoes' ? ['#/notificacoes', 'Notificações'] : nav[0]);
   document.title = `${title || page[1]} · ${APP_NAME}`;
   const shellEl = h('div', { class: 'app' });
   const toggleNav = open => shellEl.classList.toggle('nav-open', open);
@@ -257,7 +260,8 @@ function shell(content, { title, sub } = {}) {
       h('nav', { 'aria-label': 'Principal' },
         nav.map(([href, label, ic]) => h('a', { class: 'nav-link', href, 'aria-current': current === href ? 'page' : null, onclick: () => toggleNav(false) },
           icon(ic), h('span', {}, label),
-          href === '#/alertas' && state.alertCount ? h('span', { class: 'badge', 'aria-label': `${state.alertCount} alertas` }, state.alertCount) : null))),
+          href === '#/alertas' && state.alertCount ? h('span', { class: 'badge', 'aria-label': `${state.alertCount} alertas` }, state.alertCount) : null,
+          href === '#/chats' && state.chatUnread ? h('span', { class: 'badge', 'aria-label': `${state.chatUnread} conversas com mensagens novas` }, state.chatUnread) : null))),
       h('div', { class: 'side-user' },
         h('span', { class: 'avatar' }, initials(state.me.name)),
         h('div', { style: 'min-width:0' }, h('div', { class: 'who-name' }, state.me.name), h('div', { class: 'who-role' }, roleLabel(state.me.role))),
@@ -271,6 +275,7 @@ function shell(content, { title, sub } = {}) {
           'aria-label': isDarkNow() ? 'Usar tema claro' : 'Usar tema escuro',
           onclick: e => { setTheme(isDarkNow() ? 'light' : 'dark'); const btn = e.currentTarget; btn.replaceChildren(icon(isDarkNow() ? 'sun' : 'moon'));
             btn.title = btn.ariaLabel = isDarkNow() ? 'Usar tema claro' : 'Usar tema escuro'; } }, icon(isDarkNow() ? 'sun' : 'moon')),
+        bellButton(),
         newTask),
       h('main', {}, content)));
   app().replaceChildren(shellEl);
@@ -285,16 +290,46 @@ async function loadCommon() {
   if (isStaff()) [state.users, state.templates] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/templates')]);
   await refreshAlerts();
 }
-async function refreshAlerts() { state.alertCount = (await api('GET', '/api/alerts')).length; }
+async function refreshAlerts() {
+  const [alerts, inbox] = await Promise.all([api('GET', '/api/alerts'), api('GET', '/api/inbox/count').catch(() => null)]);
+  state.alertCount = alerts.length;
+  if (inbox) { state.inboxUnread = inbox.unread; state.chatUnread = inbox.chats ?? state.chatUnread; }
+}
+
+// Sino de notificações na barra de cima. O número se atualiza sozinho a cada 30 segundos.
+function bellButton() {
+  const n = state.inboxUnread;
+  return h('a', { class: 'icon-btn bell-btn', href: '#/notificacoes', title: 'Notificações', 'aria-label': n ? `Notificações: ${n} novas` : 'Notificações' },
+    icon('bell'), n ? h('span', { class: 'bell-badge' }, n > 99 ? '99+' : n) : null);
+}
+let inboxTimer = null;
+function startInboxPolling() {
+  clearInterval(inboxTimer);
+  inboxTimer = setInterval(async () => {
+    if (!state.me || document.hidden) return;
+    try {
+      const r = await api('GET', '/api/inbox/count');
+      const changed = r.unread !== state.inboxUnread || (r.chats ?? state.chatUnread) !== state.chatUnread;
+      state.inboxUnread = r.unread; state.chatUnread = r.chats ?? state.chatUnread;
+      if (changed) {
+        document.querySelector('.bell-btn')?.replaceWith(bellButton());
+        const chatLink = document.querySelector('.nav-link[href="#/chats"]');
+        if (chatLink) { chatLink.querySelector('.badge')?.remove(); if (state.chatUnread) chatLink.append(h('span', { class: 'badge' }, state.chatUnread)); }
+        if (location.hash === '#/notificacoes' && !document.querySelector('.modal')) route();
+      }
+    } catch { /* sem conexão: tenta de novo na próxima */ }
+  }, 30000);
+}
 
 async function boot() {
   try { await loadCommon(); } catch { renderLogin(); return; }
+  startInboxPolling();
   route();
 }
 
 const ROUTES = {
   '#/avisos': viewNotifications, '#/reunioes': viewMeetings, '#/compromissos': viewEvents, '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
-  '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings,
+  '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings, '#/notificacoes': viewInbox, '#/chats': () => viewChats(null), '#/diario': viewDiary,
 };
 
 async function route() {
@@ -310,8 +345,10 @@ async function route() {
     await guard(() => viewMeeting(Number(meeting[1])))();
     return;
   }
+  const chat = /^#\/chats\/(\d+)$/.exec(key);
+  if (chat) { try { await refreshAlerts(); } catch { /* segue */ } await guard(() => viewChats(Number(chat[1])))(); return; }
   const fallback = '#/painel';
-  const clientPages = ['#/painel', '#/tarefas', '#/recorrentes', '#/compromissos', '#/alertas', '#/config'];
+  const clientPages = ['#/painel', '#/tarefas', '#/recorrentes', '#/compromissos', '#/alertas', '#/config', '#/chats', '#/notificacoes'];
   const view = ROUTES[key];
   if (!view || (!isStaff() && !clientPages.includes(key))) { location.hash = fallback; return; }
   try { await refreshAlerts(); } catch { /* segue sem o contador */ }
@@ -343,7 +380,8 @@ function dateTags(t) {
 }
 // Quem mexeu: preenchido sozinho quando alguém informa o início, conclui ou cancela.
 function whoDid(t) {
-  const parts = [t.started_by_name && t.start_date ? `Iniciada por ${t.started_by_name}` : null,
+  const parts = [t.created_by_name && t.created_by !== state.me.id ? `Criada por ${t.created_by_name}` : null,
+    t.started_by_name && t.start_date ? `Iniciada por ${t.started_by_name}` : null,
     t.status === 'done' && t.completed_by_name ? `Concluída por ${t.completed_by_name}` : null,
     t.status === 'cancelled' && t.cancelled_by_name ? `Cancelada por ${t.cancelled_by_name}` : null].filter(Boolean);
   return parts.length ? h('p', { class: 'who-did' }, parts.join(' · ')) : null;
@@ -365,6 +403,7 @@ function taskCard(t, { draggable = false, showStatus = false } = {}) {
       t.priority === 'high' ? h('span', { class: 'tag high' }, 'Alta') : null,
       t.recurrence !== 'none' ? h('span', { class: 'tag', title: 'Recorrente' }, '↻ ' + S.RECURRENCE[t.recurrence].replace(/ \(.*/, '')) : null,
       t.adjustments_open ? h('span', { class: 'tag adj' }, `${t.adjustments_open} ajuste${t.adjustments_open > 1 ? 's' : ''}`) : null,
+      t.diary_done ? h('span', { class: 'tag diary', title: 'Marcada como feita no diário de bordo: falta concluir aqui' }, '✔ Feita no diário') : null,
       t.checklist_total ? h('span', {}, `☑ ${t.checklist_done}/${t.checklist_total}`) : null,
       t.attachments_count ? h('span', { title: `${t.attachments_count} anexo${t.attachments_count > 1 ? 's' : ''}` }, `📎 ${t.attachments_count}`) : null,
       t.archived_at ? h('span', { class: 'tag' }, 'Arquivada') : null,
@@ -1331,13 +1370,17 @@ async function openTask(id) {
         t.recurrence !== 'none' ? h('span', { class: 'tag' }, '↻ ' + S.RECURRENCE[t.recurrence]) : null,
         t.archived_at ? h('span', { class: 'tag' }, 'Arquivada') : null),
 
+      t.created_by_name ? h('p', { class: 'created-by' }, icon('users'), h('span', {}, 'Criada por ', h('strong', {}, t.created_by === state.me.id ? 'você' : t.created_by_name),
+        ` em ${fmtDate(t.created_at.slice(0, 10))}`)) : null,
       h('p', { class: 'who-did detail' }, [
-        t.created_by_name ? `Criada por ${t.created_by_name} em ${fmtDate(t.created_at.slice(0, 10))}` : null,
         t.start_date && t.started_by_name ? `Iniciada por ${t.started_by_name} em ${fmtDate(t.start_date)}` : null,
         t.status === 'done' && t.completed_by_name ? `Concluída por ${t.completed_by_name} em ${fmtDate(t.completed_on)}` : null,
         t.status === 'cancelled' && t.cancelled_by_name ? `Cancelada por ${t.cancelled_by_name} em ${fmtDate(t.cancelled_on)}` : null,
       ].filter(Boolean).join(' · ') || null),
       !staff && t.status === 'review' ? clientDecision() : null,
+      t.diary_done ? h('div', { class: 'card-box diary-done-box' },
+        h('p', {}, h('strong', {}, '✔ Feita no diário de bordo.'), ' Falta concluir aqui no quadro.'),
+        h('button', { class: 'btn primary small', type: 'button', onclick: withSaved(() => completeDialog(t, afterDialog)) }, 'Concluir tarefa')) : null,
       statusRow(status),
 
       // Principais, na ordem pedida.
@@ -1374,13 +1417,16 @@ async function openTask(id) {
       adjustmentsSection(),
       commentsSection(),
       staff ? h('div', { class: 'section row' },
+        !terminal ? h('button', { class: 'btn', type: 'button', onclick: guard(async () => {
+          await api('POST', '/api/diary', { date: today(), task_id: t.id }); toast('Levada para o diário de bordo de hoje.');
+        }) }, icon('book'), 'Levar ao diário de hoje') : null,
         h('button', { class: 'btn', onclick: () => act('POST', `/api/tasks/${t.id}/archive`, { archived: !t.archived_at }) }, t.archived_at ? 'Desarquivar' : 'Arquivar'),
         isAdmin() ? h('button', { class: 'btn danger', onclick: guard(async () => {
           if (!(await ask('Apagar esta tarefa? Isso não pode ser desfeito. Para só tirar da frente, use Arquivar.', { ok: 'Apagar tarefa', danger: true }))) return;
           await api('DELETE', `/api/tasks/${t.id}`); changedOnServer = true; draft = {}; ck = { done: new Map(), added: [], removed: new Set() };
           close(); toast('Tarefa apagada');
         }) }, 'Apagar') : null) : null,
-    ].filter(Boolean));
+    ].flat().filter(Boolean));
     drawer.scrollTop = scroll;
     markDirty();
   }
@@ -1540,20 +1586,35 @@ async function openTask(id) {
       h('p', { class: 'muted small' }, 'Até 10 MB por arquivo: PDF, planilha, imagem, documento.'));
   }
 
+  // Chat da equipe (quem criou, responsáveis da equipe e administradores) e, quando o cliente vê a tarefa, a conversa com ele.
   function commentsSection() {
-    const ta = h('textarea', { id: 'cm-body', placeholder: staff ? 'Escreva um comentário' : 'Escreva para a equipe' });
-    const vis = h('input', { type: 'checkbox', id: 'cm-vis' });
-    return h('div', { class: 'section' },
-      h('h2', {}, 'Comentários'),
-      t.comments.length ? t.comments.map(c => h('div', { class: 'comment' },
-        h('div', { class: 'meta' }, h('span', { class: 'by' }, c.author || 'Cliente'), fmtDateTime(c.created_at),
-          staff && t.client_visible ? h('span', { class: 'tag' + (c.visible_to_client ? ' ok' : '') }, c.visible_to_client ? 'cliente vê' : 'só equipe') : null),
-        h('div', { class: 'body' }, c.body))) : h('p', { class: 'muted' }, 'Sem comentários.'),
-      h('div', { style: 'margin-top:8px' },
-        h('label', { for: 'cm-body', class: 'sr-only' }, 'Comentário'), ta,
-        h('div', { class: 'row', style: 'margin-top:8px' },
-          h('button', { class: 'btn', type: 'button', onclick: () => { if (ta.value.trim()) act('POST', `/api/tasks/${t.id}/comments`, { body: ta.value, visible_to_client: vis.checked }); } }, 'Enviar comentário'),
-          staff && t.client_visible ? h('label', { for: 'cm-vis', class: 'check inline' }, vis, 'Visível para o cliente') : null)));
+    const bubble = c => h('div', { class: 'msg' + (c.user_id === state.me.id ? ' mine' : '') },
+      h('div', { class: 'msg-meta' }, h('strong', {}, c.user_id === state.me.id ? 'Você' : c.author || 'Cliente'), ' · ', fmtDateTime(c.created_at)),
+      h('div', { class: 'msg-body' }, c.body));
+    const composer = (idp, placeholder, visible, label) => {
+      const ta = h('textarea', { id: idp, rows: 2, placeholder, onkeydown: e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } } });
+      const send = () => { if (ta.value.trim()) act('POST', `/api/tasks/${t.id}/comments`, { body: ta.value, visible_to_client: visible }); };
+      return h('div', { class: 'composer' }, h('label', { for: idp, class: 'sr-only' }, label), ta,
+        h('button', { class: 'btn primary icon-only', type: 'button', 'aria-label': 'Enviar', title: 'Enviar', onclick: send }, icon('send')));
+    };
+    if (!staff) {
+      return h('div', { class: 'section' }, h('h2', {}, 'Conversa com a equipe'),
+        h('div', { class: 'msgs' }, t.comments.length ? t.comments.map(bubble) : h('p', { class: 'muted' }, 'Nenhuma mensagem ainda.')),
+        composer('cm-body', 'Escreva para a equipe', true, 'Mensagem'));
+    }
+    const people = (t.chat_people || []).map(p => p.name.split(' ')[0]).join(', ');
+    return [
+      h('div', { class: 'section' }, h('h2', {}, icon('chat'), ' Chat da equipe'),
+        h('p', { class: 'muted small' }, `Só quem criou, os responsáveis da equipe e o administrador: ${people || '–'}. O cliente não vê.`),
+        t.can_chat ? [
+          h('div', { class: 'msgs' }, t.chat.length ? t.chat.map(bubble) : h('p', { class: 'muted' }, 'Nenhuma mensagem ainda. Comece a conversa.')),
+          composer('cm-chat', 'Escreva para a equipe da tarefa (Enter envia)', false, 'Mensagem para a equipe da tarefa'),
+        ] : h('p', { class: 'muted' }, 'Você vê esta tarefa, mas não está no chat dela.')),
+      t.client_visible ? h('div', { class: 'section' }, h('h2', {}, 'Conversa com o cliente'),
+        h('p', { class: 'muted small' }, 'O cliente vê e responde aqui.'),
+        h('div', { class: 'msgs' }, t.comments.length ? t.comments.map(bubble) : h('p', { class: 'muted' }, 'Nenhuma mensagem com o cliente.')),
+        composer('cm-client', 'Escreva para o cliente (Enter envia)', true, 'Mensagem para o cliente')) : null,
+    ];
   }
 
   paint();
@@ -1577,10 +1638,10 @@ async function viewClients() {
       logoPicker('Escolher logo', async src => { newLogo = src; preview.replaceChildren(logoEl('novo', src)); }),
       h('button', { class: 'btn primary', type: 'submit' }, 'Cadastrar')) : null,
     h('div', { class: 'card-box table-wrap' }, state.clients.length ? h('table', {},
-      h('thead', {}, h('tr', {}, h('th', {}, 'Cliente'), h('th', {}, 'Equipe que acompanha'), h('th', { class: 'num' }, 'Externas abertas'), h('th', { class: 'num' }, 'Internas abertas'), h('th', {}, ''))),
+      h('thead', {}, h('tr', {}, h('th', {}, 'Cliente'), isAdmin() ? h('th', {}, 'Equipe que acompanha') : null, h('th', { class: 'num' }, 'Externas abertas'), h('th', { class: 'num' }, 'Internas abertas'), h('th', {}, ''))),
       h('tbody', {}, state.clients.map(c => h('tr', {},
         h('td', {}, h('span', { class: 'with-logo' }, logoEl(c.name, c.logo, 'md'), c.name)),
-        h('td', { 'data-label': 'Equipe' }, (c.team || []).map(uid => (state.users.find(u => u.id === uid) || {}).name).filter(Boolean).join(', ') || h('span', { class: 'muted small' }, 'Só o administrador e os responsáveis')),
+        isAdmin() ? h('td', { 'data-label': 'Equipe' }, (c.team || []).map(uid => (state.users.find(u => u.id === uid) || {}).name).filter(Boolean).join(', ') || h('span', { class: 'muted small' }, 'Só o administrador e os responsáveis')) : null,
         h('td', { class: 'num' }, c.open_external), h('td', { class: 'num' }, c.open_internal),
         h('td', { class: 'actions' },
           h('button', { class: 'btn small', onclick: () => { Object.assign(state.view, { client: String(c.id), kind: '' }); saveView(); location.hash = '#/tarefas'; } }, 'Ver tarefas'),
@@ -1616,6 +1677,358 @@ function clientTeamDialog(c) {
       err,
       h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'btn primary', type: 'submit' }, 'Salvar'),
         h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
+  });
+}
+
+// ---------- notificações ----------
+function ago(s) {
+  const min = Math.round((Date.now() - new Date(s.replace(' ', 'T') + 'Z')) / 60000);
+  if (min < 1) return 'agora';
+  if (min < 60) return `há ${min} min`;
+  if (min < 24 * 60) return `há ${Math.round(min / 60)} h`;
+  return fmtDateTime(s);
+}
+const goTo = link => { if (location.hash === link) route(); else location.hash = link; };
+async function viewInbox() {
+  const r = await api('GET', '/api/inbox');
+  state.inboxUnread = r.unread;
+  const KIND = { chat: ['chat', 'Chat'], task_chat: ['chat', 'Chat da tarefa'], task_comment: ['chat', 'Conversa na tarefa'], task: ['board', 'Tarefa'] };
+  const open = guard(async n => { if (!n.read_at) await api('POST', `/api/inbox/${n.id}/read`); goTo(n.link || '#/painel'); });
+  shell([
+    r.unread ? h('div', { class: 'toolbar' }, h('button', { class: 'btn', type: 'button', onclick: guard(async () => { await api('POST', '/api/inbox/read-all'); route(); }) },
+      icon('check'), 'Marcar todas como lidas')) : null,
+    h('div', { class: 'card-box inbox' }, r.items.length ? r.items.map(n => h('button', { type: 'button', class: 'inbox-item' + (n.read_at ? '' : ' unread'), onclick: () => open(n) },
+      h('span', { class: 'inbox-ic', 'aria-hidden': 'true' }, icon((KIND[n.kind] || ['bell'])[0])),
+      h('span', { class: 'grow' },
+        h('span', { class: 'inbox-kind' }, (KIND[n.kind] || [, 'Aviso'])[1]),
+        h('strong', {}, n.title, n.count > 1 ? h('span', { class: 'inbox-count' }, ` · ${n.count} novas`) : null),
+        n.body ? h('span', { class: 'inbox-body' }, n.body) : null),
+      h('span', { class: 'muted small when' }, ago(n.created_at)))) : h('p', { class: 'empty' }, 'Nenhuma notificação por enquanto. Mensagens nos chats, conversas nas tarefas e tarefas criadas para você aparecem aqui.')),
+  ], { title: 'Notificações', sub: 'Chats, conversas nas tarefas e tarefas criadas para você' });
+}
+
+// ---------- chats ----------
+let chatTimer = null;
+const firstName = n => String(n || '').split(' ')[0];
+const roleTag = u => (u.role === 'client' ? (u.client_name || 'Cliente') : u.role === 'admin' ? 'Administrador' : state.org.name);
+async function viewChats(convId) {
+  clearInterval(chatTimer);
+  const [list, data] = await Promise.all([api('GET', '/api/conversations'), convId ? api('GET', `/api/conversations/${convId}/messages`) : null]);
+  try { await refreshAlerts(); } catch { /* segue */ }
+  const listEl = h('div', { class: 'chat-list card-box' },
+    h('div', { class: 'chat-list-head' }, h('button', { class: 'btn primary', type: 'button', onclick: guard(newChatDialog) }, icon('plus'), 'Nova conversa')),
+    list.length ? list.map(c => h('a', { class: 'chat-row' + (c.id === convId ? ' active' : '') + (c.unread ? ' unread' : ''), href: `#/chats/${c.id}` },
+      h('span', { class: 'avatar' + (c.is_group ? ' group' : '') }, c.is_group ? icon('users') : initials(c.title)),
+      h('span', { class: 'grow chat-row-text' }, h('strong', {}, c.title),
+        h('span', { class: 'muted small' }, c.last ? `${c.last.author === state.me.name ? 'Você' : firstName(c.last.author)}: ${c.last.body}` : (c.is_group ? `${c.members.length} pessoas` : 'Sem mensagens'))),
+      c.unread ? h('span', { class: 'badge' }, c.unread) : null))
+      : h('p', { class: 'empty' }, 'Nenhuma conversa ainda. Comece uma em "Nova conversa".'));
+  let pane;
+  if (data) {
+    const c = data.conversation;
+    const seen = new Set();
+    let lastId = 0;
+    const msgs = h('div', { class: 'msgs chat-msgs', 'aria-live': 'polite' });
+    const add = m => {
+      if (seen.has(m.id)) return;
+      seen.add(m.id); lastId = Math.max(lastId, m.id);
+      msgs.querySelector('.empty')?.remove();
+      msgs.append(h('div', { class: 'msg' + (m.user_id === state.me.id ? ' mine' : '') },
+        c.is_group && m.user_id !== state.me.id ? h('div', { class: 'msg-meta' }, h('strong', {}, m.author || '–')) : null,
+        h('div', { class: 'msg-body' }, m.body), h('div', { class: 'msg-time' }, fmtDateTime(m.created_at))));
+    };
+    if (!data.messages.length) msgs.append(h('p', { class: 'empty muted' }, 'Nenhuma mensagem ainda. Diga olá!'));
+    data.messages.forEach(add);
+    const ta = h('textarea', { id: 'chat-text', rows: 1, placeholder: 'Escreva uma mensagem (Enter envia)',
+      onkeydown: e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } } });
+    const send = guard(async () => {
+      const body = ta.value.trim();
+      if (!body) return;
+      ta.value = '';
+      add(await api('POST', `/api/conversations/${c.id}/messages`, { body }));
+      msgs.scrollTop = msgs.scrollHeight;
+    });
+    pane = h('section', { class: 'chat-pane card-box', 'aria-label': `Conversa: ${c.title}` },
+      h('header', { class: 'chat-head' },
+        h('a', { class: 'btn small chat-back', href: '#/chats' }, '‹ Conversas'),
+        h('span', { class: 'avatar' + (c.is_group ? ' group' : '') }, c.is_group ? icon('users') : initials(c.title)),
+        h('div', { class: 'grow' }, h('strong', {}, c.title),
+          h('div', { class: 'muted small' }, c.is_group ? c.members.map(m => m.id === state.me.id ? 'você' : firstName(m.name)).join(', ')
+            : roleTag(c.members.find(m => m.id !== state.me.id) || {}))),
+        c.is_group ? h('button', { class: 'btn small', type: 'button', onclick: () => groupDialog(c) }, 'Grupo') : null),
+      msgs,
+      h('div', { class: 'composer' }, h('label', { for: 'chat-text', class: 'sr-only' }, 'Mensagem'), ta,
+        h('button', { class: 'btn primary icon-only', type: 'button', 'aria-label': 'Enviar', title: 'Enviar', onclick: send }, icon('send'))));
+    // Mensagens novas chegam sozinhas enquanto a conversa está aberta.
+    chatTimer = setInterval(async () => {
+      if (location.hash !== `#/chats/${c.id}`) { clearInterval(chatTimer); return; }
+      if (document.hidden) return;
+      try {
+        const r = await api('GET', `/api/conversations/${c.id}/messages?after=${lastId}`);
+        const near = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 80;
+        r.messages.forEach(add);
+        if (r.messages.length && near) msgs.scrollTop = msgs.scrollHeight;
+      } catch { /* tenta de novo */ }
+    }, 4000);
+    requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
+  } else {
+    pane = h('section', { class: 'chat-pane card-box chat-empty' }, icon('chat'), h('p', {}, 'Escolha uma conversa ou comece uma nova.'),
+      h('p', { class: 'muted small' }, 'Você conversa com quem tem empresa em comum: a equipe entre si, a equipe com os clientes que acompanha e as pessoas do mesmo cliente. O administrador fala com todos.'));
+  }
+  shell([h('div', { class: 'chat-wrap' + (data ? ' has-conv' : '') }, listEl, pane)],
+    { title: 'Chats', sub: 'Conversas 1 a 1 ou em grupo, fora das tarefas' });
+  if (data) document.getElementById('chat-text')?.focus({ preventScroll: true });
+}
+
+// Escolher pessoas: só aparece quem tem empresa em comum com você.
+function peoplePicker(contacts, { selected = [], exclude = [] } = {}) {
+  const search = h('input', { type: 'search', placeholder: 'Procurar pessoa', 'aria-label': 'Procurar pessoa',
+    oninput: () => { const q = search.value.toLowerCase(); box.querySelectorAll('label').forEach(l => { l.hidden = !l.textContent.toLowerCase().includes(q); }); } });
+  const box = h('div', { class: 'checks people-checks', role: 'group', 'aria-label': 'Pessoas' },
+    contacts.filter(u => !exclude.includes(u.id)).map(u => h('label', {}, h('input', { type: 'checkbox', value: u.id, checked: selected.includes(u.id) }),
+      h('span', {}, u.name, h('span', { class: 'muted small' }, ` · ${roleTag(u)}`)))));
+  return { el: h('div', {}, search, box), ids: () => [...box.querySelectorAll('input:checked')].map(i => Number(i.value)), box };
+}
+async function newChatDialog() {
+  const contacts = await api('GET', '/api/chat/contacts');
+  modal(close => {
+    const err = h('p', { class: 'error', role: 'alert' });
+    const picker = peoplePicker(contacts);
+    const name = h('input', { id: 'nc-name', maxlength: 80, placeholder: 'Ex.: Fechamento Padaria' });
+    const nameField = h('div', { class: 'field', hidden: true }, h('label', { for: 'nc-name' }, 'Nome do grupo (opcional)'), name);
+    picker.box.addEventListener('change', () => { nameField.hidden = picker.ids().length < 2; });
+    return h('form', { onsubmit: guard(async e => {
+      e.preventDefault();
+      const ids = picker.ids();
+      if (!ids.length) { err.textContent = 'Escolha pelo menos uma pessoa.'; return; }
+      try {
+        const c = await api('POST', '/api/conversations', { user_ids: ids, title: name.value });
+        close(); location.hash = `#/chats/${c.id}`;
+      } catch (ex) { err.textContent = ex.message; }
+    }) },
+      h('h2', {}, 'Nova conversa'),
+      h('p', { class: 'muted small' }, 'Uma pessoa: conversa particular. Duas ou mais: grupo. Só aparece quem tem empresa em comum com você.'),
+      contacts.length ? picker.el : h('p', { class: 'muted' }, 'Ninguém com empresa em comum com você ainda.'),
+      nameField, err,
+      h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'btn primary', type: 'submit' }, 'Começar conversa'),
+        h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
+  });
+}
+async function groupDialog(c) {
+  const canEdit = isAdmin() || c.created_by === state.me.id;
+  const contacts = canEdit ? await api('GET', '/api/chat/contacts') : [];
+  modal(close => {
+    const err = h('p', { class: 'error', role: 'alert' });
+    const name = h('input', { id: 'g-name', maxlength: 80, value: c.title });
+    const picker = peoplePicker(contacts, { exclude: c.members.map(m => m.id) });
+    return h('div', {},
+      h('h2', {}, c.title),
+      h('h3', {}, 'Participantes'),
+      h('ul', { class: 'plain' }, c.members.map(m => h('li', {}, m.id === state.me.id ? `${m.name} (você)` : m.name, h('span', { class: 'muted small' }, ` · ${roleTag(m)}`)))),
+      canEdit ? h('form', { onsubmit: guard(async e => {
+        e.preventDefault();
+        try {
+          await api('PATCH', `/api/conversations/${c.id}`, { title: name.value, add_user_ids: picker.ids() });
+          close(); toast('Grupo atualizado'); route();
+        } catch (ex) { err.textContent = ex.message; }
+      }) },
+        h('div', { class: 'field' }, h('label', { for: 'g-name' }, 'Nome do grupo'), name),
+        h('h3', {}, 'Adicionar pessoas'), picker.el, err,
+        h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'btn primary', type: 'submit' }, 'Salvar'))) : null,
+      h('div', { class: 'row', style: 'margin-top:12px' },
+        h('button', { class: 'btn danger', type: 'button', onclick: guard(async () => {
+          if (!(await ask(`Sair do grupo "${c.title}"? Você deixa de ver as mensagens.`, { ok: 'Sair do grupo', danger: true }))) return;
+          await api('POST', `/api/conversations/${c.id}/leave`); close(); location.hash = '#/chats';
+        }) }, 'Sair do grupo'),
+        h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar')));
+  });
+}
+
+// ---------- diário de bordo ----------
+// O rumo do dia: o que fazer, início e fim, e a Tríade do Tempo (importante, urgente, circunstancial). Concluir é um clique.
+const diaryView = { date: '', user_id: null, cat: 'important' };
+const TRIAD_KEYS = Object.keys(S.TRIAD);
+const nowTime = () => new Date().toTimeString().slice(0, 5);
+const hm = m => (m >= 60 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}` : `${m} min`);
+async function viewDiary() {
+  const v = diaryView;
+  const date = v.date || today();
+  const mine = !v.user_id || v.user_id === state.me.id;
+  const q = mine ? '' : `&user_id=${v.user_id}`;
+  const [d, week] = await Promise.all([api('GET', `/api/diary?date=${date}${q}`), api('GET', `/api/diary?from=${S.addDays(date, -6)}&to=${date}${q}`)]);
+  const shift = n => { v.date = S.addDays(date, n); route(); };
+  const catChip = (e, editable) => h(editable ? 'button' : 'span', { type: editable ? 'button' : null, class: `triad triad-${e.category}`,
+    title: editable ? 'Trocar a classificação' : S.TRIAD[e.category].hint,
+    onclick: editable ? guard(async () => { await api('PATCH', `/api/diary/${e.id}`, { category: TRIAD_KEYS[(TRIAD_KEYS.indexOf(e.category) + 1) % 3] }); route(); }) : null },
+    S.TRIAD[e.category].label);
+  const toggle = guard(async (e, done) => {
+    await api('PATCH', `/api/diary/${e.id}`, { done });
+    if (done && e.task && !['done', 'cancelled'].includes(e.task.status)) {
+      if (await ask(`Feito! A tarefa "${e.task.title}" ainda está aberta no quadro. Concluir lá também?`, { ok: 'Concluir a tarefa' })) {
+        completeDialog(await api('GET', `/api/tasks/${e.task.id}`), () => route());
+        return;
+      }
+    }
+    route();
+  });
+  const row = e => h('li', { class: 'diary-item' + (e.done ? ' done' : '') },
+    mine ? h('input', { type: 'checkbox', class: 'big-check', checked: e.done, 'aria-label': `Feito: ${e.title}`, onchange: ev => toggle(e, ev.target.checked) })
+      : h('span', { class: 'big-check ro', 'aria-label': e.done ? 'Feito' : 'Não feito' }, e.done ? '✔' : ''),
+    h('div', { class: 'grow diary-main' },
+      h(mine ? 'button' : 'span', { type: mine ? 'button' : null, class: 'diary-title', onclick: mine ? () => diaryEdit(e) : null }, e.title),
+      h('div', { class: 'diary-meta' },
+        catChip(e, mine),
+        e.start_time || e.end_time ? h('span', { class: 'tag' }, icon('clock'), ` ${e.start_time || '?'}–${e.end_time || '…'}`, S.minutesOf(e) ? ` · ${hm(S.minutesOf(e))}` : '') : null,
+        mine && !e.start_time && !e.done ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => { await api('PATCH', `/api/diary/${e.id}`, { start_time: nowTime() }); route(); }) }, '▶ Começar agora') : null,
+        mine && e.start_time && !e.end_time ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
+          const end = nowTime();
+          await api('PATCH', `/api/diary/${e.id}`, end < e.start_time ? { end_time: e.start_time } : { end_time: end }); route();
+        }) }, '■ Terminar agora') : null,
+        e.task ? h('button', { class: 'tag task-link', type: 'button', onclick: () => openTask(e.task.id), title: 'Abrir a tarefa' }, icon('board'), ' Tarefa', ['done', 'cancelled'].includes(e.task.status) ? ' (concluída)' : '') : null,
+        mine && !e.task_id && !e.done ? h('button', { class: 'btn small', type: 'button', onclick: () => diaryToTask(e) }, '→ Virar tarefa') : null)),
+    mine ? h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Apagar ${e.title}`, title: 'Apagar', onclick: guard(async () => {
+      if (await ask(`Apagar "${e.title}" do diário?`, { ok: 'Apagar', danger: true })) { await api('DELETE', `/api/diary/${e.id}`); route(); }
+    }) }, '×') : null);
+
+  // Anotar rápido: o que, início, fim e a Tríade.
+  const addForm = () => {
+    const title = h('input', { id: 'dy-title', name: 'title', placeholder: 'O que você vai fazer?', maxlength: 200, required: true, autocomplete: 'off' });
+    const seg = h('div', { class: 'seg triad-seg', role: 'radiogroup', 'aria-label': 'Tríade do Tempo' },
+      TRIAD_KEYS.map(k => h('button', { type: 'button', role: 'radio', class: `seg-btn triad-${k}`, 'aria-checked': String(v.cat === k), title: S.TRIAD[k].hint,
+        onclick: ev => { v.cat = k; seg.querySelectorAll('button').forEach(b => b.setAttribute('aria-checked', String(b === ev.currentTarget))); } }, S.TRIAD[k].label)));
+    return h('form', { class: 'card-box diary-add', onsubmit: guard(async ev => {
+      ev.preventDefault();
+      const f = ev.target.elements;
+      await api('POST', '/api/diary', { date, title: f.title.value, start_time: f.start.value || null, end_time: f.end.value || null, category: v.cat });
+      await route();
+      document.getElementById('dy-title')?.focus();
+    }) },
+      h('label', { for: 'dy-title', class: 'sr-only' }, 'O que você vai fazer'), title,
+      h('div', { class: 'row' },
+        h('label', { class: 'time-field' }, 'Início', h('input', { name: 'start', type: 'time' })),
+        h('label', { class: 'time-field' }, 'Fim', h('input', { name: 'end', type: 'time' })),
+        seg,
+        h('button', { class: 'btn primary', type: 'submit' }, icon('plus'), 'Anotar')));
+  };
+
+  const sum = S.diarySummary(d.entries);
+  const triadBars = s => h('div', { class: 'triad-bars' }, TRIAD_KEYS.map(k => h('div', { class: 'triad-bar-row' },
+    h('span', { class: `triad triad-${k}` }, S.TRIAD[k].label),
+    h('div', { class: 'triad-bar' }, h('span', { class: `fill triad-${k}`, style: `width:${s.by[k].share}%` }), h('i', { class: 'ideal', style: `left:${S.TRIAD[k].ideal}%`, title: `Referência: ${S.TRIAD[k].ideal}%` })),
+    h('strong', { class: 'num' }, `${s.by[k].share}%`),
+    h('span', { class: 'muted small' }, s.basis === 'minutes' ? hm(s.by[k].minutes) : `${s.by[k].count} item${s.by[k].count === 1 ? '' : 's'}`))));
+  const verdict = s => {
+    if (!s.total) return null;
+    const imp = s.by.important.share, urg = s.by.urgent.share, circ = s.by.circumstantial.share;
+    if (imp >= 60) return 'Dia no rumo: a maior parte foi no importante.';
+    if (urg >= 40) return 'Dia de apagar incêndio: muito urgente. Vale planejar antes para o importante não virar urgente.';
+    if (circ >= 30) return 'Muito tempo no circunstancial (interrupções e pedidos de última hora). Dá para cortar ou delegar?';
+    return 'Dia equilibrado. A referência da Tríade é ficar perto de 70% no importante.';
+  };
+  const report = h('div', { class: 'card-box diary-report' },
+    h('h2', {}, date === today() ? 'Como está o dia' : 'Como foi o dia'),
+    sum.total ? [
+      h('div', { class: 'stats-row' },
+        h('div', { class: 'stat' }, h('strong', {}, `${sum.done}/${sum.total}`), h('span', {}, 'feitas')),
+        h('div', { class: 'stat' }, h('strong', {}, `${sum.pct}%`), h('span', {}, 'concluído')),
+        h('div', { class: 'stat' }, h('strong', {}, sum.minutes ? hm(sum.minutes) : '–'), h('span', {}, 'tempo anotado'))),
+      triadBars(sum),
+      h('p', { class: 'muted small' }, sum.basis === 'minutes' ? 'Divisão pelo tempo anotado (início e fim). A marca em cada barra é a referência da Tríade do Tempo: 70% importante, 20% urgente, 10% circunstancial.'
+        : 'Sem horários anotados: a divisão é pela quantidade de itens. A marca em cada barra é a referência da Tríade: 70% importante, 20% urgente, 10% circunstancial.'),
+      h('p', { class: 'verdict' }, verdict(sum)),
+    ] : h('p', { class: 'muted' }, 'Nada anotado neste dia.'));
+  const days = [...Array(7)].map((_, i) => S.addDays(date, i - 6));
+  const weekSum = S.diarySummary(week.entries);
+  const weekTable = h('div', { class: 'card-box table-wrap' }, h('h2', {}, 'Últimos 7 dias'),
+    h('table', { class: 'week-table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Dia'), h('th', { class: 'num' }, 'Feitas'), h('th', { class: 'num' }, 'Tempo'),
+      TRIAD_KEYS.map(k => h('th', { class: 'num', title: S.TRIAD[k].label }, S.TRIAD[k].label.slice(0, 4) + '.')))),
+      h('tbody', {}, days.map(day => {
+        const s = S.diarySummary(week.entries.filter(e => e.date === day));
+        return h('tr', { class: 'row-link' + (day === date ? ' current' : ''), onclick: () => { v.date = day; route(); } },
+          h('td', {}, new Date(day + 'T12:00').toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '') + ' ' + fmtShort(day)),
+          h('td', { class: 'num' }, s.total ? `${s.done}/${s.total}` : '–'), h('td', { class: 'num' }, s.minutes ? hm(s.minutes) : '–'),
+          TRIAD_KEYS.map(k => h('td', { class: 'num' }, s.total ? `${s.by[k].share}%` : '–')));
+      }),
+      h('tr', { class: 'total' }, h('td', {}, h('strong', {}, 'Semana')), h('td', { class: 'num' }, weekSum.total ? `${weekSum.done}/${weekSum.total}` : '–'),
+        h('td', { class: 'num' }, weekSum.minutes ? hm(weekSum.minutes) : '–'), TRIAD_KEYS.map(k => h('td', { class: 'num' }, weekSum.total ? `${weekSum.by[k].share}%` : '–'))))));
+
+  const staffPeople = isAdmin() ? state.users.filter(u => u.role !== 'client' && u.active) : [];
+  shell([
+    h('div', { class: 'toolbar' },
+      h('div', { class: 'cal-nav diary-nav' },
+        h('button', { class: 'btn small', type: 'button', onclick: () => shift(-1), 'aria-label': 'Dia anterior' }, '‹'),
+        h('input', { type: 'date', value: date, 'aria-label': 'Dia', onchange: e => { if (e.target.value) { v.date = e.target.value; route(); } } }),
+        h('button', { class: 'btn small', type: 'button', onclick: () => shift(1), 'aria-label': 'Próximo dia' }, '›'),
+        date !== today() ? h('button', { class: 'btn small', type: 'button', onclick: () => { v.date = ''; route(); } }, 'Hoje') : null),
+      staffPeople.length ? h('select', { 'aria-label': 'Diário de quem', onchange: e => { v.user_id = Number(e.target.value) || null; route(); } },
+        staffPeople.map(u => h('option', { value: u.id, selected: (v.user_id || state.me.id) === u.id }, u.id === state.me.id ? `${u.name} (você)` : u.name))) : null),
+    mine ? addForm() : h('p', { class: 'muted' }, 'Você está vendo o diário de outra pessoa (só leitura).'),
+    h('div', { class: 'diary-grid' },
+      h('div', {},
+        h('div', { class: 'card-box' }, h('h2', {}, date === today() ? 'Hoje' : new Date(date + 'T12:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })),
+          d.entries.length ? h('ul', { class: 'diary-list' }, d.entries.map(row))
+            : h('p', { class: 'empty' }, mine ? 'Nada anotado. Escreva acima o que vai fazer hoje, ou traga uma tarefa do quadro.' : 'Nada anotado neste dia.')),
+        mine && d.tasks.length ? h('div', { class: 'card-box' }, h('h2', {}, 'Tarefas do quadro para hoje'),
+          h('p', { class: 'muted small' }, 'Abertas em que você é responsável, vencendo até este dia ou em andamento. Leve para o diário só com o título.'),
+          h('ul', { class: 'diary-tasks' }, d.tasks.map(t => h('li', {},
+            h('button', { class: 'grow link-btn', type: 'button', onclick: () => openTask(t.id) }, t.title,
+              h('span', { class: 'muted small' }, [t.client_name, t.due_date ? `prazo ${fmtShort(t.due_date)}` : null].filter(Boolean).map(x => ` · ${x}`).join(''))),
+            t.due_date && t.due_date < date ? h('span', { class: 'tag late' }, 'Atrasada') : null,
+            h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
+              await api('POST', '/api/diary', { date, task_id: t.id, category: t.priority === 'high' || (t.due_date && t.due_date <= date) ? 'urgent' : 'important' }); route();
+            }) }, '+ Diário'))))) : null),
+      h('div', {}, report, weekTable)),
+  ], { title: 'Diário de bordo', sub: 'O rumo do dia: o que fazer, quando e se é importante, urgente ou circunstancial' });
+}
+function diaryEdit(e) {
+  modal(close => {
+    const err = h('p', { class: 'error', role: 'alert' });
+    return h('form', { onsubmit: guard(async ev => {
+      ev.preventDefault();
+      const f = ev.target.elements;
+      try {
+        await api('PATCH', `/api/diary/${e.id}`, { title: f.title.value, date: f.date.value, start_time: f.start.value || null, end_time: f.end.value || null, category: f.category.value });
+        close(); route();
+      } catch (ex) { err.textContent = ex.message; }
+    }) },
+      h('h2', {}, 'Editar item do diário'),
+      h('div', { class: 'field' }, h('label', { for: 'de-title' }, 'O que fazer'), h('input', { id: 'de-title', name: 'title', value: e.title, maxlength: 200, required: true })),
+      h('div', { class: 'grid2' },
+        h('div', { class: 'field' }, h('label', { for: 'de-start' }, 'Início'), h('input', { id: 'de-start', name: 'start', type: 'time', value: e.start_time || '' })),
+        h('div', { class: 'field' }, h('label', { for: 'de-end' }, 'Fim'), h('input', { id: 'de-end', name: 'end', type: 'time', value: e.end_time || '' }))),
+      h('div', { class: 'grid2' },
+        h('div', { class: 'field' }, h('label', { for: 'de-cat' }, 'Tríade do Tempo'), h('select', { id: 'de-cat', name: 'category' },
+          TRIAD_KEYS.map(k => h('option', { value: k, selected: e.category === k }, `${S.TRIAD[k].label}: ${S.TRIAD[k].hint}`)))),
+        h('div', { class: 'field' }, h('label', { for: 'de-date' }, 'Dia'), h('input', { id: 'de-date', name: 'date', type: 'date', value: e.date, required: true }))),
+      err,
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, 'Salvar'), h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
+  });
+}
+// Do diário para o quadro: escolhe interna ou de cliente e o prazo; você fica de responsável.
+function diaryToTask(e) {
+  modal(close => {
+    const err = h('p', { class: 'error', role: 'alert' });
+    const clientSel = h('select', { id: 'dt-client', name: 'client' }, h('option', { value: '' }, `Nenhuma (${state.org.name})`),
+      state.clients.map(c => h('option', { value: c.id }, c.name)));
+    return h('form', { onsubmit: guard(async ev => {
+      ev.preventDefault();
+      const f = ev.target.elements;
+      try {
+        const out = await api('POST', `/api/diary/${e.id}/task`, { kind: f.kind.value, client_id: f.client.value ? Number(f.client.value) : null, due_date: f.due.value || null });
+        close(); toast('Virou tarefa no quadro. Você é o responsável.'); route();
+        return out;
+      } catch (ex) { err.textContent = ex.message; }
+    }) },
+      h('h2', {}, 'Virar tarefa'),
+      h('p', {}, e.title),
+      h('div', { class: 'grid2' },
+        h('div', { class: 'field' }, h('label', { for: 'dt-kind' }, 'Tipo'), h('select', { id: 'dt-kind', name: 'kind' },
+          h('option', { value: 'internal' }, 'Interna (nossa)'), h('option', { value: 'external' }, 'Externa (de cliente)'))),
+        h('div', { class: 'field' }, h('label', { for: 'dt-client' }, 'Empresa'), clientSel)),
+      h('div', { class: 'field' }, h('label', { for: 'dt-due' }, 'Prazo'), h('input', { id: 'dt-due', name: 'due', type: 'date', value: e.date })),
+      h('p', { class: 'muted small' }, 'Você fica como responsável. Para mudar o resto (descrição, checklist, outras pessoas), abra a tarefa depois.'),
+      err,
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, 'Criar tarefa'), h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
   });
 }
 
@@ -1685,7 +2098,8 @@ async function viewTemplates() {
       } catch (ex) { err.textContent = ex.message; }
     } },
       h('h2', {}, 'Novo modelo'),
-      h('p', { class: 'muted' }, 'Para o trabalho que se repete: fechamento do mês, diagnóstico, onboarding de cliente.'),
+      h('p', { class: 'muted' }, 'Para o trabalho que se repete: fechamento do mês, diagnóstico, onboarding de cliente.' +
+        (isAdmin() ? ' Você vê os modelos de todos; cada pessoa vê só os que ela criou.' : ' Os seus modelos são só seus (o administrador também vê).')),
       h('div', { class: 'grid2' },
         h('div', { class: 'field' }, h('label', { for: 't-name' }, 'Nome do modelo'), h('input', { id: 't-name', name: 'name', required: true, maxlength: 120 })),
         h('div', { class: 'field' }, h('label', { for: 't-title' }, 'Título da tarefa'), h('input', { id: 't-title', name: 'title', required: true, maxlength: 200 }))),
@@ -1698,6 +2112,7 @@ async function viewTemplates() {
           if (await ask(`Apagar o modelo "${t.name}"?`, { ok: 'Apagar modelo', danger: true })) { await api('DELETE', `/api/templates/${t.id}`); route(); }
         }) }, 'Apagar')),
       h('p', { class: 'muted' }, `Cria: "${t.title}"` + (t.checklist.length ? ` com ${t.checklist.length} itens` : '')),
+      isAdmin() ? h('p', { class: 'muted small' }, `Criado por ${t.created_by === state.me.id ? 'você' : t.created_by_name || 'administrador (antes do registro de quem criou)'}`) : null,
       t.checklist.length ? h('ul', {}, t.checklist.map(i => h('li', {}, i))) : null))
       : h('div', { class: 'card-box empty' }, 'Nenhum modelo ainda.'),
   ]);

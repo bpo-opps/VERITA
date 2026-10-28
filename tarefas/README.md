@@ -64,6 +64,15 @@ A senha temporária aparece uma vez no terminal; troque em Configurações. O ba
 - **Relatórios:** resumo, por empresa, por responsável, prazos, concluídas, canceladas, evolução mensal, ajustes, recorrentes e lista completa, com filtros de período, empresa, responsável, tipo e situação; baixam em Excel (.xlsx) e PDF, gerados no próprio navegador (`public/exports.js`).
 - **Compromissos:** agenda de reuniões e compromissos (lista ou mês), com empresa, participantes (equipe e cliente) e local ou link. Veem quem marcou, os participantes e o administrador; o cliente só os de que participa. Em "Ligar à minha agenda" cada pessoa gera um link particular (`/agenda/<código>.ics`, em `calendar.js`) que o Google Agenda, o Outlook e o iPhone assinam: traz os compromissos dela e os prazos das tarefas abertas que ela vê, só leitura. Gerar um novo link invalida o anterior.
 
+## Chats, notificações e diário de bordo
+
+- **Chat da tarefa:** dentro de cada tarefa, o "Chat da equipe" é só de quem criou, dos responsáveis da equipe e dos administradores (o cliente não vê). Quando o cliente vê a tarefa, a "Conversa com o cliente" fica separada, logo abaixo.
+- **Chats:** conversas 1 a 1 ou em grupo, fora das tarefas. Só conversa quem tem empresa em comum (`S.related` em `shared.js`): o administrador com todos, a equipe entre si, a equipe com as pessoas dos clientes que acompanha e as pessoas do mesmo cliente. Num grupo, todos precisam ter relação com todos.
+- **Notificações:** o sino no alto da tela mostra mensagens novas dos chats, do chat da tarefa, da conversa com o cliente e tarefas criadas para a pessoa (ou em que ela foi incluída). Mensagens seguidas do mesmo assunto somam numa só notificação. Atualiza a cada 30 segundos.
+- **Diário de bordo:** cada pessoa da equipe anota o dia (o que fazer, início, fim) e classifica pela Tríade do Tempo (importante, urgente, circunstancial). Concluir é um clique; o relatório mostra o dia e os últimos 7 dias, com a referência 70/20/10. Um item vira tarefa (a pessoa fica de responsável) e as tarefas do dia entram no diário só com o título. Feito no diário e ainda aberto no quadro, o card avisa "Feita no diário" para concluir; concluir a tarefa marca o item do diário. Cada um vê o seu; o administrador vê o de todos (só leitura).
+- **Modelos:** cada pessoa vê os modelos que criou; o administrador vê todos, com quem criou. Os antigos (sem dono) ficam só com o administrador.
+- **Clientes:** a coluna "Equipe que acompanha" aparece só para o administrador.
+
 ## Painel e Recorrentes
 
 - **Painel** (tela inicial): saudação com a data e quatro números (executadas na semana, atrasadas, vencem hoje, próximas 7 dias); filtros de período e empresa; produtividade (concluídas, % no prazo, tempo médio do início ao término, canceladas), tarefas por situação, concluídas por semana (8 semanas), carga do time por responsável, em aberto por empresa e a lista das atrasadas. Passar o mouse ou tocar numa barra mostra o valor. Tudo sai das tarefas que a pessoa pode ver, então o cliente tem o painel só das dele.

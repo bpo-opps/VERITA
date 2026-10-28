@@ -132,6 +132,26 @@ function dropInvalidClientAssignees(db, taskId) {
 }
 const nameOf = (db, userId) => (userId ? (db.prepare('select name from users where id = ?').get(userId) || {}).name || null : null);
 const clientIdsOf = (db, userId) => db.prepare('select client_id from user_clients where user_id = ?').all(userId).map(r => r.client_id);
+
+// ---------- notificações dentro do sistema (sino) ----------
+// Uma por assunto enquanto não lida: mensagens seguidas da mesma conversa ou tarefa só somam no contador.
+function pushInbox(db, userIds, { kind, ref = '', title, body = '', link = '' }, except = null) {
+  const clip = v => String(v).replace(/\s+/g, ' ').trim().slice(0, 200);
+  for (const uid of new Set(userIds)) {
+    if (!uid || uid === except) continue;
+    const open = ref && db.prepare('select id from inbox where user_id = ? and kind = ? and ref = ? and read_at is null').get(uid, kind, ref);
+    if (open) db.prepare("update inbox set count = count + 1, title = ?, body = ?, link = ?, created_at = datetime('now') where id = ?").run(clip(title), clip(body), link, open.id);
+    else db.prepare('insert into inbox (user_id, kind, ref, title, body, link) values (?, ?, ?, ?, ?, ?)').run(uid, kind, ref, clip(title), clip(body), link);
+  }
+}
+const activeAdmins = (db, orgId) => db.prepare("select id from users where org_id = ? and role = 'admin' and active = 1").all(orgId).map(r => r.id);
+// Chat da tarefa: quem criou, os responsáveis da equipe e os administradores.
+function taskChatPeople(db, t) {
+  const staffAssignees = db.prepare("select u.id from task_assignees a join users u on u.id = a.user_id where a.task_id = ? and u.role != 'client' and u.active = 1").all(t.id).map(r => r.id);
+  const creator = t.created_by && db.prepare("select id from users where id = ? and role != 'client' and active = 1").get(t.created_by);
+  return [...new Set([...activeAdmins(db, t.org_id), ...(creator ? [creator.id] : []), ...staffAssignees])];
+}
+const canTaskChat = (db, user, t) => user.role !== 'client' && taskChatPeople(db, t).includes(user.id);
 function setAssignees(db, taskId, ids) {
   db.prepare('delete from task_assignees where task_id = ?').run(taskId);
   const ins = db.prepare('insert into task_assignees (task_id, user_id) values (?, ?)');
@@ -164,6 +184,7 @@ function completeTask(db, t, completedOn, userId) {
       `update tasks set status = 'done', completed_on = ?, cancelled_on = null, cancel_reason = null, progress = 100, stage_id = null,
          completed_by = ?, cancelled_by = null, updated_at = datetime('now') where id = ?`
     ).run(completedOn, userId, t.id);
+    db.prepare("update diary_entries set done = 1, done_at = coalesce(done_at, datetime('now')) where task_id = ?").run(t.id);
     if (t.recurrence === 'none' || t.next_task_id) return null;
     // O início fica vazio: ele é preenchido quando alguém começar a próxima.
     const nextDue = S.nextDate(t.due_date || completedOn, t.recurrence, t.recurrence_every);
@@ -203,6 +224,9 @@ function decorate(db, user, t, now) {
     assignees: db.prepare('select u.id, u.name, u.role from task_assignees a join users u on u.id = a.user_id where a.task_id = ? order by u.name').all(t.id),
     attachments_count: db.prepare(`select count(*) as n from attachments where task_id = ?${user.role === 'client' ? ' and visible_to_client = 1' : ''}`).get(t.id).n,
   };
+  // Feita no diário de bordo, mas ainda aberta aqui: o card avisa para concluir.
+  out.diary_done = user.role !== 'client' && !['done', 'cancelled'].includes(t.status)
+    && !!db.prepare('select 1 from diary_entries where task_id = ? and done = 1').get(t.id);
   if (user.role === 'client') { delete out.adjustments_internal; delete out.created_by; }
   return out;
 }
@@ -243,11 +267,16 @@ function taskDetail(db, user, taskId) {
   out.description = t.description;
   out.next_task_id = t.next_task_id;
   out.checklist = db.prepare('select id, text, done from checklist_items where task_id = ? order by position, id').all(t.id);
-  out.comments = db.prepare(
-    `select c.id, c.body, c.visible_to_client, c.created_at, u.name as author, u.role as author_role
+  // Conversa com o cliente (comentários que ele vê) e o chat da equipe (só quem criou, responsáveis da equipe e administradores).
+  const comments = visible => db.prepare(
+    `select c.id, c.body, c.visible_to_client, c.created_at, c.user_id, u.name as author, u.role as author_role
        from comments c left join users u on u.id = c.user_id
-      where c.task_id = ? ${client ? 'and c.visible_to_client = 1' : ''} order by c.id`
-  ).all(t.id);
+      where c.task_id = ? and c.visible_to_client = ? order by c.id`
+  ).all(t.id, visible);
+  out.comments = comments(1);
+  out.can_chat = canTaskChat(db, user, t);
+  out.chat = out.can_chat ? comments(0) : [];
+  if (!client) out.chat_people = db.prepare(`select id, name from users where id in (${taskChatPeople(db, t).join(',') || 0}) order by name`).all();
   out.attachments = db.prepare(
     `select a.id, a.name, a.mime, a.size, a.visible_to_client, a.created_at, a.user_id, u.name as author
        from attachments a left join users u on u.id = a.user_id
@@ -753,6 +782,233 @@ route('DELETE', '/api/events/:id', ({ db, user, params }) => {
   return { ok: true };
 });
 
+// ---------- notificações (sino) ----------
+route('GET', '/api/inbox', ({ db, user }) => ({
+  unread: db.prepare('select count(*) as n from inbox where user_id = ? and read_at is null').get(user.id).n,
+  items: db.prepare('select id, kind, title, body, link, count, created_at, read_at from inbox where user_id = ? order by created_at desc, id desc limit 100').all(user.id),
+}));
+// Para o sino e o menu: notificações não lidas e conversas com mensagem nova.
+route('GET', '/api/inbox/count', ({ db, user }) => ({
+  unread: db.prepare('select count(*) as n from inbox where user_id = ? and read_at is null').get(user.id).n,
+  chats: db.prepare(`select count(*) as n from conversation_members m where m.user_id = ?
+    and exists (select 1 from messages x where x.conversation_id = m.conversation_id and x.id > m.last_read_id and x.user_id is not ?)`).get(user.id, user.id).n,
+}));
+route('POST', '/api/inbox/:id/read', ({ db, user, params }) => {
+  db.prepare("update inbox set read_at = datetime('now') where id = ? and user_id = ? and read_at is null").run(params.id, user.id);
+  return { ok: true };
+});
+route('POST', '/api/inbox/read-all', ({ db, user }) => {
+  db.prepare("update inbox set read_at = datetime('now') where user_id = ? and read_at is null").run(user.id);
+  return { ok: true };
+});
+
+// ---------- chats (1 a 1 ou em grupo) ----------
+// Só conversa quem tem relação (S.related): numa conversa em grupo, todos com todos.
+const chatUser = (db, uid, orgId) => {
+  const u = db.prepare('select id, name, role, client_id from users where id = ? and org_id = ? and active = 1').get(uid, orgId);
+  if (u && u.role === 'member') u.client_ids = clientIdsOf(db, u.id);
+  return u;
+};
+function contactsOf(db, user) {
+  const me = chatUser(db, user.id, user.org_id);
+  return db.prepare(`select u.id, u.name, u.role, u.client_id, c.name as client_name from users u left join clients c on c.id = u.client_id
+    where u.org_id = ? and u.active = 1 and u.id != ? order by u.name`).all(user.org_id, user.id)
+    .filter(u => S.related(me, u.role === 'member' ? { ...u, client_ids: clientIdsOf(db, u.id) } : u))
+    .map(({ client_id, ...u }) => u);
+}
+function loadConversation(db, user, convId) {
+  const c = db.prepare('select * from conversations where id = ? and org_id = ?').get(convId, user.org_id);
+  if (!c || !db.prepare('select 1 from conversation_members where conversation_id = ? and user_id = ?').get(c.id, user.id)) fail(404, 'Conversa não encontrada');
+  return c;
+}
+function conversationOut(db, user, c) {
+  const members = db.prepare(`select u.id, u.name, u.role, cl.name as client_name from conversation_members m join users u on u.id = m.user_id
+    left join clients cl on cl.id = u.client_id where m.conversation_id = ? order by u.name`).all(c.id);
+  const mine = db.prepare('select last_read_id from conversation_members where conversation_id = ? and user_id = ?').get(c.id, user.id);
+  const last = db.prepare('select m.id, m.body, m.created_at, u.name as author from messages m left join users u on u.id = m.user_id where m.conversation_id = ? order by m.id desc limit 1').get(c.id);
+  const others = members.filter(m => m.id !== user.id);
+  return {
+    id: c.id, is_group: !!c.is_group, created_by: c.created_by,
+    title: c.is_group ? (c.title || others.map(m => m.name.split(' ')[0]).join(', ')) : (others[0]?.name || 'Só você'),
+    members, last: last || null, last_message_at: c.last_message_at || c.created_at,
+    unread: db.prepare('select count(*) as n from messages where conversation_id = ? and id > ? and user_id is not ?').get(c.id, mine.last_read_id, user.id).n,
+  };
+}
+// Confere a relação de todos com todos (e de quem está entrando com quem já está).
+function checkChatPeople(db, user, ids, existing = []) {
+  if (!Array.isArray(ids)) fail(400, 'Campo inválido: pessoas');
+  const clean = [...new Set(ids.map(x => id(x, 'pessoas')))].filter(x => x !== user.id && !existing.includes(x));
+  const people = [...new Set([user.id, ...existing, ...clean])].map(uid => chatUser(db, uid, user.org_id));
+  if (people.some(p => !p)) fail(400, 'Pessoa inválida');
+  for (const a of people) for (const b of people) {
+    if (a.id < b.id && !S.related(a, b)) fail(400, `${a.name} e ${b.name} não têm empresa em comum para conversar`);
+  }
+  return clean;
+}
+route('GET', '/api/chat/contacts', ({ db, user }) => contactsOf(db, user));
+route('GET', '/api/conversations', ({ db, user }) =>
+  db.prepare(`select c.* from conversations c join conversation_members m on m.conversation_id = c.id and m.user_id = ?
+    where c.org_id = ? order by coalesce(c.last_message_at, c.created_at) desc, c.id desc`).all(user.id, user.org_id).map(c => conversationOut(db, user, c)));
+route('POST', '/api/conversations', ({ db, user, body }) => {
+  const people = checkChatPeople(db, user, body.user_ids || []);
+  if (!people.length) fail(400, 'Escolha com quem conversar');
+  const group = people.length > 1 || !!body.group;
+  if (!group) {
+    // 1 a 1: reaproveita a conversa que já existe entre as duas pessoas.
+    const found = db.prepare(`select c.id from conversations c where c.org_id = ? and c.is_group = 0
+      and exists (select 1 from conversation_members m where m.conversation_id = c.id and m.user_id = ?)
+      and exists (select 1 from conversation_members m where m.conversation_id = c.id and m.user_id = ?)`).get(user.org_id, user.id, people[0]);
+    if (found) return conversationOut(db, user, db.prepare('select * from conversations where id = ?').get(found.id));
+  }
+  const title = group ? str(body.title, 'nome do grupo', { max: 80, required: false }) || null : null;
+  const convId = tx(db, () => {
+    const cid = Number(db.prepare('insert into conversations (org_id, title, is_group, created_by) values (?, ?, ?, ?)').run(user.org_id, title, group ? 1 : 0, user.id).lastInsertRowid);
+    const ins = db.prepare('insert into conversation_members (conversation_id, user_id) values (?, ?)');
+    for (const uid of [user.id, ...people]) ins.run(cid, uid);
+    return cid;
+  });
+  return reply(201, conversationOut(db, user, db.prepare('select * from conversations where id = ?').get(convId)));
+});
+route('PATCH', '/api/conversations/:id', ({ db, user, body, params }) => {
+  const c = loadConversation(db, user, params.id);
+  if (!c.is_group) fail(400, 'Só grupos têm nome e participantes para mudar');
+  if (user.role !== 'admin' && c.created_by !== user.id) fail(403, 'Só quem criou o grupo ou um administrador pode mudar');
+  tx(db, () => {
+    if ('title' in body) db.prepare('update conversations set title = ? where id = ?').run(str(body.title, 'nome do grupo', { max: 80, required: false }) || null, c.id);
+    if ('add_user_ids' in body) {
+      const existing = db.prepare('select user_id from conversation_members where conversation_id = ?').all(c.id).map(r => r.user_id).filter(x => x !== user.id);
+      const ins = db.prepare('insert into conversation_members (conversation_id, user_id, last_read_id) values (?, ?, (select coalesce(max(id), 0) from messages where conversation_id = ?))');
+      for (const uid of checkChatPeople(db, user, body.add_user_ids, existing)) ins.run(c.id, uid, c.id);
+    }
+  });
+  return conversationOut(db, user, db.prepare('select * from conversations where id = ?').get(c.id));
+});
+route('POST', '/api/conversations/:id/leave', ({ db, user, params }) => {
+  const c = loadConversation(db, user, params.id);
+  if (!c.is_group) fail(400, 'Conversa 1 a 1 não tem como sair');
+  db.prepare('delete from conversation_members where conversation_id = ? and user_id = ?').run(c.id, user.id);
+  if (!db.prepare('select 1 from conversation_members where conversation_id = ?').get(c.id)) db.prepare('delete from conversations where id = ?').run(c.id);
+  return { ok: true };
+});
+// Abrir a conversa marca como lida (e as notificações dela também).
+route('GET', '/api/conversations/:id/messages', ({ db, user, params, query }) => {
+  const c = loadConversation(db, user, params.id);
+  const after = Number(query.after) || 0;
+  const rows = db.prepare(`select m.id, m.body, m.created_at, m.user_id, u.name as author from messages m left join users u on u.id = m.user_id
+    where m.conversation_id = ? and m.id > ? order by m.id desc limit 300`).all(c.id, after).reverse();
+  const top = db.prepare('select coalesce(max(id), 0) as n from messages where conversation_id = ?').get(c.id).n;
+  db.prepare('update conversation_members set last_read_id = ? where conversation_id = ? and user_id = ?').run(top, c.id, user.id);
+  db.prepare("update inbox set read_at = datetime('now') where user_id = ? and kind = 'chat' and ref = ? and read_at is null").run(user.id, `conv-${c.id}`);
+  return { conversation: conversationOut(db, user, c), messages: rows };
+});
+route('POST', '/api/conversations/:id/messages', ({ db, user, body, params }) => {
+  const c = loadConversation(db, user, params.id);
+  const text = str(body.body, 'mensagem', { max: 5000 });
+  const mid = tx(db, () => {
+    const r = db.prepare('insert into messages (conversation_id, user_id, body) values (?, ?, ?)').run(c.id, user.id, text);
+    const n = Number(r.lastInsertRowid);
+    db.prepare("update conversations set last_message_at = datetime('now') where id = ?").run(c.id);
+    db.prepare('update conversation_members set last_read_id = ? where conversation_id = ? and user_id = ?').run(n, c.id, user.id);
+    const out = conversationOut(db, user, c);
+    const members = db.prepare('select user_id from conversation_members where conversation_id = ?').all(c.id).map(r => r.user_id);
+    pushInbox(db, members, { kind: 'chat', ref: `conv-${c.id}`, title: c.is_group ? `${user.name} em ${out.title}` : `Mensagem de ${user.name}`,
+      body: text, link: `#/chats/${c.id}` }, user.id);
+    return n;
+  });
+  return reply(201, db.prepare('select m.id, m.body, m.created_at, m.user_id, u.name as author from messages m left join users u on u.id = m.user_id where m.id = ?').get(mid));
+});
+
+// ---------- diário de bordo ----------
+// Cada pessoa da equipe marca o dia: o que vai fazer, início e fim, e se é importante, urgente ou circunstancial.
+// Cada um vê o seu; o administrador vê o de todos (só leitura).
+const DIARY_CATS = Object.keys(S.TRIAD);
+function diaryOwner(db, user, uid) {
+  requireStaff(user);
+  if (!uid || Number(uid) === user.id) return user.id;
+  if (user.role !== 'admin') fail(403, 'Cada pessoa vê só o próprio diário');
+  const u = db.prepare("select id from users where id = ? and org_id = ? and role != 'client'").get(id(uid, 'pessoa'), user.org_id);
+  if (!u) fail(404, 'Pessoa não encontrada');
+  return u.id;
+}
+function diaryOut(db, user, e) {
+  let task = null;
+  if (e.task_id) {
+    const t = db.prepare('select * from tasks where id = ?').get(e.task_id);
+    if (t && S.canSee(user, t, assigneeIds(db, t.id))) task = { id: t.id, title: t.title, status: t.status, due_date: t.due_date };
+  }
+  return { ...e, done: !!e.done, task };
+}
+function loadDiary(db, user, entryId) {
+  requireStaff(user);
+  const e = db.prepare('select * from diary_entries where id = ? and user_id = ?').get(entryId, user.id);
+  if (!e) fail(404, 'Item do diário não encontrado');
+  return e;
+}
+function diaryFields(body, cur = {}) {
+  const v = {
+    date: 'date' in body ? date(body.date, 'Data') : cur.date,
+    title: 'title' in body ? str(body.title, 'o que fazer', { max: 200 }) : cur.title,
+    start_time: 'start_time' in body ? time(body.start_time, 'Início') : cur.start_time ?? null,
+    end_time: 'end_time' in body ? time(body.end_time, 'Fim') : cur.end_time ?? null,
+    category: 'category' in body ? oneOf(body.category, 'tríade', DIARY_CATS) : cur.category || 'important',
+  };
+  if (!v.date) fail(400, 'Informe a data');
+  if (v.start_time && v.end_time && v.end_time < v.start_time) fail(400, 'O fim é antes do início');
+  return v;
+}
+route('GET', '/api/diary', ({ db, user, query }) => {
+  const owner = diaryOwner(db, user, query.user_id);
+  const from = date(query.from, 'De') || date(query.date, 'Data') || S.today();
+  const to = date(query.to, 'Até') || from;
+  const entries = db.prepare(`select * from diary_entries where user_id = ? and date between ? and ?
+    order by date, start_time is null, start_time, id`).all(owner, from, to).map(e => diaryOut(db, user, e));
+  // Tarefas do dia que ainda não estão no diário: as abertas em que a pessoa é responsável, vencendo até a data ou em andamento.
+  let tasks = [];
+  if (owner === user.id && from === to) {
+    const inDiary = new Set(entries.map(e => e.task_id).filter(Boolean));
+    tasks = db.prepare(`select t.id, t.title, t.status, t.due_date, t.priority, c.name as client_name from tasks t
+      join task_assignees a on a.task_id = t.id and a.user_id = ? left join clients c on c.id = t.client_id
+      where t.org_id = ? and t.archived_at is null and t.status not in ('done', 'cancelled') and (t.due_date <= ? or t.status = 'doing')
+      order by t.due_date is null, t.due_date, t.id limit 50`).all(user.id, user.org_id, from).filter(t => !inDiary.has(t.id));
+  }
+  return { user_id: owner, from, to, entries, tasks };
+});
+route('POST', '/api/diary', ({ db, user, body }) => {
+  requireStaff(user);
+  let taskId = null;
+  if (body.task_id) {
+    const t = loadTask(db, user, id(body.task_id, 'tarefa'));
+    taskId = t.id;
+    body = { ...body, title: body.title || t.title };
+  }
+  const v = diaryFields({ date: S.today(), ...body });
+  const r = db.prepare('insert into diary_entries (org_id, user_id, date, title, start_time, end_time, category, task_id) values (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(user.org_id, user.id, v.date, v.title, v.start_time, v.end_time, v.category, taskId);
+  return reply(201, diaryOut(db, user, db.prepare('select * from diary_entries where id = ?').get(Number(r.lastInsertRowid))));
+});
+route('PATCH', '/api/diary/:id', ({ db, user, body, params }) => {
+  const e = loadDiary(db, user, params.id);
+  const v = diaryFields(body, e);
+  db.prepare('update diary_entries set date = ?, title = ?, start_time = ?, end_time = ?, category = ? where id = ?')
+    .run(v.date, v.title, v.start_time, v.end_time, v.category, e.id);
+  if ('done' in body) db.prepare(`update diary_entries set done = ?, done_at = ${body.done ? "datetime('now')" : 'null'} where id = ?`).run(body.done ? 1 : 0, e.id);
+  return diaryOut(db, user, db.prepare('select * from diary_entries where id = ?').get(e.id));
+});
+route('DELETE', '/api/diary/:id', ({ db, user, params }) => {
+  const e = loadDiary(db, user, params.id);
+  db.prepare('delete from diary_entries where id = ?').run(e.id);
+  return { ok: true };
+});
+// Do diário para o quadro: vira tarefa (a pessoa é a responsável) e fica ligada ao item.
+route('POST', '/api/diary/:id/task', ({ db, user, body, params }) => {
+  const e = loadDiary(db, user, params.id);
+  if (e.task_id && db.prepare('select 1 from tasks where id = ?').get(e.task_id)) fail(409, 'Este item já virou tarefa');
+  const taskId = createTask(db, user, { kind: body.kind || 'internal', client_id: body.client_id || null, title: e.title,
+    due_date: 'due_date' in body ? body.due_date : e.date, priority: e.category === 'urgent' ? 'high' : 'normal', assignee_ids: [user.id] });
+  db.prepare('update diary_entries set task_id = ? where id = ?').run(taskId, e.id);
+  return diaryOut(db, user, db.prepare('select * from diary_entries where id = ?').get(e.id));
+});
+
 // ---------- anexos ----------
 const MAX_ATTACHMENT = 10 * 1024 * 1024;
 function loadAttachment(db, user, attId) {
@@ -817,7 +1073,7 @@ route('GET', '/api/clients', ({ db, user }) => {
        (select count(*) from tasks t where t.client_id = c.id and t.status not in ('done', 'cancelled') and t.archived_at is null and t.kind = 'external') as open_external,
        (select count(*) from tasks t where t.client_id = c.id and t.status not in ('done', 'cancelled') and t.archived_at is null and t.kind = 'internal') as open_internal
        from clients c where c.org_id = ? order by c.name`
-  ).all(user.org_id).map(c => ({ ...c, team: JSON.parse(c.team) }));
+  ).all(user.org_id).map(c => (user.role === 'admin' ? { ...c, team: JSON.parse(c.team) } : (({ team, ...rest }) => rest)(c)));
 });
 
 // Quem da equipe acompanha o cliente (vê as tarefas externas dele).
@@ -912,7 +1168,8 @@ function createTask(db, user, body) {
   let description = str(body.description, 'descrição', { max: 10000, required: false });
   let checklist = checklistItems(body.checklist);
   if (body.template_id) {
-    const tpl = db.prepare('select * from templates where id = ? and org_id = ?').get(id(body.template_id, 'modelo'), user.org_id);
+    const sc = templateScope(user);
+    const tpl = db.prepare(`select * from templates where id = ? and org_id = ?${sc.sql}`).get(id(body.template_id, 'modelo'), user.org_id, ...sc.args);
     if (!tpl) fail(400, 'Modelo inválido');
     title = title || tpl.title;
     description = description || tpl.description;
@@ -938,6 +1195,8 @@ function createTask(db, user, body) {
     return taskId;
   });
   notifier?.onTaskCreated(newId, user.id);
+  pushInbox(db, assignees, { kind: 'task', ref: `task-new-${newId}`, title: `${user.name} criou uma tarefa para você`,
+    body: title + (due ? ` · prazo ${due.split('-').reverse().join('/')}` : ''), link: `#/tarefa/${newId}` }, user.id);
   return newId;
 }
 
@@ -986,7 +1245,13 @@ route('PATCH', '/api/tasks/:id', ({ db, user, body, params }) => {
       if (!Number.isFinite(p)) fail(400, 'Campo inválido: posição');
       set('position', p);
     }
-    if ('assignee_ids' in body) setAssignees(db, t.id, checkAssignees(db, user, body.assignee_ids, db.prepare('select * from tasks where id = ?').get(t.id), assigneeIds(db, t.id)));
+    if ('assignee_ids' in body) {
+      const before = assigneeIds(db, t.id);
+      const after = checkAssignees(db, user, body.assignee_ids, db.prepare('select * from tasks where id = ?').get(t.id), before);
+      setAssignees(db, t.id, after);
+      pushInbox(db, after.filter(x => !before.includes(x)), { kind: 'task', ref: `task-new-${t.id}`, title: `${user.name} incluiu você numa tarefa`,
+        body: t.title, link: `#/tarefa/${t.id}` }, user.id);
+    }
     // Concluir e cancelar têm rotas próprias (pedem data e motivo). Voltar a uma situação aberta reabre.
     // Ao entrar em andamento pela primeira vez, o início é preenchido com hoje.
     if ('status' in body) {
@@ -1086,8 +1351,18 @@ route('POST', '/api/tasks/:id/comments', ({ db, user, body, params }) => {
   const t = loadTask(db, user, params.id);
   const text = str(body.body, 'comentário', { max: 5000 });
   const visible = user.role === 'client' ? 1 : (S.clientSees(t) && body.visible_to_client ? 1 : 0);
+  if (!visible && !canTaskChat(db, user, t)) fail(403, 'O chat da tarefa é de quem criou, dos responsáveis e do administrador');
   db.prepare('insert into comments (task_id, user_id, body, visible_to_client) values (?, ?, ?, ?)').run(t.id, user.id, text, visible);
   touch(db, t.id);
+  if (!visible) {
+    pushInbox(db, taskChatPeople(db, t), { kind: 'task_chat', ref: `task-${t.id}`, title: `${user.name} no chat da tarefa`, body: `${t.title}: ${text}`, link: `#/tarefa/${t.id}` }, user.id);
+  } else {
+    // Conversa com o cliente: avisa quem criou e os responsáveis e, quando quem escreve é da equipe, as pessoas do cliente.
+    const people = [t.created_by, ...assigneeIds(db, t.id)];
+    if (user.role !== 'client') people.push(...db.prepare("select id from users where role = 'client' and client_id = ? and active = 1").all(t.client_id).map(r => r.id));
+    const ok = people.filter(uid => { const u = db.prepare('select id, role, client_id from users where id = ? and active = 1').get(uid); return u && (u.role !== 'client' || u.client_id === t.client_id); });
+    pushInbox(db, ok, { kind: 'task_comment', ref: `task-c-${t.id}`, title: `${user.name} comentou numa tarefa`, body: `${t.title}: ${text}`, link: `#/tarefa/${t.id}` }, user.id);
+  }
   return reply(201, taskDetail(db, user, t.id));
 });
 
@@ -1126,10 +1401,13 @@ route('POST', '/api/tasks/:id/approve', ({ db, user, params }) => {
   return taskDetail(db, user, t.id);
 });
 
+// Modelos: cada pessoa vê os que criou; o administrador vê todos (os antigos, sem dono, só ele).
+const templateScope = user => (user.role === 'admin' ? { sql: '', args: [] } : { sql: ' and created_by = ?', args: [user.id] });
 route('GET', '/api/templates', ({ db, user }) => {
   requireStaff(user);
-  return db.prepare('select id, name, title, description, checklist from templates where org_id = ? order by name').all(user.org_id)
-    .map(t => ({ ...t, checklist: JSON.parse(t.checklist) }));
+  const sc = templateScope(user);
+  return db.prepare(`select id, name, title, description, checklist, created_by from templates where org_id = ?${sc.sql} order by name`).all(user.org_id, ...sc.args)
+    .map(t => ({ ...t, checklist: JSON.parse(t.checklist), ...(user.role === 'admin' ? { created_by_name: nameOf(db, t.created_by) } : {}) }));
 });
 
 route('POST', '/api/templates', ({ db, user, body }) => {
@@ -1138,14 +1416,15 @@ route('POST', '/api/templates', ({ db, user, body }) => {
   const title = str(body.title, 'título', { max: 200 });
   const description = str(body.description, 'descrição', { max: 10000, required: false });
   const items = Array.isArray(body.checklist) ? body.checklist.map(x => str(x, 'item', { max: 300 })).filter(Boolean).slice(0, 100) : [];
-  const r = db.prepare('insert into templates (org_id, name, title, description, checklist) values (?, ?, ?, ?, ?)')
-    .run(user.org_id, name, title, description, JSON.stringify(items));
+  const r = db.prepare('insert into templates (org_id, name, title, description, checklist, created_by) values (?, ?, ?, ?, ?, ?)')
+    .run(user.org_id, name, title, description, JSON.stringify(items), user.id);
   return reply(201, { id: Number(r.lastInsertRowid) });
 });
 
 route('DELETE', '/api/templates/:id', ({ db, user, params }) => {
   requireStaff(user);
-  db.prepare('delete from templates where id = ? and org_id = ?').run(params.id, user.org_id);
+  const sc = templateScope(user);
+  if (!db.prepare(`delete from templates where id = ? and org_id = ?${sc.sql}`).run(params.id, user.org_id, ...sc.args).changes) fail(404, 'Modelo não encontrado');
   return { ok: true };
 });
 
