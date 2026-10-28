@@ -316,8 +316,11 @@
   const minutesOf = e => {
     if (!e.start_time || !e.end_time) return 0;
     const m = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
-    return Math.max(0, m(e.end_time) - m(e.start_time));
+    return Math.max(0, m(e.end_time) - m(e.start_time) - (e.paused_minutes || 0));
   };
+  // Pausa: guarda a hora em que parou; ao retomar (ou encerrar), soma o tempo parado.
+  const clockMin = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const pausedFor = (from, to) => Math.max(0, clockMin(to) - clockMin(from));
   // Resumo de um dia (ou período): quantas, quantas feitas, tempo e divisão pela Tríade.
   // A divisão usa o tempo quando há horários; sem horários, a quantidade.
   function diarySummary(entries) {
@@ -342,5 +345,5 @@
     return [...new Set(list.map(Number))].sort((a, b) => a - b);
   }
 
-  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, startByChecklist, clientSees, canSee, clientAssignable, boardColumns, boardSort, PRIORITY_RANK, parseNextSteps, dueFromText, nextStepsSection, pastNextSteps, validAlerts, related, TRIAD, minutesOf, diarySummary };
+  return { STATUSES, STATUS_LABEL, COLUMNS, ALERTS, ALERT_DAYS, RECURRENCE, today, addDays, addMonths, daysBetween, nextDate, column, alert, alertText, progress, startByChecklist, clientSees, canSee, clientAssignable, boardColumns, boardSort, PRIORITY_RANK, parseNextSteps, dueFromText, nextStepsSection, pastNextSteps, validAlerts, related, TRIAD, minutesOf, pausedFor, diarySummary };
 });

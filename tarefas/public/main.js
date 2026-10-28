@@ -1900,8 +1900,16 @@ async function viewDiary() {
       h(mine ? 'button' : 'span', { type: mine ? 'button' : null, class: 'diary-title', onclick: mine ? () => diaryEdit(e) : null }, e.title),
       h('div', { class: 'diary-meta' },
         catChip(e, mine),
-        e.start_time || e.end_time ? h('span', { class: 'tag' }, icon('clock'), ` ${e.start_time || '?'}–${e.end_time || '…'}`, S.minutesOf(e) ? ` · ${hm(S.minutesOf(e))}` : '') : null,
+        e.start_time || e.end_time ? h('span', { class: 'tag' }, icon('clock'), ` ${e.start_time || '?'}–${e.end_time || '…'}`, S.minutesOf(e) ? ` · ${hm(S.minutesOf(e))}` : '',
+          e.paused_minutes ? ` · ${hm(e.paused_minutes)} de pausa` : '') : null,
+        e.paused_at && !e.done ? h('span', { class: 'tag paused' }, `⏸ Pausada desde ${e.paused_at}`) : null,
         mine && !e.start_time && !e.done ? h('button', { class: 'btn small start-btn', type: 'button', onclick: guard(async () => { await api('PATCH', `/api/diary/${e.id}`, { start_time: nowTime() }); route(); }) }, '▶ Iniciar') : null,
+        mine && e.start_time && !e.end_time && !e.done && !e.paused_at ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
+          const at = nowTime(); await api('PATCH', `/api/diary/${e.id}`, { pause_at: at < e.start_time ? e.start_time : at }); route();
+        }) }, '⏸ Pausar') : null,
+        mine && e.paused_at && !e.done ? h('button', { class: 'btn small start-btn', type: 'button', onclick: guard(async () => {
+          const at = nowTime(); await api('PATCH', `/api/diary/${e.id}`, { resume_at: at < e.paused_at ? e.paused_at : at }); route();
+        }) }, '▶ Retomar') : null,
         mine && e.start_time && !e.end_time && !e.done ? h('button', { class: 'btn small primary', type: 'button', onclick: guard(async () => {
           const end = nowTime();
           await finish(e, { end_time: end < e.start_time ? e.start_time : end });
@@ -2036,7 +2044,8 @@ function diaryEdit(e) {
       ev.preventDefault();
       const f = ev.target.elements;
       try {
-        await api('PATCH', `/api/diary/${e.id}`, { title: f.title.value, date: f.date.value, start_time: f.start.value || null, end_time: f.end.value || null, category: f.category.value });
+        await api('PATCH', `/api/diary/${e.id}`, { title: f.title.value, date: f.date.value, start_time: f.start.value || null, end_time: f.end.value || null, category: f.category.value,
+          paused_minutes: Number(f.paused.value) || 0 });
         close(); route();
       } catch (ex) { err.textContent = ex.message; }
     }) },
@@ -2045,6 +2054,8 @@ function diaryEdit(e) {
       h('div', { class: 'grid2' },
         h('div', { class: 'field' }, h('label', { for: 'de-start' }, 'Início'), h('input', { id: 'de-start', name: 'start', type: 'time', value: e.start_time || '' })),
         h('div', { class: 'field' }, h('label', { for: 'de-end' }, 'Fim'), h('input', { id: 'de-end', name: 'end', type: 'time', value: e.end_time || '' }))),
+      h('div', { class: 'field' }, h('label', { for: 'de-paused' }, 'Pausas (minutos)'), h('input', { id: 'de-paused', name: 'paused', type: 'number', min: 0, max: 1440, step: 1, value: e.paused_minutes || 0 }),
+        h('p', { class: 'muted small' }, 'Descontado do tempo entre o início e o fim.')),
       h('div', { class: 'grid2' },
         h('div', { class: 'field' }, h('label', { for: 'de-cat' }, 'Tríade do Tempo'), h('select', { id: 'de-cat', name: 'category' },
           TRIAD_KEYS.map(k => h('option', { value: k, selected: e.category === k }, `${S.TRIAD[k].label}: ${S.TRIAD[k].hint}`)))),

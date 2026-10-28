@@ -284,6 +284,8 @@ create table if not exists diary_entries (
   done_at text,
   task_id integer references tasks(id) on delete set null,
   position integer not null default 0,
+  paused_at text,
+  paused_minutes integer not null default 0,
   created_at text not null default (datetime('now'))
 );
 create index if not exists diary_user_date on diary_entries (user_id, date);

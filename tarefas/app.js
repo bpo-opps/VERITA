@@ -1010,8 +1010,20 @@ route('PATCH', '/api/diary/:id', ({ db, user, body, params }) => {
   const v = diaryFields(body, e);
   // Concluir pede a hora de início e de término (Iniciar e Encerrar já preenchem).
   if (body.done && !e.done && (!v.start_time || !v.end_time)) fail(400, 'Para concluir, informe a hora de início e de término');
-  db.prepare('update diary_entries set date = ?, title = ?, start_time = ?, end_time = ?, category = ? where id = ?')
-    .run(v.date, v.title, v.start_time, v.end_time, v.category, e.id);
+  // Pausar (pause_at), retomar (resume_at) e o total de pausas corrigido à mão (paused_minutes).
+  let pausedAt = e.paused_at, pausedMin = e.paused_minutes;
+  if ('pause_at' in body) {
+    if (!v.start_time || v.end_time) fail(400, 'Só dá para pausar o que já começou e não terminou');
+    pausedAt = time(body.pause_at, 'Pausa') || null;
+  }
+  if ('resume_at' in body && pausedAt) { pausedMin += S.pausedFor(pausedAt, time(body.resume_at, 'Retomada')); pausedAt = null; }
+  if (v.end_time && pausedAt) { pausedMin += S.pausedFor(pausedAt, v.end_time); pausedAt = null; }
+  if ('paused_minutes' in body) {
+    pausedMin = Number(body.paused_minutes);
+    if (!Number.isInteger(pausedMin) || pausedMin < 0 || pausedMin > 24 * 60) fail(400, 'Pausas: informe os minutos (0 ou mais)');
+  }
+  db.prepare('update diary_entries set date = ?, title = ?, start_time = ?, end_time = ?, category = ?, paused_at = ?, paused_minutes = ? where id = ?')
+    .run(v.date, v.title, v.start_time, v.end_time, v.category, pausedAt, pausedMin, e.id);
   if ('done' in body) db.prepare(`update diary_entries set done = ?, done_at = ${body.done ? "datetime('now')" : 'null'} where id = ?`).run(body.done ? 1 : 0, e.id);
   return diaryOut(db, user, db.prepare('select * from diary_entries where id = ?').get(e.id));
 });

@@ -767,6 +767,19 @@ test('diário de bordo: só o dono e o administrador; vira tarefa; feito no diá
   assert.equal((await member('GET', `/api/diary?date=${today}`)).body.entries.find(e => e.id === done.id).done, true, 'concluir a tarefa marca o diário');
   const sum = S.diarySummary((await member('GET', `/api/diary?date=${today}`)).body.entries);
   assert.equal(sum.total, 3);
+  // Pausar e retomar: o tempo parado sai do total; encerrar pausado conta a pausa até o fim.
+  const pz = (await member('POST', '/api/diary', { date: today, title: 'Com pausa' })).body;
+  assert.equal((await member('PATCH', `/api/diary/${pz.id}`, { pause_at: '10:00' })).status, 400, 'não começou');
+  await member('PATCH', `/api/diary/${pz.id}`, { start_time: '09:00' });
+  assert.equal((await member('PATCH', `/api/diary/${pz.id}`, { pause_at: '09:30' })).body.paused_at, '09:30');
+  const rs = (await member('PATCH', `/api/diary/${pz.id}`, { resume_at: '09:50' })).body;
+  assert.equal(rs.paused_at, null);
+  assert.equal(rs.paused_minutes, 20);
+  await member('PATCH', `/api/diary/${pz.id}`, { pause_at: '10:30' });
+  const end = (await member('PATCH', `/api/diary/${pz.id}`, { end_time: '11:00', done: true })).body;
+  assert.equal(end.paused_minutes, 50);
+  assert.equal(S.minutesOf(end), 70, '2h menos 50 min de pausa');
+  await member('DELETE', `/api/diary/${pz.id}`);
   // Ordem e clonar para o dia seguinte.
   const ids0 = (await member('GET', `/api/diary?date=${today}`)).body.entries.map(e => e.id);
   assert.equal((await member('PUT', '/api/diary/order', { ids: [...ids0].reverse() })).status, 200);

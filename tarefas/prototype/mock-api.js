@@ -997,7 +997,7 @@
   }
   const byTime = (a, b) => a.date.localeCompare(b.date) || (a.position || 0) - (b.position || 0) || a.id - b.id;
   const insertDiary = (user, v, taskId) => {
-    const e = { id: nextId(), user_id: user.id, ...v, done: 0, done_at: null, task_id: taskId, created_at: now(),
+    const e = { id: nextId(), user_id: user.id, ...v, done: 0, done_at: null, task_id: taskId, created_at: now(), paused_at: null, paused_minutes: 0,
       position: Math.max(0, ...db.diary.filter(x => x.user_id === user.id && x.date === v.date).map(x => x.position || 0)) + 1 };
     db.diary.push(e);
     return e;
@@ -1036,7 +1036,18 @@
     const e = loadDiary(user, id);
     const v = diaryFields(body, e);
     if (body.done && !e.done && (!v.start_time || !v.end_time)) fail(400, 'Para concluir, informe a hora de início e de término');
-    Object.assign(e, v);
+    let pausedAt = e.paused_at || null, pausedMin = e.paused_minutes || 0;
+    if ('pause_at' in body) {
+      if (!v.start_time || v.end_time) fail(400, 'Só dá para pausar o que já começou e não terminou');
+      pausedAt = time(body.pause_at, 'Pausa') || null;
+    }
+    if ('resume_at' in body && pausedAt) { pausedMin += S.pausedFor(pausedAt, time(body.resume_at, 'Retomada')); pausedAt = null; }
+    if (v.end_time && pausedAt) { pausedMin += S.pausedFor(pausedAt, v.end_time); pausedAt = null; }
+    if ('paused_minutes' in body) {
+      pausedMin = Number(body.paused_minutes);
+      if (!Number.isInteger(pausedMin) || pausedMin < 0 || pausedMin > 24 * 60) fail(400, 'Pausas: informe os minutos (0 ou mais)');
+    }
+    Object.assign(e, v, { paused_at: pausedAt, paused_minutes: pausedMin });
     if ('done' in body) { e.done = body.done ? 1 : 0; e.done_at = body.done ? now() : null; }
     return diaryOut(user, e);
   });

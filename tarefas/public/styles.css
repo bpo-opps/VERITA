@@ -720,3 +720,4 @@ tr.total td { border-top: 2px solid var(--border); }
   .drag-handle { display: none; }
   .diary-side { flex-direction: column; }
 }
+.tag.paused { color: var(--s-late); background: var(--s-late-bg); }
