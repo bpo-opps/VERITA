@@ -792,5 +792,8 @@ test('diário de bordo: só o dono e o administrador; vira tarefa; feito no diá
   assert.equal(cl.body.start_time, null);
   assert.equal(cl.body.task_id, assigned, 'continua ligada à tarefa');
   assert.equal((await member2('POST', `/api/diary/${fromTask.id}/clone`, {})).status, 404);
+  const cl2 = (await member('POST', `/api/diary/${fromTask.id}/clone`, { date: S.addDays(today, 5) })).body;
+  assert.equal(cl2.date, S.addDays(today, 5), 'data escolhida');
+  assert.ok(fromTask.id && cl2.end_time === null && cl2.paused_minutes === 0 && cl2.paused_at === null && cl2.done === false, 'zerada');
   assert.equal((await member('DELETE', `/api/diary/${e1.id}`)).status, 200);
 });

@@ -1916,9 +1916,7 @@ async function viewDiary() {
         }) }, '■ Encerrar') : null,
         e.task ? h('button', { class: 'tag task-link', type: 'button', onclick: () => openTask(e.task.id), title: 'Abrir a tarefa' }, icon('board'), ' Tarefa', ['done', 'cancelled'].includes(e.task.status) ? ' (concluída)' : '') : null,
         mine && !e.task_id && !e.done ? h('button', { class: 'btn small', type: 'button', onclick: () => diaryToTask(e) }, '→ Virar tarefa') : null,
-        mine ? h('button', { class: 'btn small', type: 'button', title: 'Copiar para o dia seguinte', onclick: guard(async () => {
-          const c = await api('POST', `/api/diary/${e.id}/clone`, {}); toast(`Clonada para ${fmtDate(c.date)}.`);
-        }) }, '⧉ Clonar') : null)),
+        mine ? h('button', { class: 'btn small', type: 'button', title: 'Copiar para outro dia, zerada', onclick: () => diaryClone(e, date) }, '⧉ Clonar') : null)),
     mine ? h('div', { class: 'diary-side' },
       h('button', { class: 'icon-btn small', type: 'button', 'aria-label': `Subir ${e.title}`, title: 'Subir', disabled: i === 0, onclick: () => move(e, -1) }, '↑'),
       h('button', { class: 'icon-btn small', type: 'button', 'aria-label': `Descer ${e.title}`, title: 'Descer', disabled: i === ids.length - 1, onclick: () => move(e, 1) }, '↓'),
@@ -2013,6 +2011,27 @@ async function viewDiary() {
             }) }, '+ Diário'))))) : null),
       h('div', {}, report, weekTable)),
   ], { title: 'Diário de bordo', sub: 'O rumo do dia: o que fazer, quando e se é importante, urgente ou circunstancial' });
+}
+// Clonar: escolhe a data; a cópia vem zerada (sem horários, sem pausas, não feita), só com o nome e a Tríade.
+function diaryClone(e, viewing) {
+  modal(close => {
+    const err = h('p', { class: 'error', role: 'alert' });
+    const input = h('input', { id: 'cl-date', type: 'date', value: S.addDays(e.date, 1), required: true });
+    return h('form', { onsubmit: guard(async ev => {
+      ev.preventDefault();
+      try {
+        const c = await api('POST', `/api/diary/${e.id}/clone`, { date: input.value });
+        close(); toast(`Clonada para ${fmtDate(c.date)}, zerada.`);
+        if (c.date === viewing) route();
+      } catch (ex) { err.textContent = ex.message; }
+    }) },
+      h('h2', {}, 'Clonar'),
+      h('p', {}, e.title),
+      h('div', { class: 'field' }, h('label', { for: 'cl-date' }, 'Para qual dia?'), input),
+      h('p', { class: 'muted small' }, 'A cópia vem zerada: sem início, término ou pausas, e não feita. Mantém o nome e a classificação' + (e.task_id ? ', e continua ligada à tarefa do quadro.' : '.')),
+      err,
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, 'Clonar'), h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
+  });
 }
 // Ao concluir pela caixinha: pede a hora de início e de término.
 function askTimes(e) {
