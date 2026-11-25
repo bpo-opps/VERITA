@@ -859,6 +859,38 @@ ul.versions li { display: flex; gap: 8px; align-items: center; padding: 8px 0; b
 .roteiro-part.quiet h2 { color: var(--text-muted); font-size: 15px; }
 .roteiro-note textarea { width: 100%; }
 
+/* ---------- quiz estilo cartões (opções para tocar) ---------- */
+.quiz-options.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; margin-top: 10px; }
+.quiz-card-opt { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font: inherit; font-size: 16px; line-height: 22px; padding: 14px 16px;
+  border-radius: 12px; border: 2px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; transition: border-color .12s, background .12s, transform .08s; }
+.quiz-card-opt:hover { border-color: var(--accent); }
+.quiz-card-opt:active { transform: scale(.985); }
+.quiz-card-opt[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.quiz-key { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; border: 1.5px solid var(--border-input);
+  font-size: 12px; font-weight: 700; color: var(--text-muted); flex: none; }
+.quiz-card-opt[aria-checked="true"] .quiz-key { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.quiz-emoji { font-size: 22px; line-height: 1; flex: none; }
+.quiz-opt-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.quiz-other { display: flex; gap: 8px; margin-top: 10px; }
+.quiz-other input { flex: 1; min-width: 0; }
+.quiz-exact { display: inline-block; margin-top: 10px; font-size: 13px; color: var(--accent); text-decoration: underline; font-weight: 500; }
+.quiz-what { margin: 0 0 12px; font-size: 14px; }
+.quiz-what summary { cursor: pointer; color: var(--accent); font-weight: 600; display: inline-block; }
+.quiz-what p { margin: 6px 0 0; padding: 10px 12px; background: var(--surface-2); border-radius: var(--radius-sm); line-height: 1.5; }
+.quiz-section { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin: -8px -8px 16px; padding: 10px 12px; border-radius: 10px;
+  background: var(--hello-wash); font-size: 13px; color: var(--text-muted); }
+.quiz-section strong { font-size: 16px; color: var(--text); }
+.quiz-cheer { margin: -8px -8px 16px; padding: 10px 12px; border-radius: 10px; background: var(--s-ontime-bg); color: var(--s-ontime); font-weight: 700; }
+.quiz-tip { margin: 10px 0 0; }
+.quiz-end { text-align: center; }
+.quiz-big-emoji { font-size: 44px; line-height: 1; margin-bottom: 6px; }
+.quiz-end .quiz-pending { text-align: left; display: inline-block; }
+@media (max-width: 600px) {
+  .quiz-options.grid { grid-template-columns: 1fr; }
+  .quiz-card-opt { padding: 13px 14px; }
+  .quiz-key { display: none; }
+}
+
 #demo-bar { position: relative; z-index: 45; background: #0b0f17; color: #ffffff; padding-block: 8px; padding-left: var(--gutter-l); padding-right: var(--gutter-r); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
 #demo-bar strong { margin-right: 4px; }
 @media (min-width: 861px) { .sidebar { height: calc(100dvh - 44px); } }
@@ -1258,71 +1290,175 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     ['operacao', 'Operação e tecnologia'], ['pessoas', 'Pessoas e gestão'], ['financas', 'Finanças'], ['metas', 'Metas e riscos'],
   ];
 
+  // Faixas de valor ("faixa:min-max"; sem max = "acima de"). A conta usa o meio da faixa; "Sei o valor exato" grava o número.
+  const k = n => (n >= 1e6 ? `${(n / 1e6).toLocaleString('pt-BR')} milhão` : n >= 1e3 ? `${(n / 1e3).toLocaleString('pt-BR')} mil` : String(n));
+  // money(0, 5000, 15000) => Nada, Até 5 mil, 5 a 15 mil, Acima de 15 mil.
+  const moneyRanges = steps => {
+    const out = [];
+    let start = 0;
+    steps.forEach((s, i) => {
+      if (i === 0 && s === 0) { out.push(['Nada / zero', 0, 0]); return; }
+      out.push([start ? `De R$ ${k(start)} a R$ ${k(s)}` : `Até R$ ${k(s)}`, start, s]);
+      start = s;
+    });
+    out.push([`Acima de R$ ${k(start)}`, start, null]);
+    return out;
+  };
+  const countRanges = (steps, unit) => {
+    const out = [];
+    let start = 0;
+    steps.forEach(s => { out.push([start ? `${k(start)} a ${k(s)} ${unit}` : `Até ${k(s)} ${unit}`, start, s]); start = s; });
+    out.push([`Mais de ${k(start)} ${unit}`, start, null]);
+    return out;
+  };
+
   // type: text | long | list (uma por linha) | money | percent | int | choice | multi
+  // help: a explicação curta embaixo da pergunta. what: "O que é isso?", com exemplo. icons: emoji de cada opção.
+  // other: aceita "Outro: ..." escrito. ranges: faixas para tocar. short: entra no diagnóstico curto dos leads.
   const QUESTIONS = [
-    { id: 'b_name', s: 'negocio', type: 'text', label: 'Qual é o nome do negócio?' },
-    { id: 'b_segment', s: 'negocio', type: 'choice', label: 'Em qual setor ele está?', options: ['Comércio', 'Serviços', 'Indústria', 'Tecnologia', 'Saúde', 'Alimentação', 'Educação', 'Agronegócio', 'Construção', 'Outro'] },
-    { id: 'b_stage', s: 'negocio', type: 'choice', label: 'Em que momento o negócio está?', options: ['Ainda é uma ideia', 'Começando (até 1 ano)', 'Crescendo', 'Estável', 'Passando por dificuldades'] },
-    { id: 'b_since', s: 'negocio', type: 'int', label: 'Em que ano começou?', placeholder: 'Ex.: 2019', min: 1900, max: 2100 },
-    { id: 'b_location', s: 'negocio', type: 'text', label: 'Onde fica e onde atende?', placeholder: 'Ex.: Campinas/SP, atende a região toda e online' },
-    { id: 'b_what', s: 'negocio', type: 'long', label: 'O que o negócio faz, em poucas palavras?', help: 'Como você explicaria para alguém numa conversa rápida.' },
-    { id: 'b_problem', s: 'negocio', type: 'long', label: 'Que problema do cliente o negócio resolve?' },
-    { id: 'b_purpose', s: 'negocio', type: 'long', label: 'Por que o negócio existe e onde quer chegar em 5 anos?', help: 'Propósito, missão e visão: pode escrever do seu jeito.' },
-    { id: 'b_values', s: 'negocio', type: 'list', label: 'Quais valores guiam o negócio?', help: 'Um por linha. Ex.: transparência, agilidade.' },
+    { id: 'b_name', s: 'negocio', type: 'text', label: 'Qual é o nome do seu negócio?', placeholder: 'Ex.: Padaria Pão Quente' },
+    { id: 'b_segment', s: 'negocio', type: 'choice', short: true, label: 'Em qual área o seu negócio atua?', help: 'Escolha a mais próxima.',
+      options: ['Comércio', 'Serviços', 'Indústria', 'Tecnologia', 'Saúde', 'Alimentação', 'Educação', 'Agronegócio', 'Construção', 'Outro'],
+      icons: { 'Comércio': '🛍️', 'Serviços': '🧰', 'Indústria': '🏭', 'Tecnologia': '💻', 'Saúde': '🩺', 'Alimentação': '🍽️', 'Educação': '🎓', 'Agronegócio': '🌾', 'Construção': '🏗️', 'Outro': '✨' } },
+    { id: 'b_stage', s: 'negocio', type: 'choice', short: true, label: 'Como está o negócio hoje?',
+      options: ['Ainda é uma ideia', 'Começando (até 1 ano)', 'Crescendo', 'Estável', 'Passando por dificuldades'],
+      icons: { 'Ainda é uma ideia': '💡', 'Começando (até 1 ano)': '🌱', 'Crescendo': '📈', 'Estável': '⚖️', 'Passando por dificuldades': '🌧️' } },
+    { id: 'b_since', s: 'negocio', type: 'choice', label: 'Há quanto tempo o negócio existe?',
+      options: ['Ainda não abriu', 'Menos de 1 ano', '1 a 3 anos', '3 a 10 anos', 'Mais de 10 anos'],
+      icons: { 'Ainda não abriu': '🚀', 'Menos de 1 ano': '🐣', '1 a 3 anos': '🌿', '3 a 10 anos': '🌳', 'Mais de 10 anos': '🏛️' } },
+    { id: 'b_location', s: 'negocio', type: 'text', label: 'Em que cidade fica, e até onde atende?', placeholder: 'Ex.: Campinas/SP, atende a região toda e online' },
+    { id: 'b_what', s: 'negocio', type: 'long', short: true, label: 'Me conta: o que o seu negócio faz?', help: 'Do jeito que você explicaria para um amigo, em uma ou duas frases.',
+      placeholder: 'Ex.: Vendemos pães artesanais e cafés especiais no bairro e fazemos encomendas para festas.' },
+    { id: 'b_problem', s: 'negocio', type: 'long', label: 'Que problema do cliente vocês resolvem?', help: 'Pense no que o cliente sofreria se vocês não existissem.',
+      placeholder: 'Ex.: Quem quer pão fresco e saudável perto de casa, sem conservantes.' },
+    { id: 'b_purpose', s: 'negocio', type: 'long', label: 'Onde você quer que o negócio esteja daqui a 5 anos?', help: 'Pode sonhar alto: mais lojas, outra cidade, vender o negócio, trabalhar menos…',
+      placeholder: 'Ex.: Ter 3 lojas e ser a padaria artesanal mais conhecida da cidade.' },
+    { id: 'b_values', s: 'negocio', type: 'multi', other: true, label: 'O que não pode faltar no jeito de vocês trabalharem?', help: 'Escolha até 3. São os valores do negócio.',
+      options: ['Qualidade', 'Atendimento próximo', 'Preço justo', 'Inovação', 'Rapidez', 'Transparência', 'Respeito à equipe', 'Sustentabilidade'],
+      icons: { 'Qualidade': '⭐', 'Atendimento próximo': '🤝', 'Preço justo': '🏷️', 'Inovação': '💡', 'Rapidez': '⚡', 'Transparência': '🔍', 'Respeito à equipe': '👥', 'Sustentabilidade': '🌱' } },
 
-    { id: 'c_type', s: 'clientes', type: 'multi', label: 'Para quem vocês vendem?', options: ['Pessoas (consumidor final)', 'Empresas', 'Governo'] },
-    { id: 'c_ideal', s: 'clientes', type: 'long', label: 'Descreva o cliente ideal.', help: 'Quem é, onde está, quanto pode pagar, o que valoriza.' },
-    { id: 'c_pains', s: 'clientes', type: 'list', label: 'Quais as maiores dores ou desejos desse cliente?', help: 'Uma por linha.' },
-    { id: 'c_why', s: 'clientes', type: 'long', label: 'Por que ele compra de vocês e não do concorrente?', help: 'O seu diferencial, na visão do cliente.' },
-    { id: 'c_count', s: 'clientes', type: 'int', label: 'Quantos clientes ativos vocês têm hoje?', min: 0 },
-    { id: 'c_concentration', s: 'clientes', type: 'percent', label: 'Quanto do faturamento vem dos 3 maiores clientes?', help: 'Em %. Mais de 50% é um risco de dependência.' },
+    { id: 'c_type', s: 'clientes', type: 'multi', short: true, label: 'Para quem vocês vendem?', help: 'Pode marcar mais de um.',
+      options: ['Pessoas (consumidor final)', 'Empresas', 'Governo'], icons: { 'Pessoas (consumidor final)': '🙋', 'Empresas': '🏢', 'Governo': '🏛️' } },
+    { id: 'c_ideal', s: 'clientes', type: 'long', label: 'Quem é o seu cliente ideal?', help: 'Aquele que você gostaria de ter mais. Diga quem é, onde está e o que ele valoriza.',
+      placeholder: 'Ex.: Famílias do bairro, de 25 a 55 anos, que valorizam comida de verdade e pagam um pouco mais por isso.' },
+    { id: 'c_pains', s: 'clientes', type: 'multi', other: true, label: 'O que mais incomoda o seu cliente antes de comprar de vocês?', help: 'As dores que fazem ele procurar uma solução. Pode marcar várias.',
+      options: ['Preço alto', 'Falta de tempo', 'Atendimento ruim', 'Baixa qualidade', 'Demora na entrega', 'Difícil de encontrar', 'Falta de confiança', 'Falta de opções'],
+      icons: { 'Preço alto': '💸', 'Falta de tempo': '⏰', 'Atendimento ruim': '😕', 'Baixa qualidade': '👎', 'Demora na entrega': '🐢', 'Difícil de encontrar': '🔎', 'Falta de confiança': '🤨', 'Falta de opções': '📦' } },
+    { id: 'c_why', s: 'clientes', type: 'long', label: 'Por que o cliente escolhe vocês e não o concorrente?', help: 'Esse é o seu diferencial, na visão do cliente. Se não souber, pense no que os clientes mais elogiam.',
+      placeholder: 'Ex.: O pão é feito na hora e a gente conhece cada cliente pelo nome.' },
+    { id: 'c_count', s: 'clientes', type: 'int', label: 'Quantos clientes compram de vocês hoje?', help: 'Clientes ativos: que compraram nos últimos meses.', ranges: countRanges([20, 100, 500, 2000], 'clientes') },
+    { id: 'c_concentration', s: 'clientes', type: 'percent', label: 'Quanto do faturamento vem dos 3 maiores clientes?', help: 'Some o que os 3 clientes que mais compram representam no total.',
+      what: 'Mostra se o negócio depende de poucos clientes. Ex.: se você fatura R$ 100 mil e os 3 maiores compram R$ 60 mil, são 60%. Acima de 50% é arriscado: se um sair, o impacto é grande.',
+      ranges: [['Menos de 20%', 0, 20], ['De 20% a 50%', 20, 50], ['Mais de 50%', 50, 80]] },
 
-    { id: 'm_region', s: 'mercado', type: 'choice', label: 'Até onde vai a área de atuação?', options: ['Bairro ou cidade', 'Região', 'Estado', 'Brasil todo', 'Outros países', 'Só online'] },
-    { id: 'm_size', s: 'mercado', type: 'long', label: 'Quantos clientes em potencial existem na sua área?', help: 'Uma estimativa já ajuda. Ex.: 2 mil clínicas na região.' },
-    { id: 'm_trends', s: 'mercado', type: 'list', label: 'Que mudanças estão acontecendo no seu setor?', help: 'Tendências, leis, tecnologia, comportamento do cliente. Uma por linha.' },
+    { id: 'm_region', s: 'mercado', type: 'choice', label: 'Até onde vocês vendem?',
+      options: ['Bairro ou cidade', 'Região', 'Estado', 'Brasil todo', 'Outros países', 'Só online'],
+      icons: { 'Bairro ou cidade': '🏘️', 'Região': '🗺️', 'Estado': '📍', 'Brasil todo': '🇧🇷', 'Outros países': '🌎', 'Só online': '🌐' } },
+    { id: 'm_size', s: 'mercado', type: 'long', label: 'Quantos clientes em potencial existem na sua área?', help: 'Um chute bem pensado já ajuda.',
+      what: 'É o tamanho do seu mercado: quantas pessoas ou empresas poderiam comprar de você. Ex.: "uns 20 mil moradores no bairro" ou "cerca de 2 mil clínicas na região".',
+      placeholder: 'Ex.: Uns 20 mil moradores no bairro e 50 cafés na região' },
+    { id: 'm_trends', s: 'mercado', type: 'multi', other: true, label: 'O que está mudando no seu setor?', help: 'Marque o que mais afeta vocês.',
+      options: ['Clientes comprando mais pela internet', 'Mais procura por saúde e bem-estar', 'Custos subindo', 'Mais concorrência', 'Novas tecnologias', 'Mudanças em leis ou impostos', 'Clientes mais exigentes', 'Falta de mão de obra'],
+      icons: { 'Clientes comprando mais pela internet': '📱', 'Mais procura por saúde e bem-estar': '🥗', 'Custos subindo': '📈', 'Mais concorrência': '🥊', 'Novas tecnologias': '🤖', 'Mudanças em leis ou impostos': '⚖️', 'Clientes mais exigentes': '🧐', 'Falta de mão de obra': '🧑‍🔧' } },
 
-    { id: 'k_list', s: 'concorrencia', type: 'list', label: 'Quem são os principais concorrentes?', help: 'Um por linha. Vale incluir quem resolve o mesmo problema de outro jeito.' },
-    { id: 'k_better', s: 'concorrencia', type: 'long', label: 'No que eles são melhores que vocês?' },
-    { id: 'k_worse', s: 'concorrencia', type: 'long', label: 'No que vocês são melhores que eles?' },
-    { id: 'k_price', s: 'concorrencia', type: 'choice', label: 'Seu preço, comparado ao deles, é:', options: ['Mais barato', 'Parecido', 'Mais caro'] },
+    { id: 'k_list', s: 'concorrencia', type: 'list', label: 'Quem são os seus principais concorrentes?', help: 'Um por linha. Vale incluir quem resolve o mesmo problema de outro jeito (ex.: supermercado, aplicativo).',
+      placeholder: 'Padaria Central\nSupermercado do bairro\nAplicativos de entrega' },
+    { id: 'k_better', s: 'concorrencia', type: 'long', label: 'No que eles são melhores que vocês?', help: 'Seja sincero: isso ajuda a achar o que melhorar.', placeholder: 'Ex.: Preço menor e mais lojas.' },
+    { id: 'k_worse', s: 'concorrencia', type: 'long', label: 'E no que vocês são melhores que eles?', placeholder: 'Ex.: Sabor, frescor e atendimento.' },
+    { id: 'k_price', s: 'concorrencia', type: 'choice', short: true, label: 'Comparado aos concorrentes, o seu preço é…', options: ['Mais barato', 'Parecido', 'Mais caro'],
+      icons: { 'Mais barato': '⬇️', 'Parecido': '↔️', 'Mais caro': '⬆️' } },
 
-    { id: 'p_list', s: 'receita', type: 'list', label: 'Quais os principais produtos ou serviços?', help: 'Um por linha, do que mais vende para o que menos vende.' },
-    { id: 'p_model', s: 'receita', type: 'multi', label: 'Como o negócio ganha dinheiro?', options: ['Venda avulsa', 'Assinatura ou mensalidade', 'Contrato ou projeto', 'Comissão', 'Licença ou royalties', 'Outro'] },
-    { id: 'p_ticket', s: 'receita', type: 'money', label: 'Qual o valor médio de cada venda (ticket médio)?' },
-    { id: 'p_sales', s: 'receita', type: 'int', label: 'Quantas vendas (ou atendimentos) por mês, em média?', min: 0 },
-    { id: 'p_repeat', s: 'receita', type: 'choice', label: 'O cliente costuma comprar de novo?', options: ['Quase nunca', 'Às vezes', 'Com frequência', 'Paga todo mês'] },
+    { id: 'p_list', s: 'receita', type: 'list', label: 'Quais são os seus principais produtos ou serviços?', help: 'Um por linha, do que mais vende para o que menos vende.', placeholder: 'Pães artesanais\nCafés especiais\nEncomendas para festas' },
+    { id: 'p_model', s: 'receita', type: 'multi', short: true, label: 'Como o dinheiro entra no negócio?', help: 'Pode marcar mais de um.',
+      options: ['Venda avulsa', 'Assinatura ou mensalidade', 'Contrato ou projeto', 'Comissão', 'Licença ou royalties', 'Outro'],
+      icons: { 'Venda avulsa': '🧾', 'Assinatura ou mensalidade': '🔁', 'Contrato ou projeto': '📑', 'Comissão': '🤝', 'Licença ou royalties': '©️', 'Outro': '✨' } },
+    { id: 'p_ticket', s: 'receita', type: 'money', label: 'Quanto o cliente gasta, em média, em cada compra?', help: 'É o seu "ticket médio".',
+      what: 'Ticket médio é o valor médio de cada venda. Ex.: se você vendeu R$ 30 mil em 1.000 vendas no mês, o ticket médio é R$ 30.',
+      ranges: moneyRanges([50, 150, 500, 2000, 10000]) },
+    { id: 'p_sales', s: 'receita', type: 'int', label: 'Quantas vendas (ou atendimentos) vocês fazem por mês?', help: 'Uma média.',
+      ranges: countRanges([30, 100, 300, 1000, 3000], 'vendas') },
+    { id: 'p_repeat', s: 'receita', type: 'choice', short: true, label: 'O cliente costuma voltar a comprar?',
+      options: ['Quase nunca', 'Às vezes', 'Com frequência', 'Paga todo mês'], icons: { 'Quase nunca': '🚶', 'Às vezes': '🙂', 'Com frequência': '😍', 'Paga todo mês': '🔁' } },
 
-    { id: 's_channels', s: 'vendas', type: 'multi', label: 'Como os clientes chegam até vocês?', options: ['Indicação', 'Instagram', 'Google', 'Site', 'WhatsApp', 'Vendedor ou representante', 'Loja física', 'Marketplace', 'Eventos e feiras', 'LinkedIn', 'Outro'] },
-    { id: 's_process', s: 'vendas', type: 'long', label: 'Como é a venda, do primeiro contato ao fechamento?' },
-    { id: 's_spend', s: 'vendas', type: 'money', label: 'Quanto gastam por mês com marketing e vendas?', help: 'Anúncios, agência, comissões fixas, brindes.' },
-    { id: 's_retention', s: 'vendas', type: 'long', label: 'O que fazem para o cliente voltar ou indicar?' },
+    { id: 's_channels', s: 'vendas', type: 'multi', short: true, label: 'Como os clientes chegam até vocês?', help: 'Marque todos os caminhos que trazem clientes.',
+      options: ['Indicação', 'Instagram', 'Google', 'Site', 'WhatsApp', 'Vendedor ou representante', 'Loja física', 'Marketplace', 'Eventos e feiras', 'LinkedIn', 'Outro'],
+      icons: { 'Indicação': '🗣️', 'Instagram': '📸', 'Google': '🔍', 'Site': '🌐', 'WhatsApp': '💬', 'Vendedor ou representante': '🧑‍💼', 'Loja física': '🏪', 'Marketplace': '🛒', 'Eventos e feiras': '🎪', 'LinkedIn': '💼', 'Outro': '✨' } },
+    { id: 's_process', s: 'vendas', type: 'long', label: 'Como acontece uma venda, do primeiro contato até fechar?', help: 'Os passos, mesmo que simples.',
+      placeholder: 'Ex.: O cliente chama no WhatsApp, mandamos o cardápio, ele escolhe e paga no Pix, entregamos no dia seguinte.' },
+    { id: 's_spend', s: 'vendas', type: 'money', label: 'Quanto vocês gastam por mês para atrair clientes?', help: 'Anúncios, agência, influenciadores, brindes, comissões fixas.',
+      ranges: moneyRanges([0, 1000, 3000, 6000, 10000]) },
+    { id: 's_retention', s: 'vendas', type: 'long', label: 'O que vocês fazem para o cliente voltar ou indicar?', help: 'Pós-venda, cartão fidelidade, brinde, mensagem de aniversário…', placeholder: 'Ex.: Cartão fidelidade: a cada 10 pães, 1 de presente.' },
 
-    { id: 'o_steps', s: 'operacao', type: 'list', label: 'Quais as etapas principais para entregar o que vocês vendem?', help: 'Uma por linha.' },
-    { id: 'o_suppliers', s: 'operacao', type: 'list', label: 'Quem são os fornecedores e parceiros mais importantes?', help: 'Um por linha.' },
-    { id: 'o_tools', s: 'operacao', type: 'list', label: 'Que sistemas e ferramentas usam?', help: 'ERP, planilhas, CRM, emissor de notas... um por linha.' },
-    { id: 'o_bottleneck', s: 'operacao', type: 'long', label: 'O que mais trava a operação hoje?' },
+    { id: 'o_steps', s: 'operacao', type: 'list', label: 'Quais as etapas para entregar o que vocês vendem?', help: 'Uma por linha. Do pedido até o cliente receber.', placeholder: 'Comprar os insumos\nProduzir\nEmbalar\nEntregar' },
+    { id: 'o_suppliers', s: 'operacao', type: 'list', label: 'Quem são os fornecedores e parceiros mais importantes?', help: 'Um por linha. Sem eles o negócio para.', placeholder: 'Moinho Bom Trigo\nTransportadora X' },
+    { id: 'o_tools', s: 'operacao', type: 'multi', other: true, label: 'Que ferramentas vocês usam para controlar o negócio?', help: 'Marque todas.',
+      options: ['Planilha/Excel', 'Caderno', 'Sistema de gestão (ERP)', 'Sistema de vendas (PDV)', 'CRM', 'Emissor de notas', 'Nada ainda'],
+      icons: { 'Planilha/Excel': '📊', 'Caderno': '📒', 'Sistema de gestão (ERP)': '🗂️', 'Sistema de vendas (PDV)': '🧾', 'CRM': '📇', 'Emissor de notas': '🧮', 'Nada ainda': '🫥' },
+      what: 'ERP é um sistema que junta vendas, estoque, financeiro e notas fiscais. CRM é o controle dos clientes e das negociações. PDV é o sistema do caixa.' },
+    { id: 'o_bottleneck', s: 'operacao', type: 'long', label: 'O que mais atrapalha o dia a dia hoje?', help: 'O gargalo: aquilo que, se resolvido, faria tudo andar melhor.', placeholder: 'Ex.: Falta de gente na produção nos fins de semana.' },
 
-    { id: 'g_partners', s: 'pessoas', type: 'list', label: 'Quem são os sócios e o papel de cada um?', help: 'Um por linha. Ex.: Ana: comercial e finanças.' },
-    { id: 'g_team', s: 'pessoas', type: 'int', label: 'Quantas pessoas trabalham no negócio (com os sócios)?', min: 0 },
-    { id: 'g_hire', s: 'pessoas', type: 'list', label: 'Quem precisam contratar nos próximos 12 meses?', help: 'Um por linha. Pode deixar vazio.' },
-    { id: 'g_management', s: 'pessoas', type: 'long', label: 'Como são tomadas as decisões e acompanhados os resultados?', help: 'Reuniões, indicadores, quem decide o quê.' },
+    { id: 'g_partners', s: 'pessoas', type: 'list', label: 'Quem são os sócios e o que cada um faz?', help: 'Um por linha.', placeholder: 'Ana: vendas e finanças\nBruno: produção' },
+    { id: 'g_team', s: 'pessoas', type: 'int', label: 'Quantas pessoas trabalham no negócio, contando os sócios?', ranges: [['Só eu', 1, 1], ['2 a 5 pessoas', 2, 5], ['6 a 10 pessoas', 6, 10], ['11 a 30 pessoas', 11, 30], ['Mais de 30 pessoas', 30, null]] },
+    { id: 'g_hire', s: 'pessoas', type: 'multi', other: true, label: 'Vocês precisam contratar alguém nos próximos 12 meses?', help: 'Marque as áreas.',
+      options: ['Vendas', 'Atendimento', 'Produção ou operação', 'Administrativo e financeiro', 'Marketing', 'Ninguém por enquanto'],
+      icons: { 'Vendas': '🧑‍💼', 'Atendimento': '🎧', 'Produção ou operação': '🛠️', 'Administrativo e financeiro': '🧮', 'Marketing': '📣', 'Ninguém por enquanto': '✋' } },
+    { id: 'g_management', s: 'pessoas', type: 'choice', label: 'Como vocês acompanham os resultados?',
+      options: ['Não acompanhamos', 'Olho o caixa de vez em quando', 'Tenho números, mas sem rotina', 'Reunião mensal com indicadores'],
+      icons: { 'Não acompanhamos': '🙈', 'Olho o caixa de vez em quando': '👀', 'Tenho números, mas sem rotina': '📋', 'Reunião mensal com indicadores': '📊' } },
 
-    { id: 'f_revenue', s: 'financas', type: 'money', label: 'Qual o faturamento médio por mês hoje?', help: 'Se não souber, a gente calcula pelo ticket médio vezes as vendas do mês.' },
-    { id: 'f_fixed', s: 'financas', type: 'money', label: 'Quanto são os custos fixos por mês?', help: 'Aluguel, salários e encargos, contador, sistemas, energia. Sem o pró-labore.' },
-    { id: 'f_variable', s: 'financas', type: 'percent', label: 'Quanto dos custos varia com a venda, em % do faturamento?', help: 'Mercadoria ou matéria-prima, comissões, frete, taxas de cartão.' },
-    { id: 'f_tax', s: 'financas', type: 'percent', label: 'Quanto de imposto sai sobre a venda, em %?', help: 'No Simples Nacional costuma ficar entre 4% e 16%. Seu contador sabe.' },
-    { id: 'f_prolabore', s: 'financas', type: 'money', label: 'Quanto é o pró-labore dos sócios por mês, somando todos?' },
-    { id: 'f_debt', s: 'financas', type: 'money', label: 'Quanto pagam por mês de empréstimos e financiamentos?', help: 'Só as parcelas. Zero se não tiver.' },
-    { id: 'f_growth', s: 'financas', type: 'percent', label: 'Quanto esperam crescer por mês, em %?', help: 'Uma meta realista. Ex.: 2% ao mês dá cerca de 27% no ano.' },
-    { id: 'f_invest', s: 'financas', type: 'money', label: 'Quanto de investimento o plano precisa?', help: 'Reforma, equipamentos, estoque, marketing de lançamento, capital de giro.' },
-    { id: 'f_own', s: 'financas', type: 'money', label: 'Quanto disso vocês têm de recursos próprios?' },
+    { id: 'f_revenue', s: 'financas', type: 'money', short: true, label: 'Quanto o negócio vende por mês, em média?', help: 'É o faturamento: tudo o que entra das vendas, antes de pagar as contas.',
+      what: 'Faturamento é a soma de todas as vendas do mês. Ex.: 1.000 vendas de R$ 50 = R$ 50 mil de faturamento. Se varia muito, pense na média dos últimos 6 meses.',
+      ranges: moneyRanges([10000, 30000, 60000, 100000, 200000, 400000]) },
+    { id: 'f_fixed', s: 'financas', type: 'money', short: true, label: 'Quanto são as contas fixas do mês?', help: 'O que você paga todo mês, vendendo ou não. Sem contar a retirada dos sócios.',
+      what: 'Custos fixos são as contas que chegam todo mês: aluguel, salários e encargos, contador, internet, energia, sistemas. Ex.: aluguel R$ 3 mil + salários R$ 10 mil + outros R$ 2 mil = R$ 15 mil.',
+      ranges: moneyRanges([5000, 15000, 30000, 60000, 100000]) },
+    { id: 'f_variable', s: 'financas', type: 'percent', short: true, label: 'De cada R$ 100 vendidos, quanto vai para o custo do que você vende?', help: 'Mercadoria ou matéria-prima, comissões, frete, taxas de cartão e de aplicativo.',
+      what: 'São os custos variáveis: só existem quando você vende. Ex.: um pão vendido por R$ 10 que gasta R$ 4 de ingredientes e R$ 0,50 de taxa de cartão tem 45% de custo variável.',
+      ranges: [['Até R$ 20 (até 20%)', 0, 20], ['De R$ 20 a R$ 35', 20, 35], ['De R$ 35 a R$ 50', 35, 50], ['De R$ 50 a R$ 65', 50, 65], ['Mais de R$ 65', 65, 80]] },
+    { id: 'f_tax', s: 'financas', type: 'percent', short: true, label: 'Quanto de imposto sai de cada venda?', help: 'Se não souber, o contador sabe. No Simples Nacional costuma ficar entre 4% e 15%.',
+      what: 'É o percentual de impostos sobre o faturamento. Ex.: com 6% de imposto, de cada R$ 100 vendidos, R$ 6 vão para o governo. MEI paga um valor fixo por mês, quase zero em percentual.',
+      ranges: [['MEI / quase nada', 0, 2], ['Até 6%', 2, 6], ['De 6% a 10%', 6, 10], ['De 10% a 15%', 10, 15], ['Mais de 15%', 15, 20]] },
+    { id: 'f_prolabore', s: 'financas', type: 'money', label: 'Quanto os sócios tiram por mês, somando todos?', help: 'É o pró-labore: o "salário" dos donos.',
+      what: 'Pró-labore é a retirada mensal dos sócios pelo trabalho no negócio. Ex.: dois sócios tirando R$ 4 mil cada = R$ 8 mil.',
+      ranges: moneyRanges([0, 3000, 6000, 10000, 20000]) },
+    { id: 'f_debt', s: 'financas', type: 'money', label: 'Quanto vocês pagam por mês de empréstimos e financiamentos?', help: 'Só as parcelas.',
+      ranges: moneyRanges([0, 2000, 5000, 10000, 20000]) },
+    { id: 'f_growth', s: 'financas', type: 'percent', short: true, label: 'Quanto vocês querem crescer por mês?', help: 'Uma meta realista. 2% ao mês dá cerca de 27% no ano.',
+      what: 'Crescer 2% ao mês parece pouco, mas soma: em 12 meses o faturamento fica cerca de 27% maior. 5% ao mês dá quase 80% no ano.',
+      ranges: [['Manter como está', 0, 0], ['Cerca de 1% ao mês', 0.5, 1.5], ['Cerca de 2% ao mês', 1.5, 2.5], ['Cerca de 3% ao mês', 2.5, 3.5], ['5% ou mais ao mês', 4.5, 6]] },
+    { id: 'f_invest', s: 'financas', type: 'money', label: 'Quanto vocês precisam investir para crescer?', help: 'Reforma, equipamentos, estoque, marketing de lançamento, capital de giro.',
+      what: 'É o dinheiro para o próximo passo do negócio, que volta com o tempo. Capital de giro é o dinheiro para manter o negócio rodando enquanto as vendas não entram.',
+      ranges: moneyRanges([0, 20000, 50000, 100000, 250000, 500000]) },
+    { id: 'f_own', s: 'financas', type: 'money', label: 'E quanto disso vocês já têm guardado?', help: 'Dinheiro dos sócios ou da empresa, sem empréstimo.',
+      ranges: moneyRanges([0, 10000, 30000, 60000, 100000, 250000]) },
 
-    { id: 'r_goals', s: 'metas', type: 'list', label: 'Quais as 3 principais metas para os próximos 12 meses?', help: 'Uma por linha. Ex.: faturar R$ 80 mil por mês.' },
-    { id: 'r_risks', s: 'metas', type: 'list', label: 'O que pode dar errado no caminho?', help: 'Uma por linha.' },
-    { id: 'r_esg', s: 'metas', type: 'long', label: 'Que cuidados vocês têm com pessoas, meio ambiente e boa gestão?', help: 'ESG: pode ser algo simples, como reciclagem, benefícios à equipe ou contas organizadas.' },
-    { id: 'r_help', s: 'metas', type: 'multi', label: 'Em que áreas mais precisam de ajuda?', options: ['Finanças', 'Vendas', 'Marketing', 'Processos', 'Pessoas', 'Tecnologia', 'Conseguir investimento', 'Gestão e estratégia'] },
+    { id: 'r_goals', s: 'metas', type: 'list', label: 'Quais são as 3 metas mais importantes para os próximos 12 meses?', help: 'Uma por linha. Quanto mais concreta, melhor.',
+      placeholder: 'Faturar R$ 80 mil por mês\nAbrir um quiosque no shopping\nLançar uma assinatura semanal' },
+    { id: 'r_risks', s: 'metas', type: 'multi', other: true, short: true, label: 'O que poderia atrapalhar esses planos?', help: 'Marque os riscos que você enxerga.',
+      options: ['Perder um cliente grande', 'Alta dos custos', 'Saída de alguém-chave da equipe', 'Novo concorrente', 'Falta de dinheiro (caixa)', 'Mudança em leis ou impostos', 'Problemas com fornecedor', 'Crise na economia'],
+      icons: { 'Perder um cliente grande': '🏃', 'Alta dos custos': '📈', 'Saída de alguém-chave da equipe': '🚪', 'Novo concorrente': '🥊', 'Falta de dinheiro (caixa)': '💰', 'Mudança em leis ou impostos': '⚖️', 'Problemas com fornecedor': '🚚', 'Crise na economia': '🌪️' } },
+    { id: 'r_esg', s: 'metas', type: 'multi', other: true, label: 'Vocês já fazem alguma dessas coisas?', help: 'São práticas de ESG: cuidado com o ambiente, as pessoas e a boa gestão.',
+      what: 'ESG vem do inglês: ambiental, social e governança. Para um negócio pequeno, começa com coisas simples, como reciclar, tratar bem a equipe e manter as contas organizadas.',
+      options: ['Reciclagem ou menos desperdício', 'Embalagens sustentáveis', 'Compras de fornecedores locais', 'Benefícios e treinamento para a equipe', 'Ações na comunidade', 'Contas da empresa separadas das pessoais', 'Nada ainda'],
+      icons: { 'Reciclagem ou menos desperdício': '♻️', 'Embalagens sustentáveis': '📦', 'Compras de fornecedores locais': '🏘️', 'Benefícios e treinamento para a equipe': '🎓', 'Ações na comunidade': '🤲', 'Contas da empresa separadas das pessoais': '🗂️', 'Nada ainda': '🫥' } },
+    { id: 'r_help', s: 'metas', type: 'multi', short: true, label: 'Em que você mais gostaria de ajuda?', help: 'Marque até 3.',
+      options: ['Finanças', 'Vendas', 'Marketing', 'Processos', 'Pessoas', 'Tecnologia', 'Conseguir investimento', 'Gestão e estratégia'],
+      icons: { 'Finanças': '💰', 'Vendas': '🤝', 'Marketing': '📣', 'Processos': '⚙️', 'Pessoas': '👥', 'Tecnologia': '💻', 'Conseguir investimento': '🏦', 'Gestão e estratégia': '🧭' } },
   ];
+  const SHORT = QUESTIONS.filter(q => q.short).map(q => q.id);
   const BY_ID = Object.fromEntries(QUESTIONS.map(q => [q.id, q]));
+  // Valor numérico de uma resposta: o número exato, ou o meio da faixa ("acima de" = 25% acima do início).
+  const rangeOf = (q, v) => (q && q.ranges && typeof v === 'string' ? q.ranges.find(r => rangeId(r) === v) : null);
+  const rangeId = r => `faixa:${r[1]}-${r[2] ?? ''}`;
+  function numOf(id, v) {
+    if (isEmpty(v)) return null;
+    if (typeof v === 'number') return v;
+    const r = rangeOf(BY_ID[id], v);
+    if (!r) return Number.isFinite(Number(v)) ? Number(v) : null;
+    return r[2] === null ? r[1] * 1.25 : (r[1] + r[2]) / 2;
+  }
+  const isRange = (id, v) => !!rangeOf(BY_ID[id], v);
+
 
   // As seções do documento, na ordem.
   const DOC = [
@@ -1352,26 +1488,31 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
         const arr = (Array.isArray(v) ? v : String(v).split('\n')).map(x => String(x).trim()).filter(Boolean).slice(0, 30).map(x => x.slice(0, 300));
         return arr.length ? arr : null;
       }
-      case 'money': return num(0, 1e12);
-      case 'percent': return num(0, 100);
-      case 'int': return Math.round(num(q.min ?? 0, q.max ?? 1e9));
+      case 'money': return rangeOf(q, v) ? v : num(0, 1e12);
+      case 'percent': return rangeOf(q, v) ? v : num(0, 100);
+      case 'int': return rangeOf(q, v) ? v : Math.round(num(q.min ?? 0, q.max ?? 1e9));
       case 'choice': if (!q.options.includes(v)) throw new Error(`${q.label}: opção inválida`); return v;
       case 'multi': {
-        if (!Array.isArray(v) || !v.every(x => q.options.includes(x))) throw new Error(`${q.label}: opção inválida`);
-        return v.length ? [...new Set(v)] : null;
+        // Com "other", aceita também um item escrito: "Outro: ...".
+        const ok = x => q.options.includes(x) || (q.other && typeof x === 'string' && /^Outro: .{1,120}$/.test(x.trim()));
+        if (!Array.isArray(v) || !v.every(ok)) throw new Error(`${q.label}: opção inválida`);
+        return v.length ? [...new Set(v.map(x => x.trim()))] : null;
       }
       default: return null;
     }
   }
 
   // Quanto do questionário foi respondido (contando "não sei" como respondido).
-  function progress(answers = {}, unknown = []) {
-    const done = QUESTIONS.filter(q => !isEmpty(answers[q.id]) || unknown.includes(q.id)).length;
+  // ids: só estas perguntas (o diagnóstico curto dos leads); sem ids, o questionário inteiro.
+  function progress(answers = {}, unknown = [], ids = null) {
+    const all = ids ? QUESTIONS.filter(q => ids.includes(q.id)) : QUESTIONS;
+    const ok = q => !isEmpty(answers[q.id]) || unknown.includes(q.id);
+    const done = all.filter(ok).length;
     const bySection = SECTIONS.map(([key, title]) => {
-      const qs = QUESTIONS.filter(q => q.s === key);
-      return { key, title, total: qs.length, done: qs.filter(q => !isEmpty(answers[q.id]) || unknown.includes(q.id)).length };
-    });
-    return { done, total: QUESTIONS.length, pct: Math.round((done / QUESTIONS.length) * 100), bySection };
+      const qs = all.filter(q => q.s === key);
+      return { key, title, total: qs.length, done: qs.filter(ok).length };
+    }).filter(x => x.total);
+    return { done, total: all.length, pct: all.length ? Math.round((done / all.length) * 100) : 0, bySection };
   }
 
   // ---------- conta financeira (o número nunca vem da IA) ----------
@@ -1379,7 +1520,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
   const pct = n => (n === null || n === undefined || !Number.isFinite(n) ? '–' : `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`);
 
   function finance(a = {}) {
-    const val = id => (isEmpty(a[id]) ? null : Number(a[id]));
+    const val = id => numOf(id, a[id]);
     const revenueBase = val('f_revenue') ?? (val('p_ticket') !== null && val('p_sales') !== null ? val('p_ticket') * val('p_sales') : null);
     const missing = [];
     if (revenueBase === null) missing.push('faturamento por mês (ou ticket médio e vendas por mês)');
@@ -1388,6 +1529,9 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     if (val('f_tax') === null) missing.push('impostos (%)');
     if (missing.length) return { ok: false, missing };
     const assumed = [];
+    if (['f_revenue', 'f_fixed', 'f_variable', 'f_tax', 'f_prolabore', 'f_debt', 'f_growth', 'f_invest', 'f_own', 'p_ticket', 'p_sales'].some(id => isRange(id, a[id]))) {
+      assumed.push('valores informados por faixa: a conta usa o meio de cada faixa (números aproximados)');
+    }
     const g = (val('f_growth') ?? (assumed.push('crescimento de 0% ao mês (não informado)'), 0)) / 100;
     const varPct = val('f_variable') / 100, taxPct = val('f_tax') / 100;
     const fixed = val('f_fixed'), pro = val('f_prolabore') ?? 0, debt = val('f_debt') ?? 0;
@@ -1462,6 +1606,8 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
   // Resposta em texto (para a IA e para o rascunho).
   function answerText(q, v) {
     if (isEmpty(v)) return '';
+    const r = rangeOf(q, v);
+    if (r) return r[0];
     if (q.type === 'money') return brl(Number(v));
     if (q.type === 'percent') return pct(Number(v));
     if (Array.isArray(v)) return v.join('; ');
@@ -1484,14 +1630,14 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
         item('Diferencial', 'c_why'),
         f.ok ? `- **Números:** faturamento de ${brl(f.inputs.revenueBase)} por mês, margem de contribuição de ${pct(f.contribPct)} e ponto de equilíbrio em ${brl(f.breakEven)} por mês.` : '- **Números:** [A definir na reunião: dados financeiros]',
         isEmpty(A('r_goals')) ? '' : `- **Metas:** ${T('r_goals')}`].filter(x => x !== '').join('\n'),
-      negocio: [item('Nome', 'b_name'), item('Setor', 'b_segment'), item('Momento', 'b_stage'), item('Desde', 'b_since'), item('Localização e atendimento', 'b_location'),
+      negocio: [item('Nome', 'b_name'), item('Setor', 'b_segment'), item('Momento', 'b_stage'), item('Tempo de negócio', 'b_since'), item('Localização e atendimento', 'b_location'),
         '', '### O que faz', para('b_what'), '', '### Propósito e visão', para('b_purpose'), '', '### Valores', bullets('b_values')].join('\n'),
       proposta: [item('Vende para', 'c_type'), item('Clientes ativos', 'c_count'), item('Peso dos 3 maiores clientes no faturamento', 'c_concentration'),
         '', '### Cliente ideal', para('c_ideal'), '', '### Dores e desejos', bullets('c_pains'), '', '### Por que compram de nós', para('c_why')].join('\n'),
       mercado: [item('Área de atuação', 'm_region'), '', '### Tamanho do mercado', para('m_size'), '', '### Tendências', bullets('m_trends')].join('\n'),
       concorrencia: ['### Principais concorrentes', bullets('k_list'), '', '### Onde eles são melhores', para('k_better'), '', '### Onde somos melhores', para('k_worse'), '', item('Preço em relação a eles', 'k_price')].join('\n'),
       receita: ['### Produtos e serviços', bullets('p_list'), '', item('Como ganha dinheiro', 'p_model'), item('Ticket médio', 'p_ticket'), item('Vendas por mês', 'p_sales'), item('Recompra', 'p_repeat'),
-        !isEmpty(A('s_spend')) && !isEmpty(A('p_sales')) && Number(A('p_sales')) > 0 ? `- **Custo de marketing e vendas por venda (aproximado):** ${brl(Number(A('s_spend')) / Number(A('p_sales')))}` : null].filter(x => x !== null).join('\n'),
+        !isEmpty(A('s_spend')) && !isEmpty(A('p_sales')) && numOf('p_sales', A('p_sales')) > 0 ? `- **Custo de marketing e vendas por venda (aproximado):** ${brl(numOf('s_spend', A('s_spend')) / numOf('p_sales', A('p_sales')))}` : null].filter(x => x !== null).join('\n'),
       marketing: [item('Canais', 's_channels'), item('Investimento mensal em marketing e vendas', 's_spend'), '', '### Processo de venda', para('s_process'), '', '### Retenção e indicação', para('s_retention')].join('\n'),
       operacao: ['### Etapas da entrega', bullets('o_steps'), '', '### Fornecedores e parceiros', bullets('o_suppliers'), '', '### Sistemas e ferramentas', bullets('o_tools'), '', '### O que trava a operação', para('o_bottleneck')].join('\n'),
       pessoas: ['### Sócios', bullets('g_partners'), '', item('Pessoas no negócio', 'g_team'), '', '### Contratações previstas', bullets('g_hire'), '', '### Gestão e decisões', para('g_management')].join('\n'),
@@ -1499,7 +1645,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
       cenarios: scenarioTable(f),
       swot: ['| Forças | Fraquezas |', '|---|---|', `| ${isEmpty(A('k_worse')) ? '[A definir]' : T('k_worse')} | ${isEmpty(A('k_better')) ? '[A definir]' : T('k_better')} |`,
         '', '| Oportunidades | Ameaças |', '|---|---|', `| ${isEmpty(A('m_trends')) ? '[A definir]' : T('m_trends')} | ${isEmpty(A('r_risks')) ? '[A definir]' : T('r_risks')} |`].join('\n'),
-      riscos: [bullets('r_risks'), !isEmpty(A('c_concentration')) && Number(A('c_concentration')) > 50 ? '- Dependência de poucos clientes: os 3 maiores somam mais da metade do faturamento.' : null].filter(x => x !== null).join('\n'),
+      riscos: [bullets('r_risks'), !isEmpty(A('c_concentration')) && numOf('c_concentration', A('c_concentration')) > 50 ? '- Dependência de poucos clientes: os 3 maiores somam mais da metade do faturamento.' : null].filter(x => x !== null).join('\n'),
       esg: para('r_esg'),
       metas: [bullets('r_goals'), '', 'Para cada meta: definir o indicador, o valor de hoje, o valor desejado e o responsável. [A definir na reunião]'].join('\n'),
       acao: ['| O quê | Quem | Até quando |', '|---|---|---|', ...(Array.isArray(A('r_goals')) ? A('r_goals') : ['[A definir na reunião]']).map(g => `| ${g} | [A definir] | [A definir] |`),
@@ -1633,7 +1779,8 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     if (!has('f_growth') && f.ok) add('atencao', 'Finanças', 'Sem meta de crescimento', 'A projeção considerou 0% de crescimento.', 'Definir uma meta realista de crescimento mensal.',
       { sec: 'financeiro', explain: 'Sem uma meta de crescimento, a projeção repete o mês de hoje por 3 anos.', ask: 'Quanto vocês acham possível crescer por mês?' });
 
-    const conc = Number(a.c_concentration);
+    const nv = id => numOf(id, a[id]);
+    const conc = nv('c_concentration');
     if (has('c_concentration') && conc > 50) add('alerta', 'Clientes', 'Dependência de poucos clientes', `Os 3 maiores clientes somam ${pct(conc)} do faturamento.`, 'Diversificar a carteira e ter contratos com prazo e aviso de saída.',
       { sec: 'proposta', explain: 'Se um desses clientes sair, o negócio perde uma parte grande da receita de uma vez.', ask: 'Esses clientes têm contrato? Qual o risco de algum sair?' });
     else if (has('c_concentration') && conc >= 30) add('atencao', 'Clientes', 'Concentração de clientes', `Os 3 maiores clientes somam ${pct(conc)} do faturamento.`, 'Acompanhar a satisfação desses clientes de perto e buscar novos.',
@@ -1652,9 +1799,9 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
       { sec: 'marketing', explain: 'O cliente procura no celular antes de comprar.', ask: 'Quem poderia cuidar do WhatsApp e do Instagram?' });
     if (channels.includes('Indicação')) add('forte', 'Vendas', 'Indicação funciona', 'Clientes chegam por indicação.', 'Transformar em programa: um benefício para quem indica e para o indicado.',
       { sec: 'marketing', explain: 'Indicação é o canal mais barato e o que mais converte.', ask: 'Vocês pedem indicação? Dariam um benefício para quem indica?' });
-    if (f.ok && has('s_spend') && Number(a.s_spend) / f.inputs.revenueBase > 0.15) add('atencao', 'Vendas', 'Gasto alto com marketing e vendas', `${pct((Number(a.s_spend) / f.inputs.revenueBase) * 100)} do faturamento vai para marketing e vendas.`, 'Medir quantos clientes cada canal traz e cortar o que não traz.',
+    if (f.ok && has('s_spend') && nv('s_spend') / f.inputs.revenueBase > 0.15) add('atencao', 'Vendas', 'Gasto alto com marketing e vendas', `${pct((nv('s_spend') / f.inputs.revenueBase) * 100)} do faturamento vai para marketing e vendas.`, 'Medir quantos clientes cada canal traz e cortar o que não traz.',
       { sec: 'marketing', explain: 'Uma parte grande da receita vai para atrair clientes.', ask: 'Vocês sabem quantos clientes cada canal traz?' });
-    if (has('s_spend') && has('p_sales') && has('p_ticket') && Number(a.p_sales) > 0 && Number(a.s_spend) / Number(a.p_sales) > 0.3 * Number(a.p_ticket)) add('atencao', 'Vendas', 'Custo para vender alto em relação ao ticket', `Cada venda custa cerca de ${brl(Number(a.s_spend) / Number(a.p_sales))} em marketing e vendas, para um ticket de ${brl(Number(a.p_ticket))}.`, 'Aumentar o ticket (combos, kits) ou focar nos canais mais baratos.',
+    if (has('s_spend') && has('p_sales') && has('p_ticket') && nv('p_sales') > 0 && nv('s_spend') / nv('p_sales') > 0.3 * nv('p_ticket')) add('atencao', 'Vendas', 'Custo para vender alto em relação ao ticket', `Cada venda custa cerca de ${brl(nv('s_spend') / nv('p_sales'))} em marketing e vendas, para um ticket de ${brl(nv('p_ticket'))}.`, 'Aumentar o ticket (combos, kits) ou focar nos canais mais baratos.',
       { sec: 'marketing', explain: 'Cada venda custa caro para conquistar, comparado ao valor que ela traz.', ask: 'Dá para vender mais coisas na mesma compra (combos, kits)?' });
     if (a.k_price === 'Mais caro') add(has('c_why') ? 'forte' : 'atencao', 'Concorrência', has('c_why') ? 'Preço acima da concorrência com diferencial claro' : 'Preço acima da concorrência sem diferencial claro',
       has('c_why') ? `O cliente paga mais por: ${a.c_why}` : 'Não ficou claro por que o cliente paga mais.', has('c_why') ? 'Mostrar esse diferencial em toda a comunicação; nunca entrar em guerra de preço.' : 'Definir e comunicar o diferencial, ou rever o preço.',
@@ -1663,19 +1810,22 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
       { sec: 'concorrencia', explain: 'Ser o mais barato funciona quando o custo também é o mais baixo; senão, sobra pouco.', ask: 'Os clientes compram só pelo preço? O que mais eles valorizam?' });
     if (!has('m_trends')) add('atencao', 'Mercado', 'Sem leitura das mudanças do setor', 'Não foram citadas tendências que afetam o negócio.', 'Levantar 3 mudanças do setor (clientes, tecnologia, leis) e como responder a cada uma.',
       { sec: 'mercado', explain: 'Olhar o que está mudando ajuda a se antecipar à concorrência.', ask: 'O que mudou no seu setor nos últimos 2 anos?' });
-    if (!has('o_tools')) add('oportunidade', 'Operação', 'Ferramentas de gestão', 'Não foram citados sistemas de gestão.', 'Um controle simples de vendas, estoque e caixa já ajuda nas decisões.',
+    if (!has('o_tools') || (a.o_tools || []).includes('Nada ainda')) add('oportunidade', 'Operação', 'Ferramentas de gestão', 'Não foram citados sistemas de gestão.', 'Um controle simples de vendas, estoque e caixa já ajuda nas decisões.',
       { sec: 'operacao', explain: 'Sem registro, as decisões ficam no "achismo".', ask: 'Como vocês controlam hoje vendas, estoque e caixa?' });
     else if ((a.o_tools || []).every(t => /planilha|excel|caderno/i.test(t))) add('oportunidade', 'Operação', 'Gestão em planilhas', 'A gestão roda em planilhas.', 'Avaliar um sistema de gestão (ERP) do porte do negócio.',
       { sec: 'operacao', explain: 'Planilha funciona no começo, mas depende de quem preenche e erra fácil.', ask: 'Quanto tempo por semana vai para preencher planilhas?' });
-    if (!has('g_management')) add('atencao', 'Gestão', 'Gestão sem rotina definida', 'Não ficou claro como são acompanhados os resultados.', 'Reunião mensal de resultados com 3 a 5 indicadores.',
+    if (a.g_management === 'Reunião mensal com indicadores') add('forte', 'Gestão', 'Gestão com rotina', 'Os resultados são acompanhados todo mês, com indicadores.', 'Manter e incluir no acompanhamento as metas deste plano.',
+      { sec: 'pessoas', explain: 'Olhar os números todo mês evita surpresas.', ask: 'Quais indicadores vocês olham hoje?' });
+    else if (!has('g_management') || a.g_management !== 'Tenho números, mas sem rotina') add('atencao', 'Gestão', 'Gestão sem rotina definida', has('g_management') ? `Hoje: "${a.g_management}".` : 'Não ficou claro como são acompanhados os resultados.', 'Reunião mensal de resultados com 3 a 5 indicadores.',
       { sec: 'pessoas', explain: 'Um encontro mensal curto, olhando sempre os mesmos números, evita surpresas.', ask: 'Quem decide o quê hoje? Vocês olham os números todo mês?' });
-    if (has('g_hire') && f.ok && f.monthResult < 0.05 * f.inputs.revenueBase) add('atencao', 'Pessoas', 'Contratações com resultado apertado', `Há ${a.g_hire.length} contratação(ões) prevista(s) e o resultado mensal está em ${brl(f.monthResult)}.`, 'Contratar junto com o aumento de vendas, não antes.',
+    const hires = (a.g_hire || []).filter(x => x !== 'Ninguém por enquanto');
+    if (hires.length && f.ok && f.monthResult < 0.05 * f.inputs.revenueBase) add('atencao', 'Pessoas', 'Contratações com resultado apertado', `Há contratação prevista (${hires.join(', ')}) e o resultado mensal está em ${brl(f.monthResult)}.`, 'Contratar junto com o aumento de vendas, não antes.',
       { sec: 'pessoas', explain: 'Cada contratação aumenta o custo fixo e sobe o ponto de equilíbrio.', ask: 'Qual contratação é mais urgente? Ela traz venda ou só alivia o trabalho?' });
     if (!has('r_goals')) add('atencao', 'Metas', 'Sem metas definidas', 'Não foram definidas metas para os próximos 12 meses.', 'Definir 3 metas mensuráveis, com responsável e prazo.',
       { sec: 'metas', explain: 'Sem metas não dá para saber se o ano foi bom.', ask: 'Onde vocês querem estar daqui a 12 meses?' });
     if (has('r_risks')) add('forte', 'Riscos', 'Riscos mapeados', `${a.r_risks.length === 1 ? 'Foi citado 1 risco' : `Foram citados ${a.r_risks.length} riscos`}.`, 'Para cada um, definir o que fazer para reduzir e quem acompanha.',
       { sec: 'riscos', explain: 'Saber o que pode dar errado é o primeiro passo para se proteger.', ask: 'Qual desses riscos tira mais o sono de vocês?' });
-    if (!has('r_esg')) add('oportunidade', 'ESG', 'Práticas de ESG', 'Não foram citadas práticas sociais, ambientais ou de gestão.', 'Começar com ações simples e visíveis para o cliente (resíduos, equipe, contas organizadas).',
+    if (!has('r_esg') || (a.r_esg || []).includes('Nada ainda')) add('oportunidade', 'ESG', 'Práticas de ESG', 'Não foram citadas práticas sociais, ambientais ou de gestão.', 'Começar com ações simples e visíveis para o cliente (resíduos, equipe, contas organizadas).',
       { sec: 'esg', explain: 'ESG é cuidar do ambiente, das pessoas e da gestão; para um negócio pequeno começa com coisas simples.', ask: 'Vocês já fazem algo nessa linha, mesmo sem chamar de ESG?' });
     if (unknown.length >= 8) add('atencao', 'Geral', 'Muitas respostas "não sei"', `${unknown.length} perguntas ficaram como "não sei".`, 'Separar um tempo da reunião para levantar esses dados juntos.',
       { sec: 'pendencias', explain: 'Normal no começo: vamos preencher juntos.', ask: '' });
@@ -1785,7 +1935,7 @@ ${AI_FORMAT}`;
   }
   const fmtCnpj = v => String(v || '').replace(/\D/g, '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 
-  return { REVENUE_BANDS, SECTIONS, QUESTIONS, BY_ID, DOC, DOC_TITLE, clean, progress, finance, financeTables, scenarioTable, answerText, draft, pendencias, validCnpj, fmtCnpj, brl, pct, isEmpty, parseMd, inline, LEVELS, insights, insightsText, AI_SYSTEM, AI_KEYS, contextText, manualPrompt, parsePasted, assemble };
+  return { REVENUE_BANDS, SECTIONS, QUESTIONS, BY_ID, DOC, DOC_TITLE, clean, progress, finance, financeTables, scenarioTable, answerText, draft, pendencias, validCnpj, fmtCnpj, brl, pct, isEmpty, parseMd, inline, SHORT, numOf, rangeId, rangeOf, isRange, LEVELS, insights, insightsText, AI_SYSTEM, AI_KEYS, contextText, manualPrompt, parsePasted, assemble };
 }));
 
 </script>
@@ -1991,7 +2141,7 @@ Essas práticas também reforçam a proposta de valor: o cliente que paga mais p
 // Os dados são fictícios e ficam só neste navegador (localStorage, quando disponível).
 (function () {
   const S = window.Shared;
-  const KEY = 'tarefas-prototipo-v9';
+  const KEY = 'tarefas-prototipo-v10';
   const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
   const d = n => S.addDays(S.today(), n);
 
@@ -2085,17 +2235,17 @@ Essas práticas também reforçam a proposta de valor: o cliente que paga mais p
     // Plano de negócio da Padaria (meio respondido) e um lead do diagnóstico.
     db.bizplans = [{ id: 300, client_id: 1, lead_id: null, title: 'Plano de negócio · Padaria Exemplo', token: null, submitted_at: null, doc: null, doc_status: 'none',
       doc_error: null, doc_source: null, shared: 0, created_by: 1, created_at: now(), updated_at: now(), unknown: ['m_size', 'c_concentration'],
-      answers: { b_name: 'Padaria Exemplo', b_segment: 'Alimentação', b_stage: 'Crescendo', b_since: 2018, b_location: 'Campinas/SP, bairro Cambuí e entregas pela cidade',
+      answers: { b_name: 'Padaria Exemplo', b_segment: 'Alimentação', b_stage: 'Crescendo', b_since: '3 a 10 anos', b_location: 'Campinas/SP, bairro Cambuí e entregas pela cidade',
         b_what: 'Pães artesanais de fermentação natural, cafés especiais e encomendas para eventos.', b_problem: 'Quem quer pão fresco e saudável perto de casa, sem conservantes.',
-        b_purpose: 'Ser a padaria artesanal de referência da cidade e abrir mais duas lojas em 5 anos.', b_values: ['Qualidade dos ingredientes', 'Atendimento próximo', 'Respeito à equipe'],
+        b_purpose: 'Ser a padaria artesanal de referência da cidade e abrir mais duas lojas em 5 anos.', b_values: ['Qualidade', 'Atendimento próximo', 'Respeito à equipe'],
         c_type: ['Pessoas (consumidor final)', 'Empresas'], c_ideal: 'Famílias e profissionais de 25 a 55 anos do bairro, que valorizam comida de verdade e pagam um pouco mais por isso; cafés e restaurantes que revendem.',
-        c_pains: ['Pão industrializado sem sabor', 'Pouco tempo para ir longe', 'Encomendas que atrasam'], c_why: 'Fermentação natural feita na hora e atendimento que conhece o cliente pelo nome.', c_count: 900,
-        m_region: 'Bairro ou cidade', m_trends: ['Procura por alimentação saudável', 'Pedidos por aplicativo e WhatsApp', 'Custo do trigo em alta'],
+        c_pains: ['Baixa qualidade', 'Falta de tempo', 'Demora na entrega', 'Outro: pão industrializado sem sabor'], c_why: 'Fermentação natural feita na hora e atendimento que conhece o cliente pelo nome.', c_count: 900,
+        m_region: 'Bairro ou cidade', m_trends: ['Mais procura por saúde e bem-estar', 'Clientes comprando mais pela internet', 'Custos subindo'],
         k_list: ['Padaria Central', 'Supermercados do bairro', 'Panificadoras de aplicativo'], k_better: 'Preço menor e mais pontos de venda.', k_worse: 'Sabor, frescor e atendimento.', k_price: 'Mais caro',
         p_list: ['Pães de fermentação natural', 'Cafés especiais', 'Encomendas para eventos'], p_model: ['Venda avulsa', 'Contrato ou projeto'], p_ticket: 38, p_sales: 1400, p_repeat: 'Com frequência',
         s_channels: ['Indicação', 'Instagram', 'WhatsApp', 'Loja física'], s_spend: 2500,
         f_revenue: 52000, f_fixed: 16000, f_variable: 38, f_tax: 6, f_prolabore: 9000, f_debt: 1500, f_growth: 2, f_invest: 80000, f_own: 30000,
-        r_goals: ['Faturar R$ 80 mil por mês', 'Abrir um quiosque no shopping', 'Lançar assinatura semanal de pães'], r_risks: ['Alta do trigo', 'Saída do padeiro-chefe'] } }];
+        r_goals: ['Faturar R$ 80 mil por mês', 'Abrir um quiosque no shopping', 'Lançar assinatura semanal de pães'], r_risks: ['Alta dos custos', 'Saída de alguém-chave da equipe'] } }];
     db.leads = [{ id: 310, name: 'Fábio Souza', company: 'Mercado Bom Preço', cnpj: '11.222.333/0001-81', email: 'fabio@mercadobom.com.br', phone: '(19) 99999-0000',
       revenue_band: 'ate-1m', status: 'new', notes: '', client_id: null, consent_at: now(), created_at: now() }];
     db.bizplans.push({ id: 311, client_id: null, lead_id: 310, title: 'Diagnóstico · Mercado Bom Preço', token: 'exemplo-de-link-do-lead-0001', submitted_at: now(), doc: null, doc_status: 'none',
@@ -2992,9 +3142,10 @@ Essas práticas também reforçam a proposta de valor: o cliente que paga mais p
   const loadPlan = (user, pid) => { const p = db.bizplans.find(x => x.id === pid); if (!canSeePlan(user, p)) fail(404, 'Plano não encontrado'); return p; };
   const planMeta = p => { const lead = p.lead_id ? db.leads.find(l => l.id === p.lead_id) : null; const client = p.client_id ? clientOf(p.client_id) : null;
     return { lead, client, company: (client && client.name) || (lead && lead.company) || '', revenue_band: lead ? bandLabel(lead.revenue_band) : '' }; };
+  const planIds = p => (p.lead_id && !p.client_id ? BP.SHORT : null);
   const planSummary = p => { const m = planMeta(p);
     return { id: p.id, title: p.title, client_id: p.client_id, client_name: m.client ? m.client.name : null, lead_id: p.lead_id, lead_company: m.lead ? m.lead.company : null,
-      progress: BP.progress(p.answers, p.unknown), submitted_at: p.submitted_at, doc_status: p.doc_status, shared: !!p.shared, updated_at: p.updated_at }; };
+      progress: BP.progress(p.answers, p.unknown, planIds(p)), short: !!planIds(p), submitted_at: p.submitted_at, doc_status: p.doc_status, shared: !!p.shared, updated_at: p.updated_at }; };
   function planOut(user, p) {
     const staff = user.role !== 'client';
     const showDoc = staff || (p.shared && p.doc_status === 'ready');
@@ -3116,7 +3267,7 @@ Essas práticas também reforçam a proposta de valor: o cliente que paga mais p
     requireStaff(user);
     return db.leads.slice().sort((a, b) => b.id - a.id).map(l => {
       const p = db.bizplans.find(x => x.lead_id === l.id);
-      return { ...l, plan_id: p ? p.id : null, revenue_band_label: bandLabel(l.revenue_band), progress: p ? BP.progress(p.answers, p.unknown).pct : 0, submitted_at: p ? p.submitted_at : null };
+      return { ...l, plan_id: p ? p.id : null, revenue_band_label: bandLabel(l.revenue_band), progress: p ? BP.progress(p.answers, p.unknown, planIds(p)).pct : 0, submitted_at: p ? p.submitted_at : null };
     });
   });
   route('PATCH', '/api/leads/:id', ({ user, body, id }) => {
@@ -3137,7 +3288,7 @@ Essas práticas também reforçam a proposta de valor: o cliente que paga mais p
   });
   const leadPlan = token => { const p = db.bizplans.find(x => x.token && x.token === token && x.lead_id); if (!p) fail(404, 'Link inválido ou expirado'); return p; };
   const publicPlanOut = p => { const l = db.leads.find(x => x.id === p.lead_id);
-    return { token: p.token, name: l.name, company: l.company, answers: { ...p.answers }, unknown: [...p.unknown], submitted_at: p.submitted_at, progress: BP.progress(p.answers, p.unknown), org: db.org.name }; };
+    return { token: p.token, name: l.name, company: l.company, answers: { ...p.answers }, unknown: [...p.unknown], submitted_at: p.submitted_at, progress: BP.progress(p.answers, p.unknown, BP.SHORT), short: true, org: db.org.name }; };
   route('GET', '/api/public/diagnostico/info', () => ({ org: db.org.name, logo: null, accent: db.org.accent, bands: BP.REVENUE_BANDS }), true);
   route('POST', '/api/public/diagnostico', ({ body }) => {
     const name = str(body.name, 'seu nome', { max: 120 }), company = str(body.company, 'empresa', { max: 160 });
@@ -5919,42 +6070,80 @@ function mdNodes(text) {
 function quiz({ plan, save, submit, intro }) {
   const answers = { ...plan.answers };
   let unknown = [...plan.unknown];
-  const Q = BP.QUESTIONS;
+  // Lead ainda não cliente: o diagnóstico curto; senão, o questionário inteiro.
+  const Q = plan.short ? BP.QUESTIONS.filter(q => BP.SHORT.includes(q.id)) : BP.QUESTIONS;
+  const SECS = BP.SECTIONS.filter(([k]) => Q.some(q => q.s === k));
   const firstOpen = Q.findIndex(q => BP.isEmpty(answers[q.id]) && !unknown.includes(q.id));
   let idx = firstOpen < 0 ? Q.length : firstOpen;
+  let exact = false; // "Sei o valor exato" na pergunta de faixas
   const box = h('div', { class: 'quiz' });
   const secTitle = key => (BP.SECTIONS.find(s => s[0] === key) || [])[1];
-  const fmtNum = v => (v === null || v === undefined || v === '' ? '' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 }));
+  const fmtNum = v => (v === null || v === undefined || v === '' || typeof v !== 'number' ? '' : v.toLocaleString('pt-BR', { maximumFractionDigits: 2 }));
+  const LETTERS = 'ABCDEFGHIJKLMNOP';
+  const pending = { other: '' };
+
+  const optionCard = (q, o, i, selected, onclick, role) => h('button', { type: 'button', role, class: 'quiz-card-opt', 'aria-checked': String(selected), onclick },
+    h('span', { class: 'quiz-key', 'aria-hidden': 'true' }, LETTERS[i] || ''),
+    q.icons && q.icons[o] ? h('span', { class: 'quiz-emoji', 'aria-hidden': 'true' }, q.icons[o]) : null,
+    h('span', { class: 'quiz-opt-text' }, o));
 
   function input(q) {
     const v = answers[q.id];
     if (q.type === 'choice') {
-      return h('div', { class: 'quiz-options', role: 'radiogroup', 'aria-label': q.label }, q.options.map(o => h('button', {
-        type: 'button', role: 'radio', class: 'quiz-option', 'aria-checked': String(v === o),
-        onclick: () => { answers[q.id] = o; next(); },
-      }, o)));
+      return h('div', { class: 'quiz-options', role: 'radiogroup', 'aria-label': q.label },
+        q.options.map((o, i) => optionCard(q, o, i, v === o, () => { answers[q.id] = o; next(); }, 'radio')));
     }
     if (q.type === 'multi') {
-      return h('div', { class: 'quiz-options multi', role: 'group', 'aria-label': q.label }, q.options.map(o => h('label', { class: 'quiz-option' },
-        h('input', { type: 'checkbox', value: o, checked: (v || []).includes(o) }), o)));
+      const sel = new Set(Array.isArray(v) ? v : []);
+      const others = [...sel].filter(x => !q.options.includes(x));
+      const wrap = h('div', {});
+      const paintMulti = () => {
+        wrap.replaceChildren(
+          h('div', { class: 'quiz-options grid', role: 'group', 'aria-label': q.label },
+            q.options.map((o, i) => optionCard(q, o, i, sel.has(o), () => { sel.has(o) ? sel.delete(o) : sel.add(o); answers[q.id] = [...sel]; paintMulti(); }, 'checkbox')),
+            others.map(o => h('button', { type: 'button', role: 'checkbox', class: 'quiz-card-opt', 'aria-checked': 'true',
+              onclick: () => { sel.delete(o); others.splice(others.indexOf(o), 1); answers[q.id] = [...sel]; paintMulti(); } },
+            h('span', { class: 'quiz-emoji', 'aria-hidden': 'true' }, '✏️'), h('span', { class: 'quiz-opt-text' }, o.replace(/^Outro: /, ''))))),
+          q.other ? h('div', { class: 'quiz-other' },
+            h('input', { type: 'text', id: 'quiz-other', maxlength: 120, placeholder: 'Outro? Escreva aqui e toque em Incluir', value: pending.other,
+              oninput: e => { pending.other = e.target.value; },
+              onkeydown: e => { if (e.key === 'Enter') { e.preventDefault(); addOther(); } } }),
+            h('button', { type: 'button', class: 'btn', onclick: () => addOther() }, '+ Incluir')) : null);
+      };
+      const addOther = () => {
+        const t = pending.other.trim();
+        if (!t) return;
+        const val = `Outro: ${t.slice(0, 120)}`;
+        sel.add(val); if (!others.includes(val)) others.push(val);
+        pending.other = ''; answers[q.id] = [...sel]; paintMulti();
+        box.querySelector('#quiz-other')?.focus();
+      };
+      paintMulti();
+      return wrap;
+    }
+    if (q.ranges && !exact && !(typeof v === 'number')) {
+      return h('div', {},
+        h('div', { class: 'quiz-options', role: 'radiogroup', 'aria-label': q.label },
+          q.ranges.map((r, i) => optionCard(q, r[0], i, v === BP.rangeId(r), () => { answers[q.id] = BP.rangeId(r); next(); }, 'radio'))),
+        h('button', { type: 'button', class: 'link quiz-exact', onclick: () => { exact = true; paint(); } }, 'Sei o valor exato'));
     }
     if (q.type === 'long' || q.type === 'list') {
-      return h('textarea', { id: 'quiz-in', rows: 5, placeholder: q.type === 'list' ? 'Um item por linha' : 'Escreva aqui',
+      return h('textarea', { id: 'quiz-in', rows: q.type === 'list' ? 4 : 3, placeholder: q.placeholder || (q.type === 'list' ? 'Um item por linha' : 'Escreva aqui'),
         onkeydown: e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); next(); } } },
       Array.isArray(v) ? v.join('\n') : (v || ''));
     }
     const field = h('input', { id: 'quiz-in', type: 'text', inputmode: q.type === 'text' ? null : (q.type === 'int' ? 'numeric' : 'decimal'), autocomplete: 'off',
       placeholder: q.placeholder || (q.type === 'money' ? '0,00' : q.type === 'percent' ? '0' : ''), maxlength: q.type === 'text' ? 300 : 20,
       value: q.type === 'text' ? (v || '') : fmtNum(v), onkeydown: e => { if (e.key === 'Enter') { e.preventDefault(); next(); } } });
-    if (q.type === 'money') return h('div', { class: 'quiz-affix' }, h('span', {}, 'R$'), field);
-    if (q.type === 'percent') return h('div', { class: 'quiz-affix after' }, field, h('span', {}, '%'));
-    return field;
+    const back = q.ranges ? h('button', { type: 'button', class: 'link quiz-exact', onclick: () => { exact = false; if (typeof answers[q.id] === 'number') delete answers[q.id]; paint(); } }, 'Prefiro escolher uma faixa') : null;
+    if (q.type === 'money') return h('div', {}, h('div', { class: 'quiz-affix' }, h('span', {}, 'R$'), field), back);
+    if (q.type === 'percent') return h('div', {}, h('div', { class: 'quiz-affix after' }, field, h('span', {}, '%')), back);
+    return h('div', {}, field, back);
   }
   function read(q) {
-    if (q.type === 'choice') return answers[q.id] ?? null;
-    if (q.type === 'multi') return [...box.querySelectorAll('.quiz-options input:checked')].map(i => i.value);
+    if (q.type === 'choice' || q.type === 'multi') return answers[q.id] ?? null;
     const el = box.querySelector('#quiz-in');
-    if (!el) return null;
+    if (!el) return answers[q.id] ?? null; // faixa escolhida
     if (['money', 'percent', 'int'].includes(q.type)) {
       const raw = el.value.trim();
       if (!raw) return null;
@@ -5968,6 +6157,8 @@ function quiz({ plan, save, submit, intro }) {
   async function commit(to, { markUnknown = false } = {}) {
     if (idx < Q.length) {
       const q = Q[idx];
+      if (q.type === 'multi' && pending.other.trim()) { const t = `Outro: ${pending.other.trim().slice(0, 120)}`; answers[q.id] = [...new Set([...(answers[q.id] || []), t])]; }
+      pending.other = '';
       let patch = null;
       if (markUnknown) {
         if (!unknown.includes(q.id)) { unknown = [...unknown, q.id]; delete answers[q.id]; patch = { unknown }; }
@@ -5986,56 +6177,79 @@ function quiz({ plan, save, submit, intro }) {
       }
     }
     idx = Math.max(0, Math.min(Q.length, to));
+    exact = false;
     paint();
+    box.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
   const next = guard(() => commit(idx + 1));
   const back = guard(() => commit(idx - 1));
+  // Teclado: letras escolhem a opção, Enter avança.
+  box.addEventListener('keydown', e => {
+    if (e.target.matches('input, textarea, select') || e.ctrlKey || e.metaKey || e.altKey) return;
+    const i = LETTERS.indexOf(e.key.toUpperCase());
+    const opts = box.querySelectorAll('.quiz-options .quiz-card-opt');
+    if (i >= 0 && i < opts.length && e.key.length === 1) { e.preventDefault(); opts[i].click(); }
+    else if (e.key === 'Enter' && idx < Q.length) { e.preventDefault(); next(); }
+  });
 
   function paint() {
     box.replaceChildren();
-    const pr = BP.progress(answers, unknown);
+    const pr = BP.progress(answers, unknown, plan.short ? BP.SHORT : null);
     const bar = h('div', { class: 'quiz-progress' }, h('div', { class: 'progress' }, h('div', { class: 'bar', role: 'progressbar', 'aria-valuenow': pr.pct, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': 'Respondido' },
       h('span', { style: `width:${pr.pct}%` })), h('span', { class: 'pct' }, `${pr.pct}%`)));
     const jump = h('select', { class: 'quiz-jump', 'aria-label': 'Ir para a parte', onchange: guard(async e => {
       const target = e.target.value === 'fim' ? Q.length : Q.findIndex(q => q.s === e.target.value);
       await commit(target);
-    }) }, BP.SECTIONS.map(([k, t]) => { const s = pr.bySection.find(x => x.key === k); return h('option', { value: k, selected: idx < Q.length && Q[idx].s === k }, `${t} (${s.done}/${s.total})`); }),
+    }) }, SECS.map(([k, t]) => { const s = pr.bySection.find(x => x.key === k); return h('option', { value: k, selected: idx < Q.length && Q[idx].s === k }, `${t} (${s.done}/${s.total})`); }),
     h('option', { value: 'fim', selected: idx >= Q.length }, 'Revisar e enviar'));
     if (idx >= Q.length) {
-      const pending = Q.filter(q => BP.isEmpty(answers[q.id]) && !unknown.includes(q.id));
+      const missing = Q.filter(q => BP.isEmpty(answers[q.id]) && !unknown.includes(q.id));
       box.append(h('div', { class: 'quiz-head' }, jump, bar),
-        h('div', { class: 'card-box quiz-card' },
-          h('h2', {}, plan.submitted_at ? 'Respostas enviadas' : 'Revisar e enviar'),
-          h('p', {}, `${pr.done} de ${pr.total} perguntas respondidas${unknown.length ? `, ${unknown.length} marcadas como "não sei" (vamos ver juntos na reunião)` : ''}.`),
-          pending.length ? [h('p', { class: 'muted' }, `Ainda sem resposta (${pending.length}):`),
-            h('ul', { class: 'quiz-pending' }, pending.slice(0, 12).map(q => h('li', {}, h('button', { type: 'button', class: 'link', onclick: guard(() => commit(Q.indexOf(q))) }, q.label))),
-              pending.length > 12 ? h('li', { class: 'muted' }, `e mais ${pending.length - 12}`) : null)] : null,
-          h('div', { class: 'row', style: 'margin-top:12px' },
+        h('div', { class: 'card-box quiz-card quiz-end' },
+          h('div', { class: 'quiz-big-emoji', 'aria-hidden': 'true' }, plan.submitted_at ? '✅' : missing.length ? '📝' : '🎉'),
+          h('h2', {}, plan.submitted_at ? 'Respostas enviadas' : missing.length ? 'Quase lá!' : 'Tudo respondido!'),
+          h('p', {}, `${pr.done} de ${pr.total} perguntas respondidas${unknown.length ? `, ${unknown.length} como "não sei" (vamos ver juntos na reunião)` : ''}.`),
+          missing.length ? [h('p', { class: 'muted' }, `Ainda sem resposta (${missing.length}):`),
+            h('ul', { class: 'quiz-pending' }, missing.slice(0, 12).map(q => h('li', {}, h('button', { type: 'button', class: 'link', onclick: guard(() => commit(Q.indexOf(q))) }, q.label))),
+              missing.length > 12 ? h('li', { class: 'muted' }, `e mais ${missing.length - 12}`) : null)] : null,
+          h('div', { class: 'row', style: 'margin-top:12px; justify-content:center' },
             h('button', { class: 'btn', type: 'button', onclick: back }, '‹ Voltar'),
             plan.submitted_at ? h('span', { class: 'muted small' }, `Enviado em ${fmtDateTime(plan.submitted_at)}. Você ainda pode mudar as respostas.`)
-              : h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
-                if (pending.length && !(await ask(`Faltam ${pending.length} perguntas. Enviar assim mesmo? Dá para completar depois ou na reunião.`, { ok: 'Enviar' }))) return;
+              : h('button', { class: 'btn primary big', type: 'button', onclick: guard(async () => {
+                if (missing.length && !(await ask(`Faltam ${missing.length} perguntas. Enviar assim mesmo? Dá para completar depois ou na reunião.`, { ok: 'Enviar' }))) return;
                 const out = await submit(); Object.assign(plan, out); paint();
               }) }, icon('check'), submit.label || 'Enviar respostas'))));
       return;
     }
     const q = Q[idx];
     const isUnknown = unknown.includes(q.id);
+    const secIdx = SECS.findIndex(([k]) => k === q.s);
+    const firstOfSec = idx === 0 || Q[idx - 1].s !== q.s;
+    const half = Math.floor(Q.length / 2);
+    const banner = idx === half && Q.length > 8 ? h('div', { class: 'quiz-cheer' }, '🎉 Metade feita! Continue, falta pouco.')
+      : firstOfSec ? h('div', { class: 'quiz-section' }, h('span', {}, `Parte ${secIdx + 1} de ${SECS.length}`), h('strong', {}, secTitle(q.s)),
+        h('span', {}, `${Q.filter(x => x.s === q.s).length} pergunta${Q.filter(x => x.s === q.s).length > 1 ? 's' : ''} rápida${Q.filter(x => x.s === q.s).length > 1 ? 's' : ''}`)) : null;
+    const isChoiceLike = q.type === 'choice' || (q.ranges && !exact && typeof answers[q.id] !== 'number');
     box.append(...[h('div', { class: 'quiz-head' }, jump, bar),
       idx === 0 && intro ? intro : null,
       h('div', { class: 'card-box quiz-card' },
-        h('div', { class: 'quiz-meta' }, `${secTitle(q.s)} · pergunta ${idx + 1} de ${Q.length}`),
+        banner,
+        h('div', { class: 'quiz-meta' }, `${secTitle(q.s)} · ${idx + 1} de ${Q.length}`),
         h('h2', { class: 'quiz-q' }, h('label', { for: 'quiz-in' }, q.label)),
         q.help ? h('p', { class: 'muted quiz-help' }, q.help) : null,
+        q.what ? h('details', { class: 'quiz-what' }, h('summary', {}, 'O que é isso?'), h('p', {}, q.what)) : null,
         input(q),
         isUnknown ? h('p', { class: 'quiz-unknown' }, 'Marcada como "não sei": vamos ver juntos na reunião. Se souber agora, é só responder.') : null,
         h('div', { class: 'quiz-actions' },
           h('button', { class: 'btn', type: 'button', onclick: back, disabled: idx === 0 }, '‹ Voltar'),
-          h('button', { class: 'btn ghost', type: 'button', onclick: guard(() => commit(idx + 1, { markUnknown: true })) }, 'Não sei'),
-          h('button', { class: 'btn primary', type: 'button', onclick: next }, idx === Q.length - 1 ? 'Concluir ›' : 'Próxima ›')),
-        ['long', 'list'].includes(q.type) ? h('p', { class: 'muted small' }, 'Dica: Ctrl+Enter vai para a próxima.') : null)].filter(Boolean));
+          h('button', { class: 'btn ghost', type: 'button', onclick: guard(() => commit(idx + 1, { markUnknown: true })) }, '🤷 Não sei'),
+          isChoiceLike && BP.isEmpty(answers[q.id]) ? null : h('button', { class: 'btn primary', type: 'button', onclick: next }, idx === Q.length - 1 ? 'Concluir ›' : 'Próxima ›')),
+        isChoiceLike ? h('p', { class: 'muted small quiz-tip' }, 'Toque numa opção (ou aperte a letra) e já vamos para a próxima.')
+          : q.type === 'multi' ? h('p', { class: 'muted small quiz-tip' }, 'Marque quantas quiser e toque em Próxima.')
+            : ['long', 'list'].includes(q.type) ? h('p', { class: 'muted small quiz-tip' }, 'Dica: Ctrl+Enter vai para a próxima.') : null)].filter(Boolean));
     const el = box.querySelector('#quiz-in');
     if (el && !matchMedia('(pointer: coarse)').matches) el.focus({ preventScroll: true });
+    else if (!el) box.querySelector('.quiz-card')?.setAttribute('tabindex', '-1');
   }
   paint();
   return box;

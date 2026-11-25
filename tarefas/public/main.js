@@ -2144,42 +2144,80 @@ function mdNodes(text) {
 function quiz({ plan, save, submit, intro }) {
   const answers = { ...plan.answers };
   let unknown = [...plan.unknown];
-  const Q = BP.QUESTIONS;
+  // Lead ainda não cliente: o diagnóstico curto; senão, o questionário inteiro.
+  const Q = plan.short ? BP.QUESTIONS.filter(q => BP.SHORT.includes(q.id)) : BP.QUESTIONS;
+  const SECS = BP.SECTIONS.filter(([k]) => Q.some(q => q.s === k));
   const firstOpen = Q.findIndex(q => BP.isEmpty(answers[q.id]) && !unknown.includes(q.id));
   let idx = firstOpen < 0 ? Q.length : firstOpen;
+  let exact = false; // "Sei o valor exato" na pergunta de faixas
   const box = h('div', { class: 'quiz' });
   const secTitle = key => (BP.SECTIONS.find(s => s[0] === key) || [])[1];
-  const fmtNum = v => (v === null || v === undefined || v === '' ? '' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 }));
+  const fmtNum = v => (v === null || v === undefined || v === '' || typeof v !== 'number' ? '' : v.toLocaleString('pt-BR', { maximumFractionDigits: 2 }));
+  const LETTERS = 'ABCDEFGHIJKLMNOP';
+  const pending = { other: '' };
+
+  const optionCard = (q, o, i, selected, onclick, role) => h('button', { type: 'button', role, class: 'quiz-card-opt', 'aria-checked': String(selected), onclick },
+    h('span', { class: 'quiz-key', 'aria-hidden': 'true' }, LETTERS[i] || ''),
+    q.icons && q.icons[o] ? h('span', { class: 'quiz-emoji', 'aria-hidden': 'true' }, q.icons[o]) : null,
+    h('span', { class: 'quiz-opt-text' }, o));
 
   function input(q) {
     const v = answers[q.id];
     if (q.type === 'choice') {
-      return h('div', { class: 'quiz-options', role: 'radiogroup', 'aria-label': q.label }, q.options.map(o => h('button', {
-        type: 'button', role: 'radio', class: 'quiz-option', 'aria-checked': String(v === o),
-        onclick: () => { answers[q.id] = o; next(); },
-      }, o)));
+      return h('div', { class: 'quiz-options', role: 'radiogroup', 'aria-label': q.label },
+        q.options.map((o, i) => optionCard(q, o, i, v === o, () => { answers[q.id] = o; next(); }, 'radio')));
     }
     if (q.type === 'multi') {
-      return h('div', { class: 'quiz-options multi', role: 'group', 'aria-label': q.label }, q.options.map(o => h('label', { class: 'quiz-option' },
-        h('input', { type: 'checkbox', value: o, checked: (v || []).includes(o) }), o)));
+      const sel = new Set(Array.isArray(v) ? v : []);
+      const others = [...sel].filter(x => !q.options.includes(x));
+      const wrap = h('div', {});
+      const paintMulti = () => {
+        wrap.replaceChildren(
+          h('div', { class: 'quiz-options grid', role: 'group', 'aria-label': q.label },
+            q.options.map((o, i) => optionCard(q, o, i, sel.has(o), () => { sel.has(o) ? sel.delete(o) : sel.add(o); answers[q.id] = [...sel]; paintMulti(); }, 'checkbox')),
+            others.map(o => h('button', { type: 'button', role: 'checkbox', class: 'quiz-card-opt', 'aria-checked': 'true',
+              onclick: () => { sel.delete(o); others.splice(others.indexOf(o), 1); answers[q.id] = [...sel]; paintMulti(); } },
+            h('span', { class: 'quiz-emoji', 'aria-hidden': 'true' }, '✏️'), h('span', { class: 'quiz-opt-text' }, o.replace(/^Outro: /, ''))))),
+          q.other ? h('div', { class: 'quiz-other' },
+            h('input', { type: 'text', id: 'quiz-other', maxlength: 120, placeholder: 'Outro? Escreva aqui e toque em Incluir', value: pending.other,
+              oninput: e => { pending.other = e.target.value; },
+              onkeydown: e => { if (e.key === 'Enter') { e.preventDefault(); addOther(); } } }),
+            h('button', { type: 'button', class: 'btn', onclick: () => addOther() }, '+ Incluir')) : null);
+      };
+      const addOther = () => {
+        const t = pending.other.trim();
+        if (!t) return;
+        const val = `Outro: ${t.slice(0, 120)}`;
+        sel.add(val); if (!others.includes(val)) others.push(val);
+        pending.other = ''; answers[q.id] = [...sel]; paintMulti();
+        box.querySelector('#quiz-other')?.focus();
+      };
+      paintMulti();
+      return wrap;
+    }
+    if (q.ranges && !exact && !(typeof v === 'number')) {
+      return h('div', {},
+        h('div', { class: 'quiz-options', role: 'radiogroup', 'aria-label': q.label },
+          q.ranges.map((r, i) => optionCard(q, r[0], i, v === BP.rangeId(r), () => { answers[q.id] = BP.rangeId(r); next(); }, 'radio'))),
+        h('button', { type: 'button', class: 'link quiz-exact', onclick: () => { exact = true; paint(); } }, 'Sei o valor exato'));
     }
     if (q.type === 'long' || q.type === 'list') {
-      return h('textarea', { id: 'quiz-in', rows: 5, placeholder: q.type === 'list' ? 'Um item por linha' : 'Escreva aqui',
+      return h('textarea', { id: 'quiz-in', rows: q.type === 'list' ? 4 : 3, placeholder: q.placeholder || (q.type === 'list' ? 'Um item por linha' : 'Escreva aqui'),
         onkeydown: e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); next(); } } },
       Array.isArray(v) ? v.join('\n') : (v || ''));
     }
     const field = h('input', { id: 'quiz-in', type: 'text', inputmode: q.type === 'text' ? null : (q.type === 'int' ? 'numeric' : 'decimal'), autocomplete: 'off',
       placeholder: q.placeholder || (q.type === 'money' ? '0,00' : q.type === 'percent' ? '0' : ''), maxlength: q.type === 'text' ? 300 : 20,
       value: q.type === 'text' ? (v || '') : fmtNum(v), onkeydown: e => { if (e.key === 'Enter') { e.preventDefault(); next(); } } });
-    if (q.type === 'money') return h('div', { class: 'quiz-affix' }, h('span', {}, 'R$'), field);
-    if (q.type === 'percent') return h('div', { class: 'quiz-affix after' }, field, h('span', {}, '%'));
-    return field;
+    const back = q.ranges ? h('button', { type: 'button', class: 'link quiz-exact', onclick: () => { exact = false; if (typeof answers[q.id] === 'number') delete answers[q.id]; paint(); } }, 'Prefiro escolher uma faixa') : null;
+    if (q.type === 'money') return h('div', {}, h('div', { class: 'quiz-affix' }, h('span', {}, 'R$'), field), back);
+    if (q.type === 'percent') return h('div', {}, h('div', { class: 'quiz-affix after' }, field, h('span', {}, '%')), back);
+    return h('div', {}, field, back);
   }
   function read(q) {
-    if (q.type === 'choice') return answers[q.id] ?? null;
-    if (q.type === 'multi') return [...box.querySelectorAll('.quiz-options input:checked')].map(i => i.value);
+    if (q.type === 'choice' || q.type === 'multi') return answers[q.id] ?? null;
     const el = box.querySelector('#quiz-in');
-    if (!el) return null;
+    if (!el) return answers[q.id] ?? null; // faixa escolhida
     if (['money', 'percent', 'int'].includes(q.type)) {
       const raw = el.value.trim();
       if (!raw) return null;
@@ -2193,6 +2231,8 @@ function quiz({ plan, save, submit, intro }) {
   async function commit(to, { markUnknown = false } = {}) {
     if (idx < Q.length) {
       const q = Q[idx];
+      if (q.type === 'multi' && pending.other.trim()) { const t = `Outro: ${pending.other.trim().slice(0, 120)}`; answers[q.id] = [...new Set([...(answers[q.id] || []), t])]; }
+      pending.other = '';
       let patch = null;
       if (markUnknown) {
         if (!unknown.includes(q.id)) { unknown = [...unknown, q.id]; delete answers[q.id]; patch = { unknown }; }
@@ -2211,56 +2251,79 @@ function quiz({ plan, save, submit, intro }) {
       }
     }
     idx = Math.max(0, Math.min(Q.length, to));
+    exact = false;
     paint();
+    box.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
   const next = guard(() => commit(idx + 1));
   const back = guard(() => commit(idx - 1));
+  // Teclado: letras escolhem a opção, Enter avança.
+  box.addEventListener('keydown', e => {
+    if (e.target.matches('input, textarea, select') || e.ctrlKey || e.metaKey || e.altKey) return;
+    const i = LETTERS.indexOf(e.key.toUpperCase());
+    const opts = box.querySelectorAll('.quiz-options .quiz-card-opt');
+    if (i >= 0 && i < opts.length && e.key.length === 1) { e.preventDefault(); opts[i].click(); }
+    else if (e.key === 'Enter' && idx < Q.length) { e.preventDefault(); next(); }
+  });
 
   function paint() {
     box.replaceChildren();
-    const pr = BP.progress(answers, unknown);
+    const pr = BP.progress(answers, unknown, plan.short ? BP.SHORT : null);
     const bar = h('div', { class: 'quiz-progress' }, h('div', { class: 'progress' }, h('div', { class: 'bar', role: 'progressbar', 'aria-valuenow': pr.pct, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': 'Respondido' },
       h('span', { style: `width:${pr.pct}%` })), h('span', { class: 'pct' }, `${pr.pct}%`)));
     const jump = h('select', { class: 'quiz-jump', 'aria-label': 'Ir para a parte', onchange: guard(async e => {
       const target = e.target.value === 'fim' ? Q.length : Q.findIndex(q => q.s === e.target.value);
       await commit(target);
-    }) }, BP.SECTIONS.map(([k, t]) => { const s = pr.bySection.find(x => x.key === k); return h('option', { value: k, selected: idx < Q.length && Q[idx].s === k }, `${t} (${s.done}/${s.total})`); }),
+    }) }, SECS.map(([k, t]) => { const s = pr.bySection.find(x => x.key === k); return h('option', { value: k, selected: idx < Q.length && Q[idx].s === k }, `${t} (${s.done}/${s.total})`); }),
     h('option', { value: 'fim', selected: idx >= Q.length }, 'Revisar e enviar'));
     if (idx >= Q.length) {
-      const pending = Q.filter(q => BP.isEmpty(answers[q.id]) && !unknown.includes(q.id));
+      const missing = Q.filter(q => BP.isEmpty(answers[q.id]) && !unknown.includes(q.id));
       box.append(h('div', { class: 'quiz-head' }, jump, bar),
-        h('div', { class: 'card-box quiz-card' },
-          h('h2', {}, plan.submitted_at ? 'Respostas enviadas' : 'Revisar e enviar'),
-          h('p', {}, `${pr.done} de ${pr.total} perguntas respondidas${unknown.length ? `, ${unknown.length} marcadas como "não sei" (vamos ver juntos na reunião)` : ''}.`),
-          pending.length ? [h('p', { class: 'muted' }, `Ainda sem resposta (${pending.length}):`),
-            h('ul', { class: 'quiz-pending' }, pending.slice(0, 12).map(q => h('li', {}, h('button', { type: 'button', class: 'link', onclick: guard(() => commit(Q.indexOf(q))) }, q.label))),
-              pending.length > 12 ? h('li', { class: 'muted' }, `e mais ${pending.length - 12}`) : null)] : null,
-          h('div', { class: 'row', style: 'margin-top:12px' },
+        h('div', { class: 'card-box quiz-card quiz-end' },
+          h('div', { class: 'quiz-big-emoji', 'aria-hidden': 'true' }, plan.submitted_at ? '✅' : missing.length ? '📝' : '🎉'),
+          h('h2', {}, plan.submitted_at ? 'Respostas enviadas' : missing.length ? 'Quase lá!' : 'Tudo respondido!'),
+          h('p', {}, `${pr.done} de ${pr.total} perguntas respondidas${unknown.length ? `, ${unknown.length} como "não sei" (vamos ver juntos na reunião)` : ''}.`),
+          missing.length ? [h('p', { class: 'muted' }, `Ainda sem resposta (${missing.length}):`),
+            h('ul', { class: 'quiz-pending' }, missing.slice(0, 12).map(q => h('li', {}, h('button', { type: 'button', class: 'link', onclick: guard(() => commit(Q.indexOf(q))) }, q.label))),
+              missing.length > 12 ? h('li', { class: 'muted' }, `e mais ${missing.length - 12}`) : null)] : null,
+          h('div', { class: 'row', style: 'margin-top:12px; justify-content:center' },
             h('button', { class: 'btn', type: 'button', onclick: back }, '‹ Voltar'),
             plan.submitted_at ? h('span', { class: 'muted small' }, `Enviado em ${fmtDateTime(plan.submitted_at)}. Você ainda pode mudar as respostas.`)
-              : h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
-                if (pending.length && !(await ask(`Faltam ${pending.length} perguntas. Enviar assim mesmo? Dá para completar depois ou na reunião.`, { ok: 'Enviar' }))) return;
+              : h('button', { class: 'btn primary big', type: 'button', onclick: guard(async () => {
+                if (missing.length && !(await ask(`Faltam ${missing.length} perguntas. Enviar assim mesmo? Dá para completar depois ou na reunião.`, { ok: 'Enviar' }))) return;
                 const out = await submit(); Object.assign(plan, out); paint();
               }) }, icon('check'), submit.label || 'Enviar respostas'))));
       return;
     }
     const q = Q[idx];
     const isUnknown = unknown.includes(q.id);
+    const secIdx = SECS.findIndex(([k]) => k === q.s);
+    const firstOfSec = idx === 0 || Q[idx - 1].s !== q.s;
+    const half = Math.floor(Q.length / 2);
+    const banner = idx === half && Q.length > 8 ? h('div', { class: 'quiz-cheer' }, '🎉 Metade feita! Continue, falta pouco.')
+      : firstOfSec ? h('div', { class: 'quiz-section' }, h('span', {}, `Parte ${secIdx + 1} de ${SECS.length}`), h('strong', {}, secTitle(q.s)),
+        h('span', {}, `${Q.filter(x => x.s === q.s).length} pergunta${Q.filter(x => x.s === q.s).length > 1 ? 's' : ''} rápida${Q.filter(x => x.s === q.s).length > 1 ? 's' : ''}`)) : null;
+    const isChoiceLike = q.type === 'choice' || (q.ranges && !exact && typeof answers[q.id] !== 'number');
     box.append(...[h('div', { class: 'quiz-head' }, jump, bar),
       idx === 0 && intro ? intro : null,
       h('div', { class: 'card-box quiz-card' },
-        h('div', { class: 'quiz-meta' }, `${secTitle(q.s)} · pergunta ${idx + 1} de ${Q.length}`),
+        banner,
+        h('div', { class: 'quiz-meta' }, `${secTitle(q.s)} · ${idx + 1} de ${Q.length}`),
         h('h2', { class: 'quiz-q' }, h('label', { for: 'quiz-in' }, q.label)),
         q.help ? h('p', { class: 'muted quiz-help' }, q.help) : null,
+        q.what ? h('details', { class: 'quiz-what' }, h('summary', {}, 'O que é isso?'), h('p', {}, q.what)) : null,
         input(q),
         isUnknown ? h('p', { class: 'quiz-unknown' }, 'Marcada como "não sei": vamos ver juntos na reunião. Se souber agora, é só responder.') : null,
         h('div', { class: 'quiz-actions' },
           h('button', { class: 'btn', type: 'button', onclick: back, disabled: idx === 0 }, '‹ Voltar'),
-          h('button', { class: 'btn ghost', type: 'button', onclick: guard(() => commit(idx + 1, { markUnknown: true })) }, 'Não sei'),
-          h('button', { class: 'btn primary', type: 'button', onclick: next }, idx === Q.length - 1 ? 'Concluir ›' : 'Próxima ›')),
-        ['long', 'list'].includes(q.type) ? h('p', { class: 'muted small' }, 'Dica: Ctrl+Enter vai para a próxima.') : null)].filter(Boolean));
+          h('button', { class: 'btn ghost', type: 'button', onclick: guard(() => commit(idx + 1, { markUnknown: true })) }, '🤷 Não sei'),
+          isChoiceLike && BP.isEmpty(answers[q.id]) ? null : h('button', { class: 'btn primary', type: 'button', onclick: next }, idx === Q.length - 1 ? 'Concluir ›' : 'Próxima ›')),
+        isChoiceLike ? h('p', { class: 'muted small quiz-tip' }, 'Toque numa opção (ou aperte a letra) e já vamos para a próxima.')
+          : q.type === 'multi' ? h('p', { class: 'muted small quiz-tip' }, 'Marque quantas quiser e toque em Próxima.')
+            : ['long', 'list'].includes(q.type) ? h('p', { class: 'muted small quiz-tip' }, 'Dica: Ctrl+Enter vai para a próxima.') : null)].filter(Boolean));
     const el = box.querySelector('#quiz-in');
     if (el && !matchMedia('(pointer: coarse)').matches) el.focus({ preventScroll: true });
+    else if (!el) box.querySelector('.quiz-card')?.setAttribute('tabindex', '-1');
   }
   paint();
   return box;

@@ -1072,10 +1072,12 @@ const planMeta = (db, p) => {
   const band = lead && (BP.REVENUE_BANDS.find(b => b[0] === lead.revenue_band) || [])[1];
   return { lead, client, company: client?.name || lead?.company || '', revenue_band: band || '' };
 };
+// Lead que ainda não virou cliente responde o diagnóstico curto; cliente, o questionário inteiro.
+const planIds = p => (p.lead_id && !p.client_id ? BP.SHORT : null);
 function planSummary(db, p) {
   const m = planMeta(db, p);
   return { id: p.id, title: p.title, client_id: p.client_id, client_name: m.client?.name || null, lead_id: p.lead_id, lead_company: m.lead?.company || null,
-    progress: BP.progress(JSON.parse(p.answers), JSON.parse(p.unknown)), submitted_at: p.submitted_at, doc_status: p.doc_status, shared: !!p.shared, updated_at: p.updated_at };
+    progress: BP.progress(JSON.parse(p.answers), JSON.parse(p.unknown), planIds(p)), short: !!planIds(p), submitted_at: p.submitted_at, doc_status: p.doc_status, shared: !!p.shared, updated_at: p.updated_at };
 }
 function planOut(db, user, p) {
   const answers = JSON.parse(p.answers), unknown = JSON.parse(p.unknown);
@@ -1278,9 +1280,9 @@ route('GET', '/api/leads', ({ db, user }) => {
   requireStaff(user);
   return db.prepare(`select l.*, (select id from bizplans b where b.lead_id = l.id order by id limit 1) as plan_id from leads l where l.org_id = ? order by l.id desc`).all(user.org_id)
     .map(l => {
-      const p = l.plan_id && db.prepare('select answers, unknown, submitted_at from bizplans where id = ?').get(l.plan_id);
+      const p = l.plan_id && db.prepare('select answers, unknown, submitted_at, lead_id, client_id from bizplans where id = ?').get(l.plan_id);
       return { ...l, revenue_band_label: (BP.REVENUE_BANDS.find(b => b[0] === l.revenue_band) || [])[1] || l.revenue_band,
-        progress: p ? BP.progress(JSON.parse(p.answers), JSON.parse(p.unknown)).pct : 0, submitted_at: p ? p.submitted_at : null };
+        progress: p ? BP.progress(JSON.parse(p.answers), JSON.parse(p.unknown), planIds(p)).pct : 0, submitted_at: p ? p.submitted_at : null };
     });
 });
 route('PATCH', '/api/leads/:id', ({ db, user, body, params }) => {
@@ -1324,7 +1326,7 @@ const leadPlan = (db, token) => {
 const publicPlanOut = (db, p) => {
   const l = db.prepare('select name, company from leads where id = ?').get(p.lead_id);
   return { token: p.token, name: l.name, company: l.company, answers: JSON.parse(p.answers), unknown: JSON.parse(p.unknown), submitted_at: p.submitted_at,
-    progress: BP.progress(JSON.parse(p.answers), JSON.parse(p.unknown)), org: db.prepare('select name from orgs where id = ?').get(p.org_id).name };
+    progress: BP.progress(JSON.parse(p.answers), JSON.parse(p.unknown), BP.SHORT), short: true, org: db.prepare('select name from orgs where id = ?').get(p.org_id).name };
 };
 route('GET', '/api/public/diagnostico/info', ({ db }) => {
   const org = db.prepare('select name, logo, accent from orgs order by id limit 1').get();

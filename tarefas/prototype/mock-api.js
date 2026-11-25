@@ -5,7 +5,7 @@
 // Os dados são fictícios e ficam só neste navegador (localStorage, quando disponível).
 (function () {
   const S = window.Shared;
-  const KEY = 'tarefas-prototipo-v9';
+  const KEY = 'tarefas-prototipo-v10';
   const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
   const d = n => S.addDays(S.today(), n);
 
@@ -99,17 +99,17 @@
     // Plano de negócio da Padaria (meio respondido) e um lead do diagnóstico.
     db.bizplans = [{ id: 300, client_id: 1, lead_id: null, title: 'Plano de negócio · Padaria Exemplo', token: null, submitted_at: null, doc: null, doc_status: 'none',
       doc_error: null, doc_source: null, shared: 0, created_by: 1, created_at: now(), updated_at: now(), unknown: ['m_size', 'c_concentration'],
-      answers: { b_name: 'Padaria Exemplo', b_segment: 'Alimentação', b_stage: 'Crescendo', b_since: 2018, b_location: 'Campinas/SP, bairro Cambuí e entregas pela cidade',
+      answers: { b_name: 'Padaria Exemplo', b_segment: 'Alimentação', b_stage: 'Crescendo', b_since: '3 a 10 anos', b_location: 'Campinas/SP, bairro Cambuí e entregas pela cidade',
         b_what: 'Pães artesanais de fermentação natural, cafés especiais e encomendas para eventos.', b_problem: 'Quem quer pão fresco e saudável perto de casa, sem conservantes.',
-        b_purpose: 'Ser a padaria artesanal de referência da cidade e abrir mais duas lojas em 5 anos.', b_values: ['Qualidade dos ingredientes', 'Atendimento próximo', 'Respeito à equipe'],
+        b_purpose: 'Ser a padaria artesanal de referência da cidade e abrir mais duas lojas em 5 anos.', b_values: ['Qualidade', 'Atendimento próximo', 'Respeito à equipe'],
         c_type: ['Pessoas (consumidor final)', 'Empresas'], c_ideal: 'Famílias e profissionais de 25 a 55 anos do bairro, que valorizam comida de verdade e pagam um pouco mais por isso; cafés e restaurantes que revendem.',
-        c_pains: ['Pão industrializado sem sabor', 'Pouco tempo para ir longe', 'Encomendas que atrasam'], c_why: 'Fermentação natural feita na hora e atendimento que conhece o cliente pelo nome.', c_count: 900,
-        m_region: 'Bairro ou cidade', m_trends: ['Procura por alimentação saudável', 'Pedidos por aplicativo e WhatsApp', 'Custo do trigo em alta'],
+        c_pains: ['Baixa qualidade', 'Falta de tempo', 'Demora na entrega', 'Outro: pão industrializado sem sabor'], c_why: 'Fermentação natural feita na hora e atendimento que conhece o cliente pelo nome.', c_count: 900,
+        m_region: 'Bairro ou cidade', m_trends: ['Mais procura por saúde e bem-estar', 'Clientes comprando mais pela internet', 'Custos subindo'],
         k_list: ['Padaria Central', 'Supermercados do bairro', 'Panificadoras de aplicativo'], k_better: 'Preço menor e mais pontos de venda.', k_worse: 'Sabor, frescor e atendimento.', k_price: 'Mais caro',
         p_list: ['Pães de fermentação natural', 'Cafés especiais', 'Encomendas para eventos'], p_model: ['Venda avulsa', 'Contrato ou projeto'], p_ticket: 38, p_sales: 1400, p_repeat: 'Com frequência',
         s_channels: ['Indicação', 'Instagram', 'WhatsApp', 'Loja física'], s_spend: 2500,
         f_revenue: 52000, f_fixed: 16000, f_variable: 38, f_tax: 6, f_prolabore: 9000, f_debt: 1500, f_growth: 2, f_invest: 80000, f_own: 30000,
-        r_goals: ['Faturar R$ 80 mil por mês', 'Abrir um quiosque no shopping', 'Lançar assinatura semanal de pães'], r_risks: ['Alta do trigo', 'Saída do padeiro-chefe'] } }];
+        r_goals: ['Faturar R$ 80 mil por mês', 'Abrir um quiosque no shopping', 'Lançar assinatura semanal de pães'], r_risks: ['Alta dos custos', 'Saída de alguém-chave da equipe'] } }];
     db.leads = [{ id: 310, name: 'Fábio Souza', company: 'Mercado Bom Preço', cnpj: '11.222.333/0001-81', email: 'fabio@mercadobom.com.br', phone: '(19) 99999-0000',
       revenue_band: 'ate-1m', status: 'new', notes: '', client_id: null, consent_at: now(), created_at: now() }];
     db.bizplans.push({ id: 311, client_id: null, lead_id: 310, title: 'Diagnóstico · Mercado Bom Preço', token: 'exemplo-de-link-do-lead-0001', submitted_at: now(), doc: null, doc_status: 'none',
@@ -1006,9 +1006,10 @@
   const loadPlan = (user, pid) => { const p = db.bizplans.find(x => x.id === pid); if (!canSeePlan(user, p)) fail(404, 'Plano não encontrado'); return p; };
   const planMeta = p => { const lead = p.lead_id ? db.leads.find(l => l.id === p.lead_id) : null; const client = p.client_id ? clientOf(p.client_id) : null;
     return { lead, client, company: (client && client.name) || (lead && lead.company) || '', revenue_band: lead ? bandLabel(lead.revenue_band) : '' }; };
+  const planIds = p => (p.lead_id && !p.client_id ? BP.SHORT : null);
   const planSummary = p => { const m = planMeta(p);
     return { id: p.id, title: p.title, client_id: p.client_id, client_name: m.client ? m.client.name : null, lead_id: p.lead_id, lead_company: m.lead ? m.lead.company : null,
-      progress: BP.progress(p.answers, p.unknown), submitted_at: p.submitted_at, doc_status: p.doc_status, shared: !!p.shared, updated_at: p.updated_at }; };
+      progress: BP.progress(p.answers, p.unknown, planIds(p)), short: !!planIds(p), submitted_at: p.submitted_at, doc_status: p.doc_status, shared: !!p.shared, updated_at: p.updated_at }; };
   function planOut(user, p) {
     const staff = user.role !== 'client';
     const showDoc = staff || (p.shared && p.doc_status === 'ready');
@@ -1130,7 +1131,7 @@
     requireStaff(user);
     return db.leads.slice().sort((a, b) => b.id - a.id).map(l => {
       const p = db.bizplans.find(x => x.lead_id === l.id);
-      return { ...l, plan_id: p ? p.id : null, revenue_band_label: bandLabel(l.revenue_band), progress: p ? BP.progress(p.answers, p.unknown).pct : 0, submitted_at: p ? p.submitted_at : null };
+      return { ...l, plan_id: p ? p.id : null, revenue_band_label: bandLabel(l.revenue_band), progress: p ? BP.progress(p.answers, p.unknown, planIds(p)).pct : 0, submitted_at: p ? p.submitted_at : null };
     });
   });
   route('PATCH', '/api/leads/:id', ({ user, body, id }) => {
@@ -1151,7 +1152,7 @@
   });
   const leadPlan = token => { const p = db.bizplans.find(x => x.token && x.token === token && x.lead_id); if (!p) fail(404, 'Link inválido ou expirado'); return p; };
   const publicPlanOut = p => { const l = db.leads.find(x => x.id === p.lead_id);
-    return { token: p.token, name: l.name, company: l.company, answers: { ...p.answers }, unknown: [...p.unknown], submitted_at: p.submitted_at, progress: BP.progress(p.answers, p.unknown), org: db.org.name }; };
+    return { token: p.token, name: l.name, company: l.company, answers: { ...p.answers }, unknown: [...p.unknown], submitted_at: p.submitted_at, progress: BP.progress(p.answers, p.unknown, BP.SHORT), short: true, org: db.org.name }; };
   route('GET', '/api/public/diagnostico/info', () => ({ org: db.org.name, logo: null, accent: db.org.accent, bands: BP.REVENUE_BANDS }), true);
   route('POST', '/api/public/diagnostico', ({ body }) => {
     const name = str(body.name, 'seu nome', { max: 120 }), company = str(body.company, 'empresa', { max: 160 });
