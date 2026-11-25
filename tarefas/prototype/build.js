@@ -40,6 +40,9 @@ ${safe(read('../shared.js'))}
 ${safe(read('../public/bizplan.js'))}
 </script>
 <script>
+${safe(read('ai-example.js'))}
+</script>
+<script>
 ${safe(read('mock-api.js'))}
 </script>
 <script>

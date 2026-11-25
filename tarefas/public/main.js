@@ -2474,7 +2474,8 @@ function docEditor(p) {
         h('button', { class: 'btn', type: 'button', onclick: () => printPlan(p, doc) }, 'Imprimir ou PDF'),
         h('button', { class: 'btn', type: 'button', onclick: guard(() => versionsDialog(p)) }, 'Versões'),
         h('button', { class: 'btn', type: 'button', onclick: generate(p.ai ? 'ai' : 'draft') }, p.ai ? 'Gerar de novo com IA' : 'Gerar rascunho de novo')),
-      h('p', { class: 'muted small' }, `${p.doc_source === 'ai' ? 'Escrito pela IA a partir das respostas' : 'Rascunho montado das respostas'}. Os números vêm da conta do sistema. Cada mudança salva uma versão.`),
+      p.doc_source === 'ai-example' ? h('p', { class: 'example-note' }, 'Prévia: este é um exemplo do texto que a IA escreve a partir das respostas. No sistema, com a chave da Anthropic, cada plano recebe o seu.') : null,
+      h('p', { class: 'muted small' }, `${p.doc_source === 'ai' || p.doc_source === 'ai-example' ? 'Escrito pela IA a partir das respostas' : 'Rascunho montado das respostas'}. Os números vêm da conta do sistema. Cada mudança salva uma versão.`),
       p.doc_status === 'error' && p.doc_error ? h('p', { class: 'error' }, p.doc_error) : null,
       h('nav', { class: 'doc-toc', 'aria-label': 'Seções' }, doc.map((s, i) => h('a', { href: `#sec-${s.key}`, onclick: e => { e.preventDefault(); document.getElementById(`sec-${s.key}`)?.scrollIntoView({ behavior: 'smooth' }); } }, `${i + 1}. ${s.title}`)))),
     doc.map(sectionCard));

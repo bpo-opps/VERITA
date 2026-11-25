@@ -814,3 +814,4 @@ ul.versions li { display: flex; gap: 8px; align-items: center; padding: 8px 0; b
 .diag-done { text-align: center; padding: 36px 20px; }
 .diag-done > svg { width: 44px; height: 44px; color: var(--success); }
 .quiz-q label { font: inherit; color: inherit; margin: 0; display: block; }
+.example-note { margin: 6px 0; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--s-review-bg); color: var(--s-review); font-size: 13px; font-weight: 600; }

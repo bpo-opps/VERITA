@@ -127,6 +127,8 @@
   db.meeting_items = db.meeting_items || [];
   db.calendar_links = db.calendar_links || {};
   for (const k of ['user_clients', 'stages', 'board', 'attachments', 'events', 'conversations', 'conv_members', 'messages', 'inbox', 'diary', 'bizplans', 'plan_versions', 'leads']) db[k] = db[k] || [];
+  // Geração interrompida (a página foi recarregada no meio): volta para o que havia.
+  db.bizplans.forEach(p => { if (p.doc_status === 'generating') p.doc_status = p.doc ? 'ready' : 'none'; });
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sem armazenamento: fica só na memória */ } };
   let sessionUser = null;
   try { sessionUser = Number(sessionStorage.getItem(KEY + '-user')) || null; } catch { /* idem */ }
@@ -1012,7 +1014,7 @@
     const m = planMeta(p);
     return { ...planSummary(p), answers: { ...p.answers }, unknown: [...p.unknown], finance: staff ? BP.finance(p.answers) : undefined,
       doc: showDoc && p.doc ? JSON.parse(JSON.stringify(p.doc)) : null, doc_status: staff ? p.doc_status : (showDoc ? 'ready' : 'none'),
-      doc_error: staff ? p.doc_error : null, doc_source: staff ? p.doc_source : null, lead: staff && m.lead ? { ...m.lead, revenue_band_label: m.revenue_band } : null, ai: false };
+      doc_error: staff ? p.doc_error : null, doc_source: staff ? p.doc_source : null, lead: staff && m.lead ? { ...m.lead, revenue_band_label: m.revenue_band } : null, ai: true };
   }
   function savePlanAnswers(p, body) {
     const answers = { ...p.answers }; let unknown = [...p.unknown];
@@ -1065,10 +1067,33 @@
     if (body.submit) submitPlan(p, user.name);
     return planOut(user, p);
   });
-  route('POST', '/api/bizplans/:id/generate', ({ user, id }) => {
+  // Na prévia a IA não roda: "Gerar com IA" mostra o exemplo pronto da Padaria Exemplo (prototype/ai-example.js),
+  // montado igual ao sistema (texto + tabelas calculadas + pendências). Nos outros planos, sai o rascunho e um aviso.
+  function exampleDoc(p) {
+    const fin = BP.finance(p.answers);
+    const base = Object.fromEntries(BP.draft(p.answers, p.unknown, planMeta(p)).map(s => [s.key, s.content]));
+    const ex = window.AI_EXAMPLE || {};
+    return BP.DOC.map(([key, title]) => {
+      let content = ex[key] || base[key] || '';
+      if (key === 'financeiro') content = `${ex[key] || ''}\n\n${BP.financeTables(fin)}`.trim();
+      if (key === 'cenarios') content = `${ex[key] || ''}\n\n${BP.scenarioTable(fin)}`.trim();
+      if (key === 'pendencias') content = base.pendencias;
+      return { key, title, content };
+    });
+  }
+  route('POST', '/api/bizplans/:id/generate', ({ user, id, body }) => {
     requireStaff(user);
     const p = loadPlan(user, id);
-    saveDoc(user, p, BP.draft(p.answers, p.unknown, planMeta(p)), 'Rascunho gerado das respostas (sem IA)', 'draft');
+    if (body.mode === 'draft') { saveDoc(user, p, BP.draft(p.answers, p.unknown, planMeta(p)), 'Rascunho gerado das respostas (sem IA)', 'draft'); return planOut(user, p); }
+    Object.assign(p, { doc_status: 'generating', doc_error: null });
+    setTimeout(() => {
+      if (p.id === 300) saveDoc(user, p, exampleDoc(p), 'Gerado pela IA (exemplo da prévia)', 'ai-example');
+      else {
+        saveDoc(user, p, BP.draft(p.answers, p.unknown, planMeta(p)), 'Rascunho gerado das respostas (sem IA)', 'draft');
+        p.doc_error = 'Na prévia a IA não roda: veja o exemplo pronto no plano da Padaria Exemplo. Aqui ficou o rascunho sem IA.';
+      }
+      persist();
+    }, 2500);
     return planOut(user, p);
   });
   route('PUT', '/api/bizplans/:id/doc', ({ user, body, id }) => {
@@ -1078,7 +1103,7 @@
     saveDoc(user, p, body.sections.map(s => ({ key: String(s.key), title: str(s.title, 'título da seção', { max: 120 }), content: str(s.content, 'texto', { max: 30000, required: false }) })), body.note || 'Editado', null);
     return planOut(user, p);
   });
-  route('POST', '/api/bizplans/:id/rewrite', () => fail(409, 'A IA não está ligada no protótipo'));
+  route('POST', '/api/bizplans/:id/rewrite', () => fail(409, 'Na prévia, "Pedir à IA" não roda. No sistema, com a chave da Anthropic, aqui aparece a seção reescrita para você aprovar.'));
   route('GET', '/api/bizplans/:id/versions', ({ user, id }) => {
     requireStaff(user); const p = loadPlan(user, id);
     return db.plan_versions.filter(v => v.plan_id === p.id).sort((a, b) => b.id - a.id).map(v => ({ id: v.id, note: v.note, created_at: v.created_at, author: userName(v.user_id) || null }));
