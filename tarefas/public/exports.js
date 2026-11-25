@@ -152,6 +152,53 @@
     return new Blob([bytes], { type: 'application/pdf' });
   }
 
+  // ---------- Word (.docx) ----------
+  // Documento em blocos (BizPlan.parseMd): título, subtítulo e seções com subtítulos, parágrafos, listas e tabelas.
+  const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+  function docx({ title, subtitle, sections, brandColor = 'D2400F' }) {
+    const BP = root.BizPlan;
+    const runs = text => BP.inline(text).map(r => `<w:r>${r.b ? '<w:rPr><w:b/></w:rPr>' : ''}<w:t xml:space="preserve">${xml(r.t)}</w:t></w:r>`).join('');
+    const p = (text, style, extra = '') => `<w:p><w:pPr>${style ? `<w:pStyle w:val="${style}"/>` : ''}${extra}</w:pPr>${runs(text)}</w:p>`;
+    const border = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(k => `<w:${k} w:val="single" w:sz="4" w:space="0" w:color="C9CED8"/>`).join('');
+    const table = rows => {
+      const cols = Math.max(...rows.map(r => r.length));
+      const width = Math.floor(9638 / cols);
+      return `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders>${border}</w:tblBorders><w:tblCellMar><w:left w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar></w:tblPr>`
+        + `<w:tblGrid>${'<w:gridCol w:w="' + width + '"/>'.repeat(cols)}</w:tblGrid>`
+        + rows.map((r, i) => `<w:tr>${[...Array(cols)].map((_, c) => `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/>${i === 0 ? '<w:shd w:val="clear" w:color="auto" w:fill="F1F3F7"/>' : ''}</w:tcPr>`
+          + `<w:p><w:pPr><w:spacing w:after="0"/></w:pPr>${i === 0 ? runs(`**${(r[c] || '').replace(/\*\*/g, '')}**`) : runs(r[c] || '')}</w:p></w:tc>`).join('')}</w:tr>`).join('')
+        + '</w:tbl><w:p/>';
+    };
+    const block = b => {
+      if (b.type === 'h') return p(b.text, 'Heading2');
+      if (b.type === 'p') return p(b.text);
+      if (b.type === 'ul' || b.type === 'ol') return b.items.map((it, n) => p(`${b.type === 'ul' ? '•' : `${n + 1}.`}\t${it}`, null, '<w:ind w:left="567" w:hanging="283"/><w:spacing w:after="60"/>')).join('');
+      if (b.type === 'table') return table(b.rows);
+      return '';
+    };
+    const body = [p(title, 'Title'), subtitle ? p(subtitle, 'Subtitle') : '',
+      ...sections.map((sec, i) => p(`${i + 1}. ${sec.title}`, 'Heading1') + BP.parseMd(sec.content).map(block).join(''))].join('');
+    const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W}><w:body>${body}`
+      + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>';
+    const style = (id, name, ppr, rpr) => `<w:style w:type="paragraph" w:styleId="${id}"><w:name w:val="${name}"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:pPr>${ppr}</w:pPr><w:rPr>${rpr}</w:rPr></w:style>`;
+    const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${W}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="22"/><w:lang w:val="pt-BR"/></w:rPr></w:rPrDefault>`
+      + '<w:pPrDefault><w:pPr><w:spacing w:after="120" w:line="276" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>'
+      + '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>'
+      + style('Title', 'Title', '<w:spacing w:after="60"/>', '<w:b/><w:sz w:val="44"/><w:color w:val="121826"/>')
+      + style('Subtitle', 'Subtitle', '<w:spacing w:after="360"/>', '<w:sz w:val="24"/><w:color w:val="5B6475"/>')
+      + style('Heading1', 'heading 1', '<w:keepNext/><w:spacing w:before="360" w:after="120"/><w:outlineLvl w:val="0"/>', `<w:b/><w:sz w:val="32"/><w:color w:val="${brandColor}"/>`)
+      + style('Heading2', 'heading 2', '<w:keepNext/><w:spacing w:before="200" w:after="80"/><w:outlineLvl w:val="1"/>', '<w:b/><w:sz w:val="24"/><w:color w:val="121826"/>')
+      + '</w:styles>';
+    const files = [
+      { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>' },
+      { name: '_rels/.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>' },
+      { name: 'word/_rels/document.xml.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+      { name: 'word/document.xml', data: docXml },
+      { name: 'word/styles.xml', data: styles },
+    ];
+    return new Blob([zip(files)], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+  }
+
   // Baixa um arquivo. Dentro do visualizador de artefatos do Claude (a prévia), o download direto é
   // bloqueado: lá o arquivo vai pela permissão de salvar do visualizador, que pede confirmação.
   let saver;
@@ -175,5 +222,5 @@
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
-  root.Exports = { xlsx, pdf, download, zip, crc32 };
+  root.Exports = { xlsx, pdf, docx, download, zip, crc32 };
 })(typeof self !== 'undefined' ? self : this);

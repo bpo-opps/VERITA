@@ -198,6 +198,7 @@ const ICONS = {
   chat: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 4v-4h0A1.5 1.5 0 0 1 4 14.5z"/>',
   book: '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3M9 7.5h6M9 11h4"/>',
   send: '<path d="M4 12l16-8-6 16-2.5-6.5z"/><path d="M11.5 13.5L20 4"/>',
+  target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
 };
 function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -237,13 +238,13 @@ function renderLogin(message) {
 // Estrutura: menu lateral (gaveta no celular) + barra superior com o título e a ação da página.
 function shell(content, { title, sub } = {}) {
   const nav = isStaff()
-    ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/diario', 'Diário de bordo', 'book'], ['#/chats', 'Chats', 'chat'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/reunioes', 'Reuniões', 'meet'], ['#/alertas', 'Alertas', 'alert'],
+    ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/diario', 'Diário de bordo', 'book'], ['#/chats', 'Chats', 'chat'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/reunioes', 'Reuniões', 'meet'], ['#/planos', 'Planos de negócio', 'target'], ['#/alertas', 'Alertas', 'alert'],
       ['#/clientes', 'Clientes', 'building'], ['#/modelos', 'Modelos', 'copy'], ['#/relatorio', 'Relatórios', 'chart'], ['#/equipe', 'Pessoas', 'users'],
       ...(isAdmin() ? [['#/avisos', 'Avisos', 'mail']] : []),
       ['#/config', 'Configurações', 'settings']]
-    : [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Minhas entregas', 'board'], ['#/chats', 'Chats', 'chat'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/alertas', 'Alertas', 'alert'],
+    : [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Minhas entregas', 'board'], ['#/chats', 'Chats', 'chat'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/planos', 'Plano de negócio', 'target'], ['#/alertas', 'Alertas', 'alert'],
       ['#/config', 'Minha conta', 'settings']];
-  const current = (location.hash.split('?')[0] || nav[0][0]).replace(/^#\/chats\/\d+$/, '#/chats');
+  const current = (location.hash.split('?')[0] || nav[0][0]).replace(/^#\/chats\/\d+$/, '#/chats').replace(/^#\/plano\/\d+$/, '#/planos');
   const page = nav.find(n => n[0] === current) || (current === '#/notificacoes' ? ['#/notificacoes', 'Notificações'] : nav[0]);
   document.title = `${title || page[1]} · ${APP_NAME}`;
   const shellEl = h('div', { class: 'app' });
@@ -322,6 +323,8 @@ function startInboxPolling() {
 }
 
 async function boot() {
+  // Diagnóstico público (leads): não precisa de login.
+  if (location.hash.startsWith('#/diagnostico')) { await guard(renderDiagnostic)(); return; }
   try { await loadCommon(); } catch { renderLogin(); return; }
   startInboxPolling();
   route();
@@ -329,10 +332,11 @@ async function boot() {
 
 const ROUTES = {
   '#/avisos': viewNotifications, '#/reunioes': viewMeetings, '#/compromissos': viewEvents, '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
-  '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings, '#/notificacoes': viewInbox, '#/chats': () => viewChats(null), '#/diario': viewDiary,
+  '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings, '#/notificacoes': viewInbox, '#/chats': () => viewChats(null), '#/diario': viewDiary, '#/planos': viewPlans,
 };
 
 async function route() {
+  if (location.hash.startsWith('#/diagnostico')) { if (!document.querySelector('.diag-wrap')) await guard(renderDiagnostic)(); return; }
   if (!state.me) return;
   const key = location.hash.split('?')[0];
   // Link direto para uma tarefa (usado nos e-mails): abre o quadro e o card.
@@ -345,10 +349,12 @@ async function route() {
     await guard(() => viewMeeting(Number(meeting[1])))();
     return;
   }
+  const plan = /^#\/plano\/(\d+)$/.exec(key);
+  if (plan) { try { await refreshAlerts(); } catch { /* segue */ } await guard(() => viewPlan(Number(plan[1])))(); return; }
   const chat = /^#\/chats\/(\d+)$/.exec(key);
   if (chat) { try { await refreshAlerts(); } catch { /* segue */ } await guard(() => viewChats(Number(chat[1])))(); return; }
   const fallback = '#/painel';
-  const clientPages = ['#/painel', '#/tarefas', '#/recorrentes', '#/compromissos', '#/alertas', '#/config', '#/chats', '#/notificacoes'];
+  const clientPages = ['#/painel', '#/tarefas', '#/recorrentes', '#/compromissos', '#/alertas', '#/config', '#/chats', '#/notificacoes', '#/planos'];
   const view = ROUTES[key];
   if (!view || (!isStaff() && !clientPages.includes(key))) { location.hash = fallback; return; }
   try { await refreshAlerts(); } catch { /* segue sem o contador */ }
@@ -1692,7 +1698,7 @@ const goTo = link => { if (location.hash === link) route(); else location.hash =
 async function viewInbox() {
   const r = await api('GET', '/api/inbox');
   state.inboxUnread = r.unread;
-  const KIND = { chat: ['chat', 'Chat'], task_chat: ['chat', 'Chat da tarefa'], task_comment: ['chat', 'Conversa na tarefa'], task: ['board', 'Tarefa'] };
+  const KIND = { chat: ['chat', 'Chat'], task_chat: ['chat', 'Chat da tarefa'], task_comment: ['chat', 'Conversa na tarefa'], task: ['board', 'Tarefa'], bizplan: ['target', 'Plano de negócio'], lead: ['users', 'Novo lead'] };
   const open = guard(async n => { if (!n.read_at) await api('POST', `/api/inbox/${n.id}/read`); goTo(n.link || '#/painel'); });
   shell([
     r.unread ? h('div', { class: 'toolbar' }, h('button', { class: 'btn', type: 'button', onclick: guard(async () => { await api('POST', '/api/inbox/read-all'); route(); }) },
@@ -2109,6 +2115,458 @@ function diaryToTask(e) {
       err,
       h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, 'Criar tarefa'), h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
   });
+}
+
+// ---------- plano de negócio ----------
+const BP = window.BizPlan;
+const BAND_LABEL = Object.fromEntries(BP.REVENUE_BANDS);
+const LEAD_STATUS = { new: 'Novo', contacted: 'Em contato', converted: 'Virou cliente', lost: 'Não seguiu' };
+
+// Texto do documento (### subtítulo, - lista, **negrito**, tabelas) em elementos da página.
+function mdNodes(text) {
+  const runs = t => BP.inline(t).map(r => (r.b ? h('strong', {}, r.t) : r.t));
+  return BP.parseMd(text).map(b => {
+    if (b.type === 'h') return h('h3', {}, runs(b.text));
+    if (b.type === 'p') return h('p', { class: /\[A definir/.test(b.text) ? 'pending-text' : null }, runs(b.text));
+    if (b.type === 'ul') return h('ul', {}, b.items.map(i => h('li', {}, runs(i))));
+    if (b.type === 'ol') return h('ol', {}, b.items.map(i => h('li', {}, runs(i))));
+    if (b.type === 'table') {
+      return h('div', { class: 'table-wrap' }, h('table', { class: 'md-table' },
+        h('thead', {}, h('tr', {}, b.rows[0].map(c => h('th', {}, runs(c))))),
+        h('tbody', {}, b.rows.slice(1).map(r => h('tr', {}, r.map(c => h('td', { class: /^-?(R\$\s?)?-?[\d.,]+%?$|^-?R\$/.test(c.trim()) ? 'num' : null }, runs(c))))))));
+    }
+    return null;
+  });
+}
+
+// Questionário no estilo quiz: uma pergunta por tela, salva a cada avanço, aceita "não sei".
+// save(patch) grava; submit() envia (no fim). Devolve o elemento.
+function quiz({ plan, save, submit, intro }) {
+  const answers = { ...plan.answers };
+  let unknown = [...plan.unknown];
+  const Q = BP.QUESTIONS;
+  const firstOpen = Q.findIndex(q => BP.isEmpty(answers[q.id]) && !unknown.includes(q.id));
+  let idx = firstOpen < 0 ? Q.length : firstOpen;
+  const box = h('div', { class: 'quiz' });
+  const secTitle = key => (BP.SECTIONS.find(s => s[0] === key) || [])[1];
+  const fmtNum = v => (v === null || v === undefined || v === '' ? '' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 }));
+
+  function input(q) {
+    const v = answers[q.id];
+    if (q.type === 'choice') {
+      return h('div', { class: 'quiz-options', role: 'radiogroup', 'aria-label': q.label }, q.options.map(o => h('button', {
+        type: 'button', role: 'radio', class: 'quiz-option', 'aria-checked': String(v === o),
+        onclick: () => { answers[q.id] = o; next(); },
+      }, o)));
+    }
+    if (q.type === 'multi') {
+      return h('div', { class: 'quiz-options multi', role: 'group', 'aria-label': q.label }, q.options.map(o => h('label', { class: 'quiz-option' },
+        h('input', { type: 'checkbox', value: o, checked: (v || []).includes(o) }), o)));
+    }
+    if (q.type === 'long' || q.type === 'list') {
+      return h('textarea', { id: 'quiz-in', rows: 5, placeholder: q.type === 'list' ? 'Um item por linha' : 'Escreva aqui',
+        onkeydown: e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); next(); } } },
+      Array.isArray(v) ? v.join('\n') : (v || ''));
+    }
+    const field = h('input', { id: 'quiz-in', type: 'text', inputmode: q.type === 'text' ? null : (q.type === 'int' ? 'numeric' : 'decimal'), autocomplete: 'off',
+      placeholder: q.placeholder || (q.type === 'money' ? '0,00' : q.type === 'percent' ? '0' : ''), maxlength: q.type === 'text' ? 300 : 20,
+      value: q.type === 'text' ? (v || '') : fmtNum(v), onkeydown: e => { if (e.key === 'Enter') { e.preventDefault(); next(); } } });
+    if (q.type === 'money') return h('div', { class: 'quiz-affix' }, h('span', {}, 'R$'), field);
+    if (q.type === 'percent') return h('div', { class: 'quiz-affix after' }, field, h('span', {}, '%'));
+    return field;
+  }
+  function read(q) {
+    if (q.type === 'choice') return answers[q.id] ?? null;
+    if (q.type === 'multi') return [...box.querySelectorAll('.quiz-options input:checked')].map(i => i.value);
+    const el = box.querySelector('#quiz-in');
+    if (!el) return null;
+    if (['money', 'percent', 'int'].includes(q.type)) {
+      const raw = el.value.trim();
+      if (!raw) return null;
+      const n = Number(raw.replace(/[R$\s%]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+      if (!Number.isFinite(n)) throw new Error('Digite só o número. Ex.: 12.500,00');
+      return n;
+    }
+    return q.type === 'list' ? el.value.split('\n').map(x => x.trim()).filter(Boolean) : el.value;
+  }
+  // Salva a resposta atual (se mudou) e vai para outra pergunta.
+  async function commit(to, { markUnknown = false } = {}) {
+    if (idx < Q.length) {
+      const q = Q[idx];
+      let patch = null;
+      if (markUnknown) {
+        if (!unknown.includes(q.id)) { unknown = [...unknown, q.id]; delete answers[q.id]; patch = { unknown }; }
+      } else {
+        const v = read(q);
+        const before = JSON.stringify(plan.answers[q.id] ?? null);
+        if (JSON.stringify(BP.isEmpty(v) ? null : v) !== before) {
+          patch = { answers: { [q.id]: BP.isEmpty(v) ? null : v } };
+          if (BP.isEmpty(v)) delete answers[q.id]; else { answers[q.id] = v; unknown = unknown.filter(x => x !== q.id); }
+        }
+      }
+      if (patch) {
+        const out = await save(patch);
+        Object.assign(plan, { answers: out.answers, unknown: out.unknown, progress: out.progress, submitted_at: out.submitted_at });
+        Object.assign(answers, out.answers); unknown = [...out.unknown];
+      }
+    }
+    idx = Math.max(0, Math.min(Q.length, to));
+    paint();
+  }
+  const next = guard(() => commit(idx + 1));
+  const back = guard(() => commit(idx - 1));
+
+  function paint() {
+    box.replaceChildren();
+    const pr = BP.progress(answers, unknown);
+    const bar = h('div', { class: 'quiz-progress' }, h('div', { class: 'progress' }, h('div', { class: 'bar', role: 'progressbar', 'aria-valuenow': pr.pct, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': 'Respondido' },
+      h('span', { style: `width:${pr.pct}%` })), h('span', { class: 'pct' }, `${pr.pct}%`)));
+    const jump = h('select', { class: 'quiz-jump', 'aria-label': 'Ir para a parte', onchange: guard(async e => {
+      const target = e.target.value === 'fim' ? Q.length : Q.findIndex(q => q.s === e.target.value);
+      await commit(target);
+    }) }, BP.SECTIONS.map(([k, t]) => { const s = pr.bySection.find(x => x.key === k); return h('option', { value: k, selected: idx < Q.length && Q[idx].s === k }, `${t} (${s.done}/${s.total})`); }),
+    h('option', { value: 'fim', selected: idx >= Q.length }, 'Revisar e enviar'));
+    if (idx >= Q.length) {
+      const pending = Q.filter(q => BP.isEmpty(answers[q.id]) && !unknown.includes(q.id));
+      box.append(h('div', { class: 'quiz-head' }, jump, bar),
+        h('div', { class: 'card-box quiz-card' },
+          h('h2', {}, plan.submitted_at ? 'Respostas enviadas' : 'Revisar e enviar'),
+          h('p', {}, `${pr.done} de ${pr.total} perguntas respondidas${unknown.length ? `, ${unknown.length} marcadas como "não sei" (vamos ver juntos na reunião)` : ''}.`),
+          pending.length ? [h('p', { class: 'muted' }, `Ainda sem resposta (${pending.length}):`),
+            h('ul', { class: 'quiz-pending' }, pending.slice(0, 12).map(q => h('li', {}, h('button', { type: 'button', class: 'link', onclick: guard(() => commit(Q.indexOf(q))) }, q.label))),
+              pending.length > 12 ? h('li', { class: 'muted' }, `e mais ${pending.length - 12}`) : null)] : null,
+          h('div', { class: 'row', style: 'margin-top:12px' },
+            h('button', { class: 'btn', type: 'button', onclick: back }, '‹ Voltar'),
+            plan.submitted_at ? h('span', { class: 'muted small' }, `Enviado em ${fmtDateTime(plan.submitted_at)}. Você ainda pode mudar as respostas.`)
+              : h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
+                if (pending.length && !(await ask(`Faltam ${pending.length} perguntas. Enviar assim mesmo? Dá para completar depois ou na reunião.`, { ok: 'Enviar' }))) return;
+                const out = await submit(); Object.assign(plan, out); paint();
+              }) }, icon('check'), submit.label || 'Enviar respostas'))));
+      return;
+    }
+    const q = Q[idx];
+    const isUnknown = unknown.includes(q.id);
+    box.append(...[h('div', { class: 'quiz-head' }, jump, bar),
+      idx === 0 && intro ? intro : null,
+      h('div', { class: 'card-box quiz-card' },
+        h('div', { class: 'quiz-meta' }, `${secTitle(q.s)} · pergunta ${idx + 1} de ${Q.length}`),
+        h('h2', { class: 'quiz-q' }, h('label', { for: 'quiz-in' }, q.label)),
+        q.help ? h('p', { class: 'muted quiz-help' }, q.help) : null,
+        input(q),
+        isUnknown ? h('p', { class: 'quiz-unknown' }, 'Marcada como "não sei": vamos ver juntos na reunião. Se souber agora, é só responder.') : null,
+        h('div', { class: 'quiz-actions' },
+          h('button', { class: 'btn', type: 'button', onclick: back, disabled: idx === 0 }, '‹ Voltar'),
+          h('button', { class: 'btn ghost', type: 'button', onclick: guard(() => commit(idx + 1, { markUnknown: true })) }, 'Não sei'),
+          h('button', { class: 'btn primary', type: 'button', onclick: next }, idx === Q.length - 1 ? 'Concluir ›' : 'Próxima ›')),
+        ['long', 'list'].includes(q.type) ? h('p', { class: 'muted small' }, 'Dica: Ctrl+Enter vai para a próxima.') : null)].filter(Boolean));
+    const el = box.querySelector('#quiz-in');
+    if (el && !matchMedia('(pointer: coarse)').matches) el.focus({ preventScroll: true });
+  }
+  paint();
+  return box;
+}
+
+// Lista de planos (e, para a equipe, os leads do diagnóstico).
+const planView = { tab: 'plans' };
+async function viewPlans() {
+  const plans = await api('GET', '/api/bizplans');
+  if (!isStaff()) {
+    if (plans.length === 1) { location.hash = `#/plano/${plans[0].id}`; return; }
+    shell([plans.length ? h('div', { class: 'plan-cards' }, plans.map(planCard))
+      : h('div', { class: 'card-box empty' }, 'Nenhum plano de negócio por enquanto. Quando a consultoria abrir um para você, ele aparece aqui.')],
+    { title: 'Plano de negócio', sub: 'Responda o questionário; a consultoria monta o plano com você' });
+    return;
+  }
+  const leads = planView.tab === 'leads' ? await api('GET', '/api/leads') : null;
+  const link = `${location.origin}${location.pathname}#/diagnostico`;
+  shell([
+    h('div', { class: 'toolbar' },
+      h('div', { class: 'seg', role: 'group', 'aria-label': 'Mostrar' }, [['plans', 'Planos'], ['leads', 'Leads do diagnóstico']].map(([k, l]) =>
+        h('button', { type: 'button', class: 'seg-btn', 'aria-pressed': String(planView.tab === k), onclick: () => { planView.tab = k; route(); } }, l))),
+      h('button', { class: 'btn', type: 'button', onclick: () => modal(close => h('div', {},
+        h('h2', {}, 'Link do diagnóstico para leads'),
+        h('p', {}, 'Quem ainda não é cliente preenche nome, empresa, CNPJ, e-mail, celular e faixa de faturamento, e responde o mesmo questionário. Você recebe um aviso no sino a cada lead novo.'),
+        h('div', { class: 'row nowrap' }, h('input', { value: link, readonly: true, 'aria-label': 'Link', onfocus: e => e.target.select() }),
+          h('button', { class: 'btn primary', type: 'button', onclick: () => copyText(link, 'Link copiado.') }, 'Copiar')),
+        h('p', { class: 'muted small' }, 'Use no Instagram, no WhatsApp, no site ou em campanhas.'),
+        h('div', { class: 'row' }, h('a', { class: 'btn', href: '#/diagnostico', target: '_blank', rel: 'noopener' }, 'Ver como o lead vê'), h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar')))) }, 'Link para leads'),
+      h('button', { class: 'btn primary', type: 'button', onclick: newPlanDialog }, icon('plus'), 'Novo plano')),
+    planView.tab === 'plans'
+      ? (plans.length ? h('div', { class: 'card-box table-wrap' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Plano'), h('th', {}, 'Empresa'), h('th', {}, 'Questionário'), h('th', {}, 'Documento'), h('th', {}, 'Atualizado'))),
+        h('tbody', {}, plans.map(p => h('tr', { class: 'row-link', onclick: () => { location.hash = `#/plano/${p.id}`; } },
+          h('td', {}, h('a', { href: `#/plano/${p.id}` }, p.title)),
+          h('td', {}, p.client_name || h('span', {}, p.lead_company, ' ', h('span', { class: 'tag' }, 'Lead'))),
+          h('td', { class: 'plan-prog' }, progressBar(p.progress.pct), p.submitted_at ? h('span', { class: 'tag ok' }, 'Enviado') : null),
+          h('td', {}, { none: '–', generating: 'Gerando…', ready: p.shared ? 'Pronto · cliente vê' : 'Pronto', error: 'Erro' }[p.doc_status]),
+          h('td', {}, fmtDateTime(p.updated_at)))))))
+        : h('div', { class: 'card-box empty' }, 'Nenhum plano ainda. Crie um para um cliente em "Novo plano" ou divulgue o link do diagnóstico para leads.'))
+      : (leads.length ? h('div', { class: 'card-box table-wrap' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Empresa'), h('th', {}, 'Contato'), h('th', {}, 'Faturamento'), h('th', {}, 'Questionário'), h('th', {}, 'Situação'), h('th', {}, ''))),
+        h('tbody', {}, leads.map(l => h('tr', {},
+          h('td', {}, h('strong', {}, l.company), l.cnpj ? h('div', { class: 'muted small' }, `CNPJ ${l.cnpj}`) : null, h('div', { class: 'muted small' }, `Recebido ${fmtDateTime(l.created_at)}`)),
+          h('td', {}, l.name, h('div', { class: 'small' }, h('a', { href: `mailto:${l.email}` }, l.email)),
+            h('div', { class: 'small' }, h('a', { href: `https://wa.me/55${l.phone.replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '')}`, target: '_blank', rel: 'noopener' }, l.phone))),
+          h('td', {}, l.revenue_band_label),
+          h('td', { class: 'plan-prog' }, progressBar(l.progress), l.submitted_at ? h('span', { class: 'tag ok' }, 'Enviado') : null),
+          h('td', {}, h('select', { 'aria-label': `Situação de ${l.company}`, disabled: l.status === 'converted', onchange: guard(async e => { await api('PATCH', `/api/leads/${l.id}`, { status: e.target.value }); toast('Situação salva'); }) },
+            Object.entries(LEAD_STATUS).filter(([k]) => k !== 'converted' || l.status === 'converted').map(([k, v]) => h('option', { value: k, selected: l.status === k }, v)))),
+          h('td', { class: 'actions' },
+            l.plan_id ? h('a', { class: 'btn small', href: `#/plano/${l.plan_id}` }, 'Abrir') : null,
+            isAdmin() && l.status !== 'converted' ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
+              if (!(await ask(`Transformar ${l.company} em cliente? A empresa entra em Clientes e o plano vai junto. O acesso da pessoa você cria depois em Pessoas.`, { ok: 'Virar cliente' }))) return;
+              await api('POST', `/api/leads/${l.id}/convert`, {}); state.clients = await api('GET', '/api/clients'); toast(`${l.company} agora é cliente.`); route();
+            }) }, 'Virar cliente') : null))))))
+        : h('div', { class: 'card-box empty' }, 'Nenhum lead ainda. Copie o "Link para leads" e divulgue.')),
+  ], { title: 'Planos de negócio', sub: 'Questionário, plano gerado e editado na reunião, e leads do diagnóstico' });
+}
+function planCard(p) {
+  return h('a', { class: 'card-box plan-card', href: `#/plano/${p.id}` }, h('strong', {}, p.title), progressBar(p.progress.pct),
+    h('span', { class: 'muted small' }, p.doc_status === 'ready' ? 'Plano disponível para ler' : p.submitted_at ? 'Respostas enviadas' : 'Continuar respondendo'));
+}
+function newPlanDialog() {
+  modal(close => {
+    const err = h('p', { class: 'error', role: 'alert' });
+    return h('form', { onsubmit: guard(async e => {
+      e.preventDefault();
+      try {
+        const p = await api('POST', '/api/bizplans', { client_id: Number(e.target.elements.client.value), title: e.target.elements.title.value });
+        close(); location.hash = `#/plano/${p.id}`;
+      } catch (ex) { err.textContent = ex.message; }
+    }) },
+      h('h2', {}, 'Novo plano de negócio'),
+      h('div', { class: 'field' }, h('label', { for: 'np-client' }, 'Cliente'), h('select', { id: 'np-client', name: 'client', required: true },
+        state.clients.map(c => h('option', { value: c.id }, c.name)))),
+      h('div', { class: 'field' }, h('label', { for: 'np-title' }, 'Nome do plano (opcional)'), h('input', { id: 'np-title', name: 'title', maxlength: 120, placeholder: 'Plano de negócio · nome do cliente' })),
+      h('p', { class: 'muted small' }, 'As pessoas do cliente recebem um aviso para responder pelo login delas. Você também pode responder junto, aqui, na sessão do cliente.'),
+      err,
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, 'Criar'), h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
+  });
+}
+
+// Um plano: questionário, respostas, financeiro e documento.
+const planTab = {};
+let planPoll = null;
+async function viewPlan(planId) {
+  clearTimeout(planPoll);
+  const p = await api('GET', `/api/bizplans/${planId}`);
+  const staff = isStaff();
+  const tabs = staff ? [['quiz', 'Questionário'], ['answers', 'Respostas'], ['finance', 'Financeiro'], ['doc', 'Plano']]
+    : [['quiz', 'Questionário'], ...(p.doc ? [['doc', 'Plano']] : [])];
+  let tab = planTab[planId] || (staff ? (p.doc ? 'doc' : 'quiz') : (p.doc ? 'doc' : 'quiz'));
+  if (!tabs.some(t => t[0] === tab)) tab = tabs[0][0];
+  const save = patch => api('PATCH', `/api/bizplans/${planId}`, patch);
+  const submit = Object.assign(() => api('PATCH', `/api/bizplans/${planId}`, { submit: true }), { label: staff ? 'Marcar como enviado' : 'Enviar para a consultoria' });
+  let body;
+  if (tab === 'quiz') body = quiz({ plan: p, save, submit });
+  else if (tab === 'answers') body = answersView(p);
+  else if (tab === 'finance') body = financeView(p);
+  else body = staff ? docEditor(p) : docReader(p);
+  const company = p.client_name || p.lead_company || '';
+  shell([
+    h('div', { class: 'toolbar plan-top' },
+      staff ? h('a', { class: 'btn small', href: '#/planos' }, '‹ Planos') : null,
+      tabs.length > 1 ? h('div', { class: 'seg', role: 'group', 'aria-label': 'Partes do plano' }, tabs.map(([k, l]) => h('button', { type: 'button', class: 'seg-btn',
+        'aria-pressed': String(tab === k), onclick: () => { planTab[planId] = k; route(); } }, l))) : null,
+      staff && p.lead ? h('span', { class: 'tag' }, 'Lead') : null),
+    staff && p.lead ? h('div', { class: 'card-box lead-box' },
+      h('strong', {}, p.lead.company), p.lead.cnpj ? ` · CNPJ ${p.lead.cnpj}` : '', h('br'),
+      `${p.lead.name} · `, h('a', { href: `mailto:${p.lead.email}` }, p.lead.email), ' · ', p.lead.phone, ' · ', p.lead.revenue_band_label) : null,
+    body,
+  ], { title: p.title, sub: [company, `${p.progress.pct}% respondido`, p.submitted_at ? `enviado em ${fmtDate(p.submitted_at)}` : null].filter(Boolean).join(' · ') });
+  if (p.doc_status === 'generating' && tab === 'doc') planPoll = setTimeout(() => { if (location.hash === `#/plano/${planId}`) route(); }, 4000);
+}
+function answersView(p) {
+  return h('div', {}, BP.SECTIONS.map(([key, title]) => h('div', { class: 'card-box' }, h('h2', {}, title),
+    h('dl', { class: 'answers' }, BP.QUESTIONS.filter(q => q.s === key).map(q => [
+      h('dt', {}, q.label),
+      h('dd', { class: p.unknown.includes(q.id) ? 'pending-text' : (BP.isEmpty(p.answers[q.id]) ? 'muted' : null) },
+        p.unknown.includes(q.id) ? 'Não sei (ver na reunião)' : (BP.answerText(q, p.answers[q.id]) || 'Sem resposta')),
+    ])))));
+}
+function financeView(p) {
+  const f = p.finance;
+  return h('div', {},
+    h('div', { class: 'card-box' }, h('h2', {}, 'Plano financeiro'),
+      h('p', { class: 'muted small' }, 'Calculado pelo sistema a partir das respostas (não pela IA). Mude as respostas de Finanças no questionário e a conta se refaz.'),
+      f.ok ? h('div', { class: 'stats-row fin-stats' },
+        h('div', { class: 'stat' }, h('strong', {}, BP.brl(f.breakEven)), h('span', {}, 'ponto de equilíbrio / mês')),
+        h('div', { class: 'stat' }, h('strong', {}, BP.pct(f.contribPct)), h('span', {}, 'margem de contribuição')),
+        h('div', { class: 'stat' }, h('strong', {}, BP.brl(f.monthResult)), h('span', {}, 'resultado no 1º mês'))) : null,
+      mdNodes(BP.financeTables(f))),
+    h('div', { class: 'card-box' }, h('h2', {}, 'Cenários'), mdNodes(BP.scenarioTable(f))));
+}
+function docReader(p) {
+  return h('div', { class: 'doc' },
+    h('div', { class: 'row doc-tools' },
+      h('button', { class: 'btn', type: 'button', onclick: () => downloadPlanDocx(p, p.doc) }, 'Baixar Word'),
+      h('button', { class: 'btn', type: 'button', onclick: () => printPlan(p, p.doc) }, 'Imprimir ou salvar PDF')),
+    p.doc.map((s, i) => h('section', { class: 'card-box doc-section', id: `sec-${s.key}` }, h('h2', {}, `${i + 1}. ${s.title}`), mdNodes(s.content))));
+}
+function docEditor(p) {
+  if (p.doc_status === 'generating') {
+    return h('div', { class: 'card-box doc-empty' }, h('div', { class: 'spinner', 'aria-hidden': 'true' }),
+      h('h2', {}, 'A IA está escrevendo o plano'), h('p', { class: 'muted' }, 'Leva de 1 a 3 minutos. Pode sair desta tela: o plano fica pronto do mesmo jeito.'));
+  }
+  const generate = mode => guard(async () => {
+    if (p.doc && !(await ask('Gerar de novo substitui o documento atual (ele fica salvo em Versões). Continuar?', { ok: 'Gerar de novo' }))) return;
+    await api('POST', `/api/bizplans/${p.id}/generate`, { mode }); route();
+  });
+  if (!p.doc) {
+    return h('div', { class: 'card-box doc-empty' },
+      h('h2', {}, 'Gerar o plano de negócio'),
+      h('p', {}, `${p.progress.done} de ${p.progress.total} perguntas respondidas${p.unknown.length ? `, ${p.unknown.length} como "não sei"` : ''}. O que faltar vira "[A definir na reunião]" no documento.`),
+      p.doc_status === 'error' && p.doc_error ? h('p', { class: 'error' }, p.doc_error) : null,
+      h('div', { class: 'row' },
+        p.ai ? h('button', { class: 'btn primary', type: 'button', onclick: generate('ai') }, 'Gerar com IA') : null,
+        h('button', { class: p.ai ? 'btn' : 'btn primary', type: 'button', onclick: generate('draft') }, 'Gerar rascunho sem IA')),
+      p.ai ? h('p', { class: 'muted small' }, 'Com IA: o texto é escrito a partir das respostas; os números vêm da conta do sistema. Sem IA: as respostas organizadas nas seções, para escrever na reunião.')
+        : h('p', { class: 'muted small' }, 'A IA ainda não está ligada (falta a chave da Anthropic no servidor). O rascunho organiza as respostas nas seções e calcula o financeiro; o texto vocês ajustam na reunião.'));
+  }
+  const doc = p.doc.map(s => ({ ...s }));
+  const saveDoc = async note => api('PUT', `/api/bizplans/${p.id}/doc`, { sections: doc, note });
+  const sectionCard = (s, i) => {
+    const card = h('section', { class: 'card-box doc-section', id: `sec-${s.key}` });
+    const view = () => card.replaceChildren(
+      h('div', { class: 'doc-sec-head' }, h('h2', {}, `${i + 1}. ${s.title}`),
+        h('div', { class: 'row' },
+          h('button', { class: 'btn small', type: 'button', onclick: edit }, 'Editar'),
+          p.ai ? h('button', { class: 'btn small', type: 'button', onclick: askAi }, 'Pedir à IA') : null)),
+      ...mdNodes(s.content));
+    const edit = () => {
+      const ta = h('textarea', { class: 'doc-edit', rows: Math.min(30, Math.max(8, s.content.split('\n').length + 2)), 'aria-label': `Texto de ${s.title}` }, s.content);
+      card.replaceChildren(h('h2', {}, `${i + 1}. ${s.title}`), ta,
+        h('p', { class: 'muted small' }, 'Formato: "### " para subtítulo, "- " para lista, **negrito**, e tabelas com | coluna | coluna |.'),
+        h('div', { class: 'row' },
+          h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => { s.content = ta.value; await saveDoc(`Editado: ${s.title}`); toast('Seção salva'); view(); }) }, 'Salvar'),
+          h('button', { class: 'btn', type: 'button', onclick: view }, 'Cancelar')));
+      ta.focus();
+    };
+    const askAi = () => {
+      const inp = h('input', { placeholder: 'Ex.: deixe mais curto; inclua a meta de abrir a filial; tom mais formal', maxlength: 1000, 'aria-label': 'Pedido para a IA' });
+      const out = h('div', {});
+      const run = guard(async () => {
+        if (!inp.value.trim()) return;
+        out.replaceChildren(h('p', { class: 'muted' }, 'A IA está reescrevendo…'));
+        const r = await api('POST', `/api/bizplans/${p.id}/rewrite`, { key: s.key, instruction: inp.value }).catch(e => { out.replaceChildren(h('p', { class: 'error' }, e.message)); return null; });
+        if (!r) return;
+        out.replaceChildren(h('div', { class: 'ai-suggestion' }, h('p', { class: 'muted small' }, 'Sugestão da IA:'), mdNodes(r.content)),
+          h('div', { class: 'row' },
+            h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => { s.content = r.content; await saveDoc(`IA: ${inp.value.slice(0, 120)} (${s.title})`); toast('Seção atualizada'); view(); }) }, 'Usar esta versão'),
+            h('button', { class: 'btn', type: 'button', onclick: view }, 'Descartar')));
+      });
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+      card.replaceChildren(h('h2', {}, `${i + 1}. ${s.title}`),
+        h('div', { class: 'row nowrap' }, inp, h('button', { class: 'btn primary', type: 'button', onclick: run }, 'Reescrever')), out,
+        h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn', type: 'button', onclick: view }, 'Fechar')));
+      inp.focus();
+    };
+    view();
+    return card;
+  };
+  return h('div', { class: 'doc' },
+    h('div', { class: 'card-box doc-tools' },
+      h('div', { class: 'row' },
+        p.client_id ? h('label', { class: 'check inline' }, h('input', { type: 'checkbox', checked: p.shared, onchange: guard(async e => {
+          await api('PATCH', `/api/bizplans/${p.id}`, { shared: e.target.checked }); toast(e.target.checked ? 'O cliente já pode ver o plano.' : 'O cliente não vê mais o plano.');
+        }) }), 'Cliente pode ver') : h('span', { class: 'muted small' }, 'Lead: o plano fica só com a equipe até virar cliente.'),
+        h('button', { class: 'btn', type: 'button', onclick: () => downloadPlanDocx(p, doc) }, 'Baixar Word'),
+        h('button', { class: 'btn', type: 'button', onclick: () => printPlan(p, doc) }, 'Imprimir ou PDF'),
+        h('button', { class: 'btn', type: 'button', onclick: guard(() => versionsDialog(p)) }, 'Versões'),
+        h('button', { class: 'btn', type: 'button', onclick: generate(p.ai ? 'ai' : 'draft') }, p.ai ? 'Gerar de novo com IA' : 'Gerar rascunho de novo')),
+      h('p', { class: 'muted small' }, `${p.doc_source === 'ai' ? 'Escrito pela IA a partir das respostas' : 'Rascunho montado das respostas'}. Os números vêm da conta do sistema. Cada mudança salva uma versão.`),
+      p.doc_status === 'error' && p.doc_error ? h('p', { class: 'error' }, p.doc_error) : null,
+      h('nav', { class: 'doc-toc', 'aria-label': 'Seções' }, doc.map((s, i) => h('a', { href: `#sec-${s.key}`, onclick: e => { e.preventDefault(); document.getElementById(`sec-${s.key}`)?.scrollIntoView({ behavior: 'smooth' }); } }, `${i + 1}. ${s.title}`)))),
+    doc.map(sectionCard));
+}
+async function versionsDialog(p) {
+  const vs = await api('GET', `/api/bizplans/${p.id}/versions`);
+  modal(close => h('div', {},
+    h('h2', {}, 'Versões do plano'),
+    h('ul', { class: 'versions' }, vs.map((v, i) => h('li', {},
+      h('div', { class: 'grow' }, h('strong', {}, v.note || 'Versão'), h('div', { class: 'muted small' }, `${fmtDateTime(v.created_at)}${v.author ? ` · ${v.author}` : ''}${i === 0 ? ' · atual' : ''}`)),
+      i > 0 ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
+        if (!(await ask('Voltar o plano para esta versão? A atual continua guardada.', { ok: 'Restaurar' }))) return;
+        await api('POST', `/api/bizplans/${p.id}/versions/${v.id}/restore`); close(); toast('Versão restaurada'); route();
+      }) }, 'Restaurar') : null))),
+    h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar'))));
+}
+// Nome do arquivo sem acentos nem símbolos (alguns navegadores ignoram o nome quando tem).
+const planFileName = p => `${p.title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s-]+/g, ' ').trim().replace(/\s+/g, '-').toLowerCase() || 'plano-de-negocio'}.docx`;
+function downloadPlanDocx(p, doc) {
+  const accent = (getComputedStyle(document.documentElement).getPropertyValue('--accent') || '').trim().replace('#', '');
+  Exports.download(Exports.docx({ title: p.title, subtitle: [p.client_name || p.lead_company, state.org ? state.org.name : null, fmtDate(today())].filter(Boolean).join(' · '),
+    sections: doc, brandColor: /^[0-9a-f]{6}$/i.test(accent) ? accent : 'D2400F' }), planFileName(p));
+}
+// Impressão (e "salvar como PDF" do navegador): só o documento, com capa simples.
+function printPlan(p, doc) {
+  const root = h('div', { id: 'print-root', class: 'print-doc' },
+    h('header', { class: 'print-cover' }, state.org && state.org.logo ? h('img', { src: state.org.logo, alt: '' }) : null,
+      h('h1', {}, p.title), h('p', {}, [p.client_name || p.lead_company, state.org ? state.org.name : null, fmtDate(today())].filter(Boolean).join(' · '))),
+    doc.map((s, i) => h('section', {}, h('h2', {}, `${i + 1}. ${s.title}`), mdNodes(s.content))));
+  document.body.append(root);
+  document.body.classList.add('printing');
+  const done = () => { root.remove(); document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  try { window.print(); } catch { toast('Não deu para abrir a impressão aqui. Use "Baixar Word".'); }
+  setTimeout(() => { if (document.body.contains(root) && !matchMedia('print').matches) done(); }, 1500);
+}
+
+// ---------- diagnóstico público (lead, sem login) ----------
+const DIAG_KEY = 'diagnostico-token';
+async function renderDiagnostic() {
+  const info = await api('GET', '/api/public/diagnostico/info').catch(() => ({ org: '', bands: BP.REVENUE_BANDS }));
+  if (info.accent) applyAccent(info.accent);
+  document.title = `Diagnóstico do seu negócio · ${info.org || APP_NAME}`;
+  const urlToken = new URLSearchParams(location.hash.split('?')[1] || '').get('c');
+  let token = urlToken;
+  try { token = token || localStorage.getItem(DIAG_KEY); } catch { /* sem armazenamento */ }
+  const page = h('div', { class: 'diag' });
+  const head = h('header', { class: 'diag-head' }, wordmark());
+  app().replaceChildren(h('div', { class: 'diag-wrap' }, head, page));
+  const remember = t => { try { localStorage.setItem(DIAG_KEY, t); } catch { /* idem */ } history.replaceState(null, '', `#/diagnostico?c=${t}`); };
+  const showQuiz = plan => {
+    const done = () => page.replaceChildren(h('div', { class: 'card-box diag-done' }, icon('check'),
+      h('h1', {}, 'Recebemos suas respostas!'),
+      h('p', {}, `Obrigado, ${plan.name.split(' ')[0]}. A equipe da ${plan.org} vai analisar e falar com você pelo WhatsApp ou e-mail para apresentar o diagnóstico.`),
+      h('p', { class: 'muted small' }, 'Se quiser completar ou mudar alguma resposta, é só voltar por este mesmo link.'),
+      h('button', { class: 'btn', type: 'button', onclick: () => showQuizInner() }, 'Ver minhas respostas')));
+    const showQuizInner = () => page.replaceChildren(
+      h('div', { class: 'diag-title' }, h('h1', {}, `Diagnóstico · ${plan.company}`), h('p', { class: 'muted' }, 'Responda o que souber. Onde não souber, toque em "Não sei". Tudo fica salvo a cada pergunta.')),
+      quiz({ plan, save: patch => api('PATCH', '/api/public/diagnostico', { token: plan.token, ...patch }),
+        submit: Object.assign(async () => { const out = await api('PATCH', '/api/public/diagnostico', { token: plan.token, submit: true }); setTimeout(done, 0); return out; }, { label: 'Enviar diagnóstico' }) }));
+    if (plan.submitted_at && !urlToken) done(); else showQuizInner();
+  };
+  if (token) {
+    try { const plan = await api('GET', `/api/public/diagnostico?token=${encodeURIComponent(token)}`); remember(plan.token); showQuiz(plan); return; }
+    catch { try { localStorage.removeItem(DIAG_KEY); } catch { /* idem */ } }
+  }
+  const err = h('p', { class: 'error', role: 'alert' });
+  const field = (id, label, attrs = {}) => h('div', { class: 'field' }, h('label', { for: id }, label), h('input', { id, name: id, ...attrs }));
+  page.replaceChildren(h('form', { class: 'card-box diag-form', onsubmit: async e => {
+    e.preventDefault();
+    const f = e.target.elements;
+    err.textContent = '';
+    try {
+      const plan = await api('POST', '/api/public/diagnostico', { name: f.d_name.value, company: f.d_company.value, cnpj: f.d_cnpj.value, email: f.d_email.value,
+        phone: f.d_phone.value, revenue_band: f.d_band.value, consent: f.d_consent.checked });
+      remember(plan.token); showQuiz(plan);
+    } catch (ex) { err.textContent = ex.message; }
+  } },
+    h('h1', {}, 'Diagnóstico gratuito do seu negócio'),
+    h('p', {}, `Responda um questionário rápido sobre o seu negócio, no seu ritmo. A equipe da ${info.org || 'consultoria'} analisa e mostra para você um diagnóstico com os próximos passos.`),
+    h('div', { class: 'grid2' },
+      field('d_name', 'Seu nome', { required: true, maxlength: 120, autocomplete: 'name' }),
+      field('d_company', 'Empresa', { required: true, maxlength: 160, autocomplete: 'organization' }),
+      field('d_cnpj', 'CNPJ (se tiver)', { inputmode: 'numeric', maxlength: 18, placeholder: '00.000.000/0000-00' }),
+      field('d_email', 'E-mail', { type: 'email', required: true, maxlength: 200, autocomplete: 'email' }),
+      field('d_phone', 'Celular (WhatsApp)', { type: 'tel', required: true, maxlength: 30, autocomplete: 'tel', placeholder: '(00) 00000-0000' }),
+      h('div', { class: 'field' }, h('label', { for: 'd_band' }, 'Faturamento'), h('select', { id: 'd_band', name: 'd_band', required: true },
+        h('option', { value: '' }, 'Escolha a faixa'), (info.bands || BP.REVENUE_BANDS).map(([v, l]) => h('option', { value: v }, l))))),
+    h('label', { class: 'check consent' }, h('input', { type: 'checkbox', name: 'd_consent', required: true }),
+      h('span', {}, `Autorizo a ${info.org || 'consultoria'} a usar estes dados e as minhas respostas para preparar o diagnóstico e entrar em contato comigo (LGPD). As respostas podem ser analisadas com ajuda de inteligência artificial.`)),
+    err,
+    h('button', { class: 'btn primary big', type: 'submit' }, 'Começar o diagnóstico ›')));
 }
 
 // ---------- pessoas ----------

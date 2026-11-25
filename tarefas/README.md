@@ -64,6 +64,14 @@ A senha temporária aparece uma vez no terminal; troque em Configurações. O ba
 - **Relatórios:** resumo, por empresa, por responsável, prazos, concluídas, canceladas, evolução mensal, ajustes, recorrentes e lista completa, com filtros de período, empresa, responsável, tipo e situação; baixam em Excel (.xlsx) e PDF, gerados no próprio navegador (`public/exports.js`).
 - **Compromissos:** agenda de reuniões e compromissos (lista ou mês), com empresa, participantes (equipe e cliente) e local ou link. Veem quem marcou, os participantes e o administrador; o cliente só os de que participa. Em "Ligar à minha agenda" cada pessoa gera um link particular (`/agenda/<código>.ics`, em `calendar.js`) que o Google Agenda, o Outlook e o iPhone assinam: traz os compromissos dela e os prazos das tarefas abertas que ela vê, só leitura. Gerar um novo link invalida o anterior.
 
+## Plano de negócio
+
+- **Questionário estilo quiz** (`public/bizplan.js`): 52 perguntas em 10 partes (negócio, clientes e proposta de valor, mercado, concorrência, produtos e receita, marketing e vendas, operação e tecnologia, pessoas e gestão, finanças, metas e riscos). Uma pergunta por tela, salva a cada avanço, aceita "não sei" (vira pauta da reunião).
+- **Quem responde:** o cliente pelo login dele (menu "Plano de negócio"); a equipe junto, na sessão do cliente; e leads pelo link público `/#/diagnostico` (nome, empresa, CNPJ, e-mail, celular, faixa de faturamento e aceite LGPD; até 6 cadastros por endereço por hora). Cada lead novo e cada questionário enviado avisam no sino.
+- **Financeiro calculado pelo sistema, nunca pela IA:** margem de contribuição, ponto de equilíbrio, resultado, necessidade de capital, retorno do investimento, projeção de 12 meses e 3 anos e três cenários.
+- **Documento em 17 seções** (sumário executivo, negócio, proposta de valor, mercado, concorrência, modelo de receita, marketing, operação, pessoas, financeiro, cenários, SWOT, riscos, ESG, OKRs, plano de ação de 90 dias e pendências). Com `ANTHROPIC_API_KEY`, a IA escreve o texto (`bizplan-ai.js`) e as tabelas vêm da conta do sistema; sem a chave, o rascunho organiza as respostas. Na reunião, cada seção é editada ou reescrita pela IA (só vira texto do plano com "Usar esta versão"); cada mudança salva uma versão que pode ser restaurada. Baixa em Word (.docx) e imprime/salva em PDF.
+- **Quem vê:** administrador todos; equipe os de leads, os que criou e os dos clientes que acompanha; cliente os da empresa dele, e o documento só quando a equipe marca "Cliente pode ver". O administrador transforma o lead em cliente e o plano vai junto.
+
 ## Chats, notificações e diário de bordo
 
 - **Chat da tarefa:** dentro de cada tarefa, o "Chat da equipe" é só de quem criou, dos responsáveis da equipe e dos administradores (o cliente não vê). Quando o cliente vê a tarefa, a "Conversa com o cliente" fica separada, logo abaixo.

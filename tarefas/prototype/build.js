@@ -37,6 +37,9 @@ window.BRAND_LOGOS = ${JSON.stringify(logos)};
 ${safe(read('../shared.js'))}
 </script>
 <script>
+${safe(read('../public/bizplan.js'))}
+</script>
+<script>
 ${safe(read('mock-api.js'))}
 </script>
 <script>

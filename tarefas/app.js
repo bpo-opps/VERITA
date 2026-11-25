@@ -8,6 +8,7 @@ const whatsapp = require('./whatsapp');
 const zlib = require('node:zlib');
 const { PdfText } = require('./public/pdftext.js');
 const calendar = require('./calendar');
+const BP = require('./public/bizplan.js');
 
 const PUBLIC = path.join(__dirname, 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
@@ -25,6 +26,7 @@ const REPLY = Symbol('reply');
 let notifier = null;
 // Leitura das atas pela IA: async ({ pdf, meeting, attendees, others, clients }) => { summary, tasks }. null = desligada.
 let extractor = null;
+let planWriter = null; // { generate, rewrite } do plano de negócio pela IA; sem chave, só o rascunho
 const reply = (code, body, cookie) => ({ [REPLY]: true, code, body, cookie });
 
 // ---------- validação ----------
@@ -1042,6 +1044,297 @@ route('POST', '/api/diary/:id/task', ({ db, user, body, params }) => {
   return diaryOut(db, user, db.prepare('select * from diary_entries where id = ?').get(e.id));
 });
 
+// ---------- plano de negócio ----------
+// Questionário (cliente pelo login, a equipe na sessão do cliente, ou lead pelo link público),
+// documento gerado pela IA (ou rascunho sem IA) e editado pela equipe, com versões.
+// Quem vê: administrador todos; equipe os de leads, os que criou e os dos clientes que acompanha; cliente os da empresa dele.
+const LEAD_STATUS = ['new', 'contacted', 'converted', 'lost'];
+function canSeePlan(db, user, p) {
+  if (!p || p.org_id !== user.org_id) return false;
+  if (user.role === 'admin') return true;
+  if (user.role === 'client') return !!p.client_id && p.client_id === user.client_id;
+  return !!p.lead_id || p.created_by === user.id || (!!p.client_id && clientIdsOf(db, user.id).includes(p.client_id));
+}
+function loadPlan(db, user, planId) {
+  const p = db.prepare('select * from bizplans where id = ?').get(planId);
+  if (!canSeePlan(db, user, p)) fail(404, 'Plano não encontrado');
+  return p;
+}
+const planMeta = (db, p) => {
+  const lead = p.lead_id ? db.prepare('select * from leads where id = ?').get(p.lead_id) : null;
+  const client = p.client_id ? db.prepare('select id, name from clients where id = ?').get(p.client_id) : null;
+  const band = lead && (BP.REVENUE_BANDS.find(b => b[0] === lead.revenue_band) || [])[1];
+  return { lead, client, company: client?.name || lead?.company || '', revenue_band: band || '' };
+};
+function planSummary(db, p) {
+  const m = planMeta(db, p);
+  return { id: p.id, title: p.title, client_id: p.client_id, client_name: m.client?.name || null, lead_id: p.lead_id, lead_company: m.lead?.company || null,
+    progress: BP.progress(JSON.parse(p.answers), JSON.parse(p.unknown)), submitted_at: p.submitted_at, doc_status: p.doc_status, shared: !!p.shared, updated_at: p.updated_at };
+}
+function planOut(db, user, p) {
+  const answers = JSON.parse(p.answers), unknown = JSON.parse(p.unknown);
+  const staff = user.role !== 'client';
+  const showDoc = staff || (p.shared && p.doc_status === 'ready');
+  const m = planMeta(db, p);
+  return {
+    ...planSummary(db, p), answers, unknown,
+    finance: staff ? BP.finance(answers) : undefined,
+    doc: showDoc && p.doc ? JSON.parse(p.doc) : null,
+    doc_status: staff ? p.doc_status : (showDoc ? 'ready' : 'none'), doc_error: staff ? p.doc_error : null, doc_source: staff ? p.doc_source : null,
+    lead: staff && m.lead ? { ...m.lead, revenue_band_label: m.revenue_band } : null,
+    ai: !!planWriter,
+  };
+}
+// Respostas: só perguntas conhecidas, cada uma validada; "não sei" numa lista à parte.
+function mergeAnswers(p, body) {
+  const answers = JSON.parse(p.answers);
+  let unknown = JSON.parse(p.unknown);
+  if (body.answers !== undefined) {
+    if (!body.answers || typeof body.answers !== 'object' || Array.isArray(body.answers)) fail(400, 'Respostas inválidas');
+    for (const [k, v] of Object.entries(body.answers)) {
+      let c;
+      try { c = BP.clean(k, v); } catch (e) { fail(400, e.message); }
+      if (c === null) delete answers[k]; else { answers[k] = c; unknown = unknown.filter(x => x !== k); }
+    }
+  }
+  if (body.unknown !== undefined) {
+    if (!Array.isArray(body.unknown) || !body.unknown.every(x => BP.BY_ID[x])) fail(400, 'Campo inválido: não sei');
+    unknown = [...new Set(body.unknown)];
+    unknown.forEach(k => delete answers[k]);
+  }
+  return { answers, unknown };
+}
+function savePlanAnswers(db, p, body) {
+  const { answers, unknown } = mergeAnswers(p, body);
+  db.prepare("update bizplans set answers = ?, unknown = ?, updated_at = datetime('now') where id = ?").run(JSON.stringify(answers), JSON.stringify(unknown), p.id);
+}
+// Quem acompanha o plano recebe aviso (sino) quando o questionário é enviado.
+function planWatchers(db, p) {
+  const team = p.client_id ? db.prepare('select user_id from user_clients where client_id = ?').all(p.client_id).map(r => r.user_id) : [];
+  return [...activeAdmins(db, p.org_id), p.created_by, ...team];
+}
+function submitPlan(db, p, who) {
+  if (p.submitted_at) return;
+  db.prepare("update bizplans set submitted_at = datetime('now') where id = ?").run(p.id);
+  const m = planMeta(db, p);
+  pushInbox(db, planWatchers(db, p), { kind: 'bizplan', ref: `plan-${p.id}`, title: `${who} concluiu o questionário do plano de negócio`,
+    body: m.company || p.title, link: `#/plano/${p.id}` });
+}
+
+route('GET', '/api/bizplans', ({ db, user }) =>
+  db.prepare('select * from bizplans where org_id = ? order by updated_at desc, id desc').all(user.org_id).filter(p => canSeePlan(db, user, p)).map(p => planSummary(db, p)));
+route('POST', '/api/bizplans', ({ db, user, body }) => {
+  requireStaff(user);
+  const clientId = id(body.client_id, 'cliente');
+  checkClient(db, user, clientId);
+  const c = db.prepare('select name from clients where id = ?').get(clientId);
+  const title = str(body.title, 'nome do plano', { max: 120, required: false }) || `Plano de negócio · ${c.name}`;
+  const r = db.prepare('insert into bizplans (org_id, client_id, title, answers, created_by) values (?, ?, ?, ?, ?)')
+    .run(user.org_id, clientId, title, JSON.stringify({ b_name: c.name }), user.id);
+  const pid = Number(r.lastInsertRowid);
+  // Avisa as pessoas do cliente que há um questionário para responder.
+  pushInbox(db, db.prepare("select id from users where role = 'client' and client_id = ? and active = 1").all(clientId).map(x => x.id),
+    { kind: 'bizplan', ref: `plan-${pid}`, title: 'Há um questionário de plano de negócio para você responder', body: title, link: `#/plano/${pid}` }, user.id);
+  return reply(201, planOut(db, user, db.prepare('select * from bizplans where id = ?').get(pid)));
+});
+route('GET', '/api/bizplans/:id', ({ db, user, params }) => planOut(db, user, loadPlan(db, user, params.id)));
+route('PATCH', '/api/bizplans/:id', ({ db, user, body, params }) => {
+  const p = loadPlan(db, user, params.id);
+  const staffKeys = ['title', 'shared'];
+  if (user.role === 'client' && Object.keys(body).some(k => staffKeys.includes(k))) fail(403, 'Sem permissão');
+  tx(db, () => {
+    if ('answers' in body || 'unknown' in body) savePlanAnswers(db, p, body);
+    if ('title' in body) db.prepare('update bizplans set title = ? where id = ?').run(str(body.title, 'nome do plano', { max: 120 }), p.id);
+    if ('shared' in body) {
+      if (body.shared && p.doc_status !== 'ready') fail(409, 'Gere o documento antes de mostrar ao cliente');
+      db.prepare('update bizplans set shared = ? where id = ?').run(body.shared ? 1 : 0, p.id);
+      if (body.shared && p.client_id) {
+        pushInbox(db, db.prepare("select id from users where role = 'client' and client_id = ? and active = 1").all(p.client_id).map(x => x.id),
+          { kind: 'bizplan', ref: `plan-doc-${p.id}`, title: 'Seu plano de negócio está disponível', body: p.title, link: `#/plano/${p.id}` }, user.id);
+      }
+    }
+    if (body.submit) submitPlan(db, p, user.name);
+  });
+  return planOut(db, user, db.prepare('select * from bizplans where id = ?').get(p.id));
+});
+route('DELETE', '/api/bizplans/:id', ({ db, user, params }) => {
+  requireAdmin(user);
+  const p = loadPlan(db, user, params.id);
+  db.prepare('delete from bizplans where id = ?').run(p.id);
+  return { ok: true };
+});
+
+// Documento: gerar (IA ou rascunho), salvar com versão, reescrever uma seção pela IA, versões.
+const DOC_KEYS = BP.DOC.map(([k]) => k);
+function docSections(v) {
+  if (!Array.isArray(v) || !v.length || v.length > 40) fail(400, 'Documento inválido');
+  return v.map(s => {
+    if (!s || typeof s !== 'object') fail(400, 'Documento inválido');
+    const key = String(s.key || '');
+    if (!/^[a-z0-9_-]{1,40}$/.test(key)) fail(400, 'Documento inválido');
+    return { key, title: str(s.title, 'título da seção', { max: 120 }), content: str(s.content, 'texto da seção', { max: 30000, required: false }) };
+  });
+}
+function saveDoc(db, user, p, sections, note, source) {
+  const doc = JSON.stringify(sections);
+  db.prepare("update bizplans set doc = ?, doc_status = 'ready', doc_error = null, doc_source = coalesce(?, doc_source), updated_at = datetime('now') where id = ?").run(doc, source || null, p.id);
+  db.prepare('insert into bizplan_versions (plan_id, doc, note, user_id) values (?, ?, ?, ?)').run(p.id, doc, String(note || '').slice(0, 200), user ? user.id : null);
+}
+async function generatePlan(db, planId, userId, useAi) {
+  const p = db.prepare('select * from bizplans where id = ?').get(planId);
+  if (!p) return;
+  const answers = JSON.parse(p.answers), unknown = JSON.parse(p.unknown);
+  const user = userId ? db.prepare('select id from users where id = ?').get(userId) : null;
+  try {
+    const sections = useAi ? await planWriter.generate({ answers, unknown, meta: planMeta(db, p) }) : BP.draft(answers, unknown, planMeta(db, p));
+    saveDoc(db, user, p, sections, useAi ? 'Gerado pela IA' : 'Rascunho gerado das respostas (sem IA)', useAi ? 'ai' : 'draft');
+  } catch (e) {
+    console.error(`Plano ${planId}:`, e.message);
+    db.prepare("update bizplans set doc_status = ?, doc_error = ? where id = ?").run(p.doc ? 'ready' : 'error', e.message || 'Não deu para gerar o plano', planId);
+  }
+}
+route('POST', '/api/bizplans/:id/generate', ({ db, user, body, params }) => {
+  requireStaff(user);
+  const p = loadPlan(db, user, params.id);
+  if (p.doc_status === 'generating') fail(409, 'O plano já está sendo gerado');
+  const useAi = !!planWriter && body.mode !== 'draft';
+  if (!useAi) { generatePlan(db, p.id, user.id, false); return planOut(db, user, db.prepare('select * from bizplans where id = ?').get(p.id)); }
+  db.prepare("update bizplans set doc_status = 'generating', doc_error = null where id = ?").run(p.id);
+  setImmediate(() => generatePlan(db, p.id, user.id, true));
+  return reply(202, planOut(db, user, db.prepare('select * from bizplans where id = ?').get(p.id)));
+});
+route('PUT', '/api/bizplans/:id/doc', ({ db, user, body, params }) => {
+  requireStaff(user);
+  const p = loadPlan(db, user, params.id);
+  if (p.doc_status === 'generating') fail(409, 'Espere a IA terminar de gerar o plano');
+  saveDoc(db, user, p, docSections(body.sections), body.note || 'Editado', null);
+  return planOut(db, user, db.prepare('select * from bizplans where id = ?').get(p.id));
+}, { maxBody: 2 * 1024 * 1024 });
+route('POST', '/api/bizplans/:id/rewrite', async ({ db, user, body, params }) => {
+  requireStaff(user);
+  const p = loadPlan(db, user, params.id);
+  if (!planWriter) fail(409, 'A IA não está ligada (falta a chave da Anthropic)');
+  const doc = p.doc ? JSON.parse(p.doc) : null;
+  const section = doc && doc.find(s => s.key === body.key);
+  if (!section) fail(404, 'Seção não encontrada');
+  const instruction = str(body.instruction, 'pedido', { max: 1000 });
+  let content;
+  try {
+    content = await planWriter.rewrite({ answers: JSON.parse(p.answers), unknown: JSON.parse(p.unknown), meta: planMeta(db, p), section, instruction });
+  } catch (e) { fail(502, e.message || 'A IA não conseguiu reescrever agora'); }
+  return { key: section.key, content };
+});
+route('GET', '/api/bizplans/:id/versions', ({ db, user, params }) => {
+  requireStaff(user);
+  const p = loadPlan(db, user, params.id);
+  return db.prepare('select v.id, v.note, v.created_at, u.name as author from bizplan_versions v left join users u on u.id = v.user_id where v.plan_id = ? order by v.id desc limit 100').all(p.id);
+});
+route('POST', '/api/bizplans/:id/versions/:vid/restore', ({ db, user, params }) => {
+  requireStaff(user);
+  const p = loadPlan(db, user, params.id);
+  const v = db.prepare('select * from bizplan_versions where id = ? and plan_id = ?').get(params.vid, p.id);
+  if (!v) fail(404, 'Versão não encontrada');
+  saveDoc(db, user, p, JSON.parse(v.doc), `Restaurada a versão de ${v.created_at}`, null);
+  return planOut(db, user, db.prepare('select * from bizplans where id = ?').get(p.id));
+});
+
+// Leads: quem preencheu o diagnóstico público. A equipe vê e acompanha; o administrador transforma em cliente.
+route('GET', '/api/leads', ({ db, user }) => {
+  requireStaff(user);
+  return db.prepare(`select l.*, (select id from bizplans b where b.lead_id = l.id order by id limit 1) as plan_id from leads l where l.org_id = ? order by l.id desc`).all(user.org_id)
+    .map(l => {
+      const p = l.plan_id && db.prepare('select answers, unknown, submitted_at from bizplans where id = ?').get(l.plan_id);
+      return { ...l, revenue_band_label: (BP.REVENUE_BANDS.find(b => b[0] === l.revenue_band) || [])[1] || l.revenue_band,
+        progress: p ? BP.progress(JSON.parse(p.answers), JSON.parse(p.unknown)).pct : 0, submitted_at: p ? p.submitted_at : null };
+    });
+});
+route('PATCH', '/api/leads/:id', ({ db, user, body, params }) => {
+  requireStaff(user);
+  const l = db.prepare('select * from leads where id = ? and org_id = ?').get(params.id, user.org_id);
+  if (!l) fail(404, 'Lead não encontrado');
+  if ('status' in body) db.prepare('update leads set status = ? where id = ?').run(oneOf(body.status, 'situação', LEAD_STATUS), l.id);
+  if ('notes' in body) db.prepare('update leads set notes = ? where id = ?').run(str(body.notes, 'anotações', { max: 5000, required: false }), l.id);
+  return db.prepare('select * from leads where id = ?').get(l.id);
+});
+// Virar cliente: cria a empresa (ou usa uma existente) e leva o plano junto.
+route('POST', '/api/leads/:id/convert', ({ db, user, body, params }) => {
+  requireAdmin(user);
+  const l = db.prepare('select * from leads where id = ? and org_id = ?').get(params.id, user.org_id);
+  if (!l) fail(404, 'Lead não encontrado');
+  const clientId = tx(db, () => {
+    let cid = body.client_id ? id(body.client_id, 'cliente') : null;
+    if (cid) checkClient(db, user, cid);
+    else cid = Number(db.prepare('insert into clients (org_id, name) values (?, ?)').run(user.org_id, l.company).lastInsertRowid);
+    db.prepare("update leads set status = 'converted', client_id = ? where id = ?").run(cid, l.id);
+    db.prepare("update bizplans set client_id = ?, updated_at = datetime('now') where lead_id = ?").run(cid, l.id);
+    return cid;
+  });
+  return { ok: true, client_id: clientId };
+});
+
+// Diagnóstico público (sem login): o lead se cadastra e responde pelo link com código.
+const publicHits = new Map();
+function publicLimit(ip, max = 6, windowMs = 60 * 60e3) {
+  const now = Date.now();
+  const hits = (publicHits.get(ip) || []).filter(t => now - t < windowMs);
+  if (hits.length >= max) fail(429, 'Muitos cadastros deste endereço. Tente de novo mais tarde.');
+  hits.push(now); publicHits.set(ip, hits);
+}
+const leadPlan = (db, token) => {
+  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{20,64}$/.test(token)) fail(404, 'Link inválido');
+  const p = db.prepare('select * from bizplans where token = ? and lead_id is not null').get(token);
+  if (!p) fail(404, 'Link inválido ou expirado');
+  return p;
+};
+const publicPlanOut = (db, p) => {
+  const l = db.prepare('select name, company from leads where id = ?').get(p.lead_id);
+  return { token: p.token, name: l.name, company: l.company, answers: JSON.parse(p.answers), unknown: JSON.parse(p.unknown), submitted_at: p.submitted_at,
+    progress: BP.progress(JSON.parse(p.answers), JSON.parse(p.unknown)), org: db.prepare('select name from orgs where id = ?').get(p.org_id).name };
+};
+route('GET', '/api/public/diagnostico/info', ({ db }) => {
+  const org = db.prepare('select name, logo, accent from orgs order by id limit 1').get();
+  return { org: org ? org.name : '', logo: org ? org.logo : null, accent: org ? org.accent : null, bands: BP.REVENUE_BANDS };
+}, { public: true });
+route('POST', '/api/public/diagnostico', ({ db, body, ip }) => {
+  const name = str(body.name, 'seu nome', { max: 120 });
+  const company = str(body.company, 'empresa', { max: 160 });
+  const email = str(body.email, 'e-mail', { max: 200 }).toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(400, 'E-mail inválido');
+  const phone = str(body.phone, 'celular', { max: 30 });
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 10 || digits.length > 13) fail(400, 'Celular inválido: use DDD e número');
+  const cnpj = str(body.cnpj, 'CNPJ', { max: 20, required: false });
+  if (cnpj && !BP.validCnpj(cnpj)) fail(400, 'CNPJ inválido');
+  const band = oneOf(body.revenue_band, 'faixa de faturamento', BP.REVENUE_BANDS.map(b => b[0]));
+  if (body.consent !== true) fail(400, 'Para continuar, aceite o uso dos dados para o diagnóstico e o contato da consultoria');
+  publicLimit(ip);
+  const org = db.prepare('select id from orgs order by id limit 1').get();
+  if (!org) fail(503, 'Sistema ainda não configurado');
+  const token = require('node:crypto').randomBytes(24).toString('base64url');
+  const pid = tx(db, () => {
+    const lid = Number(db.prepare("insert into leads (org_id, name, company, cnpj, email, phone, revenue_band, consent_at) values (?, ?, ?, ?, ?, ?, ?, datetime('now'))")
+      .run(org.id, name, company, cnpj ? BP.fmtCnpj(cnpj) : '', email, phone, band).lastInsertRowid);
+    return Number(db.prepare('insert into bizplans (org_id, lead_id, title, answers, token) values (?, ?, ?, ?, ?)')
+      .run(org.id, lid, `Diagnóstico · ${company}`, JSON.stringify({ b_name: company }), token).lastInsertRowid);
+  });
+  pushInbox(db, activeAdmins(db, org.id), { kind: 'lead', ref: `lead-plan-${pid}`, title: `Novo lead: ${company}`,
+    body: `${name} · ${(BP.REVENUE_BANDS.find(b => b[0] === band) || [])[1]}`, link: `#/plano/${pid}` });
+  return reply(201, publicPlanOut(db, db.prepare('select * from bizplans where id = ?').get(pid)));
+}, { public: true });
+route('GET', '/api/public/diagnostico', ({ db, query }) => publicPlanOut(db, leadPlan(db, query.token)), { public: true });
+route('PATCH', '/api/public/diagnostico', ({ db, body }) => {
+  const p = leadPlan(db, body.token);
+  if (p.submitted_at && !body.answers && !body.unknown) return publicPlanOut(db, p);
+  tx(db, () => {
+    if ('answers' in body || 'unknown' in body) savePlanAnswers(db, p, body);
+    if (body.submit) {
+      const l = db.prepare('select name, company from leads where id = ?').get(p.lead_id);
+      submitPlan(db, p, `${l.name} (${l.company})`);
+    }
+  });
+  return publicPlanOut(db, db.prepare('select * from bizplans where id = ?').get(p.id));
+}, { public: true });
+
 // ---------- anexos ----------
 const MAX_ATTACHMENT = 10 * 1024 * 1024;
 function loadAttachment(db, user, attId) {
@@ -1546,6 +1839,9 @@ function serveStatic(req, res) {
 function createHandler(db, opts = {}) {
   notifier = opts.notifier || null;
   extractor = opts.extractor || null;
+  planWriter = opts.planWriter || null;
+  // Geração interrompida por um reinício: volta para o que havia antes.
+  db.prepare("update bizplans set doc_status = case when doc is null then 'error' else 'ready' end, doc_error = 'A geração foi interrompida. Gere de novo.' where doc_status = 'generating'").run();
   // Leitura interrompida por um reinício do servidor: deixa a reunião pronta para ler de novo.
   db.prepare("update meetings set status = 'error', error = 'A leitura foi interrompida. Clique em \"Ler de novo\".' where status = 'processing'").run();
   return async (req, res) => {

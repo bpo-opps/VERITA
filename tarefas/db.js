@@ -3,7 +3,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { hashPassword } = require('./auth');
 const { today, addDays } = require('./shared');
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 const SCHEMA = `
 pragma foreign_keys = on;
@@ -290,6 +290,51 @@ create table if not exists diary_entries (
 );
 create index if not exists diary_user_date on diary_entries (user_id, date);
 create index if not exists diary_task on diary_entries (task_id);
+-- Versão 10: plano de negócio (questionário, documento e versões) e leads do diagnóstico público.
+create table if not exists leads (
+  id integer primary key,
+  org_id integer not null references orgs(id) on delete cascade,
+  name text not null,
+  company text not null,
+  cnpj text not null default '',
+  email text not null,
+  phone text not null,
+  revenue_band text not null,
+  status text not null default 'new' check (status in ('new', 'contacted', 'converted', 'lost')),
+  notes text not null default '',
+  client_id integer references clients(id) on delete set null,
+  consent_at text not null,
+  created_at text not null default (datetime('now'))
+);
+create table if not exists bizplans (
+  id integer primary key,
+  org_id integer not null references orgs(id) on delete cascade,
+  client_id integer references clients(id) on delete set null,
+  lead_id integer references leads(id) on delete set null,
+  title text not null,
+  answers text not null default '{}',
+  unknown text not null default '[]',
+  token text unique,
+  submitted_at text,
+  doc text,
+  doc_status text not null default 'none' check (doc_status in ('none', 'generating', 'ready', 'error')),
+  doc_error text,
+  doc_source text,
+  shared integer not null default 0,
+  created_by integer references users(id) on delete set null,
+  created_at text not null default (datetime('now')),
+  updated_at text not null default (datetime('now'))
+);
+create index if not exists bizplans_org on bizplans (org_id, updated_at);
+create table if not exists bizplan_versions (
+  id integer primary key,
+  plan_id integer not null references bizplans(id) on delete cascade,
+  doc text not null,
+  note text not null default '',
+  user_id integer references users(id) on delete set null,
+  created_at text not null default (datetime('now'))
+);
+create index if not exists bizplan_versions_plan on bizplan_versions (plan_id, id);
 `;
 
 // Acrescenta a coluna se ainda não existe. Devolve true quando acrescentou.

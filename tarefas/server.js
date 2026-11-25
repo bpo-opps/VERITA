@@ -55,5 +55,10 @@ const ai = meetings.config();
 const extractor = ai && (args => meetings.extract(ai, args));
 console.log(`Reuniões: leitura por IA ${ai ? 'ligada' : 'desligada (defina ANTHROPIC_API_KEY)'}`);
 
+// Plano de negócio pela IA (mesma chave). Sem ela, o sistema monta o rascunho com as respostas.
+const bizplanAi = require('./bizplan-ai');
+const planCfg = bizplanAi.config();
+const planWriter = planCfg && { generate: args => bizplanAi.generate(planCfg, args), rewrite: args => bizplanAi.rewrite(planCfg, args) };
+
 const port = Number(process.env.PORT) || 3000;
-http.createServer(createHandler(db, { notifier, extractor })).listen(port, () => console.log(`Rodando em http://localhost:${port}`));
+http.createServer(createHandler(db, { notifier, extractor, planWriter })).listen(port, () => console.log(`Rodando em http://localhost:${port}`));

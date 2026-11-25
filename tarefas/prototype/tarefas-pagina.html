@@ -728,6 +728,99 @@ tr.total td { border-top: 2px solid var(--border); }
 }
 .tag.paused { color: var(--s-late); background: var(--s-late-bg); }
 
+/* ---------- plano de negócio: questionário ---------- */
+.quiz { max-width: 760px; margin: 0 auto; }
+.quiz-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.quiz-jump { width: auto; max-width: 100%; }
+.quiz-progress { flex: 1; min-width: 160px; }
+.quiz-progress .progress { margin: 0; }
+.quiz-card { padding: 28px; }
+.quiz-meta { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); margin-bottom: 8px; }
+.quiz-q { font-size: 22px; line-height: 30px; margin: 0 0 6px; }
+.quiz-help { margin: 0 0 14px; }
+.quiz-card input[type=text], .quiz-card textarea { font-size: 17px; padding: 12px 14px; }
+.quiz-options { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.quiz-options.multi { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.quiz-option { display: flex; align-items: center; gap: 10px; text-align: left; font: inherit; font-size: 15px; padding: 12px 14px; border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+.quiz-option:hover { border-color: var(--accent); }
+.quiz-option[aria-checked="true"], .quiz-option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.quiz-option input { width: 18px; height: 18px; min-height: 18px; accent-color: var(--accent); flex: none; }
+.quiz-affix { display: flex; align-items: center; gap: 8px; max-width: 320px; }
+.quiz-affix span { font-weight: 700; color: var(--text-muted); font-size: 17px; }
+.quiz-actions { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+.quiz-actions .btn.primary { margin-left: auto; min-width: 140px; justify-content: center; }
+.quiz-unknown { margin: 10px 0 0; font-size: 13px; color: var(--s-late); background: var(--s-late-bg); border-radius: var(--radius-sm); padding: 8px 10px; }
+.quiz-pending { margin: 6px 0 0; padding-left: 18px; }
+.quiz-pending li { margin: 4px 0; }
+.quiz-pending .link { font-weight: 500; text-decoration: underline; }
+@media (max-width: 600px) {
+  .quiz-card { padding: 18px; }
+  .quiz-q { font-size: 19px; line-height: 26px; }
+  .quiz-actions .btn { flex: 1; justify-content: center; }
+  .quiz-actions .btn.primary { flex-basis: 100%; order: -1; }
+}
+
+/* ---------- plano de negócio: lista, documento e impressão ---------- */
+.plan-prog { min-width: 140px; }
+.plan-prog .progress { margin: 0 0 4px; }
+.plan-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.plan-card { display: flex; flex-direction: column; gap: 8px; color: var(--text); text-decoration: none; }
+.plan-card:hover { border-color: var(--accent); }
+.plan-top { align-items: center; }
+.lead-box { font-size: 14px; line-height: 22px; }
+dl.answers { display: grid; grid-template-columns: minmax(180px, 2fr) 3fr; gap: 6px 16px; margin: 0; }
+dl.answers dt { color: var(--text-muted); font-size: 13px; }
+dl.answers dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 700px) { dl.answers { grid-template-columns: 1fr; } dl.answers dd { margin-bottom: 8px; } }
+.pending-text { color: var(--s-late); }
+.fin-stats { margin: 8px 0 16px; }
+.md-table { font-size: 13px; }
+.md-table td.num { text-align: right; white-space: nowrap; }
+.md-table td { vertical-align: top; }
+.doc-section h3 { font-size: 15px; margin: 16px 0 6px; }
+.doc-section p, .doc-section li { line-height: 1.6; }
+.doc-sec-head { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.doc-sec-head h2 { margin: 0; }
+.doc-tools .row { margin-bottom: 6px; }
+.doc-toc { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-size: 13px; }
+.doc-toc a { color: var(--text-muted); text-decoration: none; }
+.doc-toc a:hover { color: var(--accent); }
+.doc-edit { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.5; }
+.ai-suggestion { border: 1px dashed var(--accent); border-radius: var(--radius-sm); padding: 10px 14px; margin: 10px 0; background: var(--accent-soft); }
+.doc-empty { text-align: center; padding: 32px 20px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.doc-empty .spinner { width: 32px; height: 32px; }
+.doc-empty .row { justify-content: center; }
+ul.versions { list-style: none; padding: 0; margin: 0 0 12px; max-height: 60vh; overflow-y: auto; }
+ul.versions li { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+#print-root { display: none; }
+@media print {
+  body.printing > *:not(#print-root) { display: none !important; }
+  body.printing #print-root { display: block; color: #000; background: #fff; font-size: 11pt; }
+  .print-cover { border-bottom: 3px solid #FB4F14; margin-bottom: 18pt; padding-bottom: 10pt; }
+  .print-cover img { height: 36px; }
+  .print-cover h1 { font-size: 22pt; margin: 8pt 0 4pt; }
+  .print-doc h2 { color: #d2400f; font-size: 15pt; margin: 16pt 0 6pt; break-after: avoid; }
+  .print-doc h3 { font-size: 12pt; margin: 10pt 0 4pt; break-after: avoid; }
+  .print-doc table { border-collapse: collapse; width: 100%; font-size: 9pt; break-inside: avoid; }
+  .print-doc th, .print-doc td { border: 1px solid #c9ced8; padding: 3pt 5pt; }
+  .print-doc th { background: #f1f3f7; }
+}
+
+/* ---------- diagnóstico público ---------- */
+.diag-wrap { max-width: 820px; margin: 0 auto; padding: 20px 16px 48px; }
+.diag-head { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; font-weight: 600; color: var(--text-muted); }
+.diag-head .wordmark, .diag-logo { height: 34px; width: auto; }
+.diag-form h1, .diag-title h1, .diag-done h1 { font-size: 24px; line-height: 32px; margin: 0 0 8px; }
+.diag-title { margin-bottom: 14px; }
+.diag-title p { margin: 0; }
+.consent { align-items: flex-start; margin: 12px 0; font-size: 13px; line-height: 19px; color: var(--text-muted); }
+.consent input { margin-top: 2px; }
+.btn.big { font-size: 16px; padding: 12px 22px; }
+.diag-done { text-align: center; padding: 36px 20px; }
+.diag-done > svg { width: 44px; height: 44px; color: var(--success); }
+.quiz-q label { font: inherit; color: inherit; margin: 0; display: block; }
+
 #demo-bar { position: relative; z-index: 45; background: #0b0f17; color: #ffffff; padding-block: 8px; padding-left: var(--gutter-l); padding-right: var(--gutter-r); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
 #demo-bar strong { margin-right: 4px; }
 @media (min-width: 861px) { .sidebar { height: calc(100dvh - 44px); } }
@@ -1102,13 +1195,354 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
 </script>
 <script>
 'use strict';
+// Plano de negócio: as perguntas do questionário, a conta financeira e o rascunho sem IA.
+// Usado pelo servidor (require) e pelo navegador (self.BizPlan), igual em todo lugar.
+// Estrutura: roteiro clássico (SEBRAE: sumário, mercado, marketing, operação, finanças, cenários)
+// com o que um plano atual pede a mais: proposta de valor, modelo de receita e números da unidade,
+// canais digitais, tecnologia, ESG, metas (OKRs), riscos e plano de ação de 90 dias.
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.BizPlan = api;
+}(typeof self !== 'undefined' ? self : this, function () {
+  const REVENUE_BANDS = [
+    ['ate-81k', 'Até R$ 81 mil por ano'],
+    ['ate-360k', 'De R$ 81 mil a R$ 360 mil por ano'],
+    ['ate-1m', 'De R$ 360 mil a R$ 1 milhão por ano'],
+    ['ate-4m8', 'De R$ 1 milhão a R$ 4,8 milhões por ano'],
+    ['acima-4m8', 'Acima de R$ 4,8 milhões por ano'],
+    ['nao-fatura', 'Ainda não fatura'],
+  ];
+
+  const SECTIONS = [
+    ['negocio', 'Seu negócio'], ['clientes', 'Clientes e proposta de valor'], ['mercado', 'Mercado'],
+    ['concorrencia', 'Concorrência'], ['receita', 'Produtos e receita'], ['vendas', 'Marketing e vendas'],
+    ['operacao', 'Operação e tecnologia'], ['pessoas', 'Pessoas e gestão'], ['financas', 'Finanças'], ['metas', 'Metas e riscos'],
+  ];
+
+  // type: text | long | list (uma por linha) | money | percent | int | choice | multi
+  const QUESTIONS = [
+    { id: 'b_name', s: 'negocio', type: 'text', label: 'Qual é o nome do negócio?' },
+    { id: 'b_segment', s: 'negocio', type: 'choice', label: 'Em qual setor ele está?', options: ['Comércio', 'Serviços', 'Indústria', 'Tecnologia', 'Saúde', 'Alimentação', 'Educação', 'Agronegócio', 'Construção', 'Outro'] },
+    { id: 'b_stage', s: 'negocio', type: 'choice', label: 'Em que momento o negócio está?', options: ['Ainda é uma ideia', 'Começando (até 1 ano)', 'Crescendo', 'Estável', 'Passando por dificuldades'] },
+    { id: 'b_since', s: 'negocio', type: 'int', label: 'Em que ano começou?', placeholder: 'Ex.: 2019', min: 1900, max: 2100 },
+    { id: 'b_location', s: 'negocio', type: 'text', label: 'Onde fica e onde atende?', placeholder: 'Ex.: Campinas/SP, atende a região toda e online' },
+    { id: 'b_what', s: 'negocio', type: 'long', label: 'O que o negócio faz, em poucas palavras?', help: 'Como você explicaria para alguém numa conversa rápida.' },
+    { id: 'b_problem', s: 'negocio', type: 'long', label: 'Que problema do cliente o negócio resolve?' },
+    { id: 'b_purpose', s: 'negocio', type: 'long', label: 'Por que o negócio existe e onde quer chegar em 5 anos?', help: 'Propósito, missão e visão: pode escrever do seu jeito.' },
+    { id: 'b_values', s: 'negocio', type: 'list', label: 'Quais valores guiam o negócio?', help: 'Um por linha. Ex.: transparência, agilidade.' },
+
+    { id: 'c_type', s: 'clientes', type: 'multi', label: 'Para quem vocês vendem?', options: ['Pessoas (consumidor final)', 'Empresas', 'Governo'] },
+    { id: 'c_ideal', s: 'clientes', type: 'long', label: 'Descreva o cliente ideal.', help: 'Quem é, onde está, quanto pode pagar, o que valoriza.' },
+    { id: 'c_pains', s: 'clientes', type: 'list', label: 'Quais as maiores dores ou desejos desse cliente?', help: 'Uma por linha.' },
+    { id: 'c_why', s: 'clientes', type: 'long', label: 'Por que ele compra de vocês e não do concorrente?', help: 'O seu diferencial, na visão do cliente.' },
+    { id: 'c_count', s: 'clientes', type: 'int', label: 'Quantos clientes ativos vocês têm hoje?', min: 0 },
+    { id: 'c_concentration', s: 'clientes', type: 'percent', label: 'Quanto do faturamento vem dos 3 maiores clientes?', help: 'Em %. Mais de 50% é um risco de dependência.' },
+
+    { id: 'm_region', s: 'mercado', type: 'choice', label: 'Até onde vai a área de atuação?', options: ['Bairro ou cidade', 'Região', 'Estado', 'Brasil todo', 'Outros países', 'Só online'] },
+    { id: 'm_size', s: 'mercado', type: 'long', label: 'Quantos clientes em potencial existem na sua área?', help: 'Uma estimativa já ajuda. Ex.: 2 mil clínicas na região.' },
+    { id: 'm_trends', s: 'mercado', type: 'list', label: 'Que mudanças estão acontecendo no seu setor?', help: 'Tendências, leis, tecnologia, comportamento do cliente. Uma por linha.' },
+
+    { id: 'k_list', s: 'concorrencia', type: 'list', label: 'Quem são os principais concorrentes?', help: 'Um por linha. Vale incluir quem resolve o mesmo problema de outro jeito.' },
+    { id: 'k_better', s: 'concorrencia', type: 'long', label: 'No que eles são melhores que vocês?' },
+    { id: 'k_worse', s: 'concorrencia', type: 'long', label: 'No que vocês são melhores que eles?' },
+    { id: 'k_price', s: 'concorrencia', type: 'choice', label: 'Seu preço, comparado ao deles, é:', options: ['Mais barato', 'Parecido', 'Mais caro'] },
+
+    { id: 'p_list', s: 'receita', type: 'list', label: 'Quais os principais produtos ou serviços?', help: 'Um por linha, do que mais vende para o que menos vende.' },
+    { id: 'p_model', s: 'receita', type: 'multi', label: 'Como o negócio ganha dinheiro?', options: ['Venda avulsa', 'Assinatura ou mensalidade', 'Contrato ou projeto', 'Comissão', 'Licença ou royalties', 'Outro'] },
+    { id: 'p_ticket', s: 'receita', type: 'money', label: 'Qual o valor médio de cada venda (ticket médio)?' },
+    { id: 'p_sales', s: 'receita', type: 'int', label: 'Quantas vendas (ou atendimentos) por mês, em média?', min: 0 },
+    { id: 'p_repeat', s: 'receita', type: 'choice', label: 'O cliente costuma comprar de novo?', options: ['Quase nunca', 'Às vezes', 'Com frequência', 'Paga todo mês'] },
+
+    { id: 's_channels', s: 'vendas', type: 'multi', label: 'Como os clientes chegam até vocês?', options: ['Indicação', 'Instagram', 'Google', 'Site', 'WhatsApp', 'Vendedor ou representante', 'Loja física', 'Marketplace', 'Eventos e feiras', 'LinkedIn', 'Outro'] },
+    { id: 's_process', s: 'vendas', type: 'long', label: 'Como é a venda, do primeiro contato ao fechamento?' },
+    { id: 's_spend', s: 'vendas', type: 'money', label: 'Quanto gastam por mês com marketing e vendas?', help: 'Anúncios, agência, comissões fixas, brindes.' },
+    { id: 's_retention', s: 'vendas', type: 'long', label: 'O que fazem para o cliente voltar ou indicar?' },
+
+    { id: 'o_steps', s: 'operacao', type: 'list', label: 'Quais as etapas principais para entregar o que vocês vendem?', help: 'Uma por linha.' },
+    { id: 'o_suppliers', s: 'operacao', type: 'list', label: 'Quem são os fornecedores e parceiros mais importantes?', help: 'Um por linha.' },
+    { id: 'o_tools', s: 'operacao', type: 'list', label: 'Que sistemas e ferramentas usam?', help: 'ERP, planilhas, CRM, emissor de notas... um por linha.' },
+    { id: 'o_bottleneck', s: 'operacao', type: 'long', label: 'O que mais trava a operação hoje?' },
+
+    { id: 'g_partners', s: 'pessoas', type: 'list', label: 'Quem são os sócios e o papel de cada um?', help: 'Um por linha. Ex.: Ana: comercial e finanças.' },
+    { id: 'g_team', s: 'pessoas', type: 'int', label: 'Quantas pessoas trabalham no negócio (com os sócios)?', min: 0 },
+    { id: 'g_hire', s: 'pessoas', type: 'list', label: 'Quem precisam contratar nos próximos 12 meses?', help: 'Um por linha. Pode deixar vazio.' },
+    { id: 'g_management', s: 'pessoas', type: 'long', label: 'Como são tomadas as decisões e acompanhados os resultados?', help: 'Reuniões, indicadores, quem decide o quê.' },
+
+    { id: 'f_revenue', s: 'financas', type: 'money', label: 'Qual o faturamento médio por mês hoje?', help: 'Se não souber, a gente calcula pelo ticket médio vezes as vendas do mês.' },
+    { id: 'f_fixed', s: 'financas', type: 'money', label: 'Quanto são os custos fixos por mês?', help: 'Aluguel, salários e encargos, contador, sistemas, energia. Sem o pró-labore.' },
+    { id: 'f_variable', s: 'financas', type: 'percent', label: 'Quanto dos custos varia com a venda, em % do faturamento?', help: 'Mercadoria ou matéria-prima, comissões, frete, taxas de cartão.' },
+    { id: 'f_tax', s: 'financas', type: 'percent', label: 'Quanto de imposto sai sobre a venda, em %?', help: 'No Simples Nacional costuma ficar entre 4% e 16%. Seu contador sabe.' },
+    { id: 'f_prolabore', s: 'financas', type: 'money', label: 'Quanto é o pró-labore dos sócios por mês, somando todos?' },
+    { id: 'f_debt', s: 'financas', type: 'money', label: 'Quanto pagam por mês de empréstimos e financiamentos?', help: 'Só as parcelas. Zero se não tiver.' },
+    { id: 'f_growth', s: 'financas', type: 'percent', label: 'Quanto esperam crescer por mês, em %?', help: 'Uma meta realista. Ex.: 2% ao mês dá cerca de 27% no ano.' },
+    { id: 'f_invest', s: 'financas', type: 'money', label: 'Quanto de investimento o plano precisa?', help: 'Reforma, equipamentos, estoque, marketing de lançamento, capital de giro.' },
+    { id: 'f_own', s: 'financas', type: 'money', label: 'Quanto disso vocês têm de recursos próprios?' },
+
+    { id: 'r_goals', s: 'metas', type: 'list', label: 'Quais as 3 principais metas para os próximos 12 meses?', help: 'Uma por linha. Ex.: faturar R$ 80 mil por mês.' },
+    { id: 'r_risks', s: 'metas', type: 'list', label: 'O que pode dar errado no caminho?', help: 'Uma por linha.' },
+    { id: 'r_esg', s: 'metas', type: 'long', label: 'Que cuidados vocês têm com pessoas, meio ambiente e boa gestão?', help: 'ESG: pode ser algo simples, como reciclagem, benefícios à equipe ou contas organizadas.' },
+    { id: 'r_help', s: 'metas', type: 'multi', label: 'Em que áreas mais precisam de ajuda?', options: ['Finanças', 'Vendas', 'Marketing', 'Processos', 'Pessoas', 'Tecnologia', 'Conseguir investimento', 'Gestão e estratégia'] },
+  ];
+  const BY_ID = Object.fromEntries(QUESTIONS.map(q => [q.id, q]));
+
+  // As seções do documento, na ordem.
+  const DOC = [
+    ['sumario', 'Sumário executivo'], ['negocio', 'O negócio'], ['proposta', 'Clientes e proposta de valor'], ['mercado', 'Análise de mercado'],
+    ['concorrencia', 'Concorrência e posicionamento'], ['receita', 'Produtos, preços e modelo de receita'], ['marketing', 'Marketing e vendas'],
+    ['operacao', 'Operação e tecnologia'], ['pessoas', 'Pessoas, gestão e governança'], ['financeiro', 'Plano financeiro'], ['cenarios', 'Cenários'],
+    ['swot', 'Análise SWOT'], ['riscos', 'Riscos e como reduzir'], ['esg', 'Sustentabilidade e impacto (ESG)'], ['metas', 'Metas e OKRs para 12 meses'],
+    ['acao', 'Plano de ação (90 dias)'], ['pendencias', 'Pontos a definir com a consultoria'],
+  ];
+  const DOC_TITLE = Object.fromEntries(DOC);
+
+  const isEmpty = v => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
+  // Valida e limpa uma resposta. Devolve o valor limpo (ou null para apagar) ou lança Error.
+  function clean(id, v) {
+    const q = BY_ID[id];
+    if (!q) throw new Error(`Pergunta desconhecida: ${id}`);
+    if (isEmpty(v)) return null;
+    const num = (min, max) => {
+      const n = typeof v === 'number' ? v : Number(String(v).replace(/\./g, '').replace(',', '.'));
+      if (!Number.isFinite(n) || n < min || n > max) throw new Error(`${q.label}: número inválido`);
+      return Math.round(n * 100) / 100;
+    };
+    switch (q.type) {
+      case 'text': if (typeof v !== 'string') throw new Error(`${q.label}: texto inválido`); return v.trim().slice(0, 300) || null;
+      case 'long': if (typeof v !== 'string') throw new Error(`${q.label}: texto inválido`); return v.trim().slice(0, 5000) || null;
+      case 'list': {
+        const arr = (Array.isArray(v) ? v : String(v).split('\n')).map(x => String(x).trim()).filter(Boolean).slice(0, 30).map(x => x.slice(0, 300));
+        return arr.length ? arr : null;
+      }
+      case 'money': return num(0, 1e12);
+      case 'percent': return num(0, 100);
+      case 'int': return Math.round(num(q.min ?? 0, q.max ?? 1e9));
+      case 'choice': if (!q.options.includes(v)) throw new Error(`${q.label}: opção inválida`); return v;
+      case 'multi': {
+        if (!Array.isArray(v) || !v.every(x => q.options.includes(x))) throw new Error(`${q.label}: opção inválida`);
+        return v.length ? [...new Set(v)] : null;
+      }
+      default: return null;
+    }
+  }
+
+  // Quanto do questionário foi respondido (contando "não sei" como respondido).
+  function progress(answers = {}, unknown = []) {
+    const done = QUESTIONS.filter(q => !isEmpty(answers[q.id]) || unknown.includes(q.id)).length;
+    const bySection = SECTIONS.map(([key, title]) => {
+      const qs = QUESTIONS.filter(q => q.s === key);
+      return { key, title, total: qs.length, done: qs.filter(q => !isEmpty(answers[q.id]) || unknown.includes(q.id)).length };
+    });
+    return { done, total: QUESTIONS.length, pct: Math.round((done / QUESTIONS.length) * 100), bySection };
+  }
+
+  // ---------- conta financeira (o número nunca vem da IA) ----------
+  const brl = n => (n === null || n === undefined || !Number.isFinite(n) ? '–' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }));
+  const pct = n => (n === null || n === undefined || !Number.isFinite(n) ? '–' : `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`);
+
+  function finance(a = {}) {
+    const val = id => (isEmpty(a[id]) ? null : Number(a[id]));
+    const revenueBase = val('f_revenue') ?? (val('p_ticket') !== null && val('p_sales') !== null ? val('p_ticket') * val('p_sales') : null);
+    const missing = [];
+    if (revenueBase === null) missing.push('faturamento por mês (ou ticket médio e vendas por mês)');
+    if (val('f_fixed') === null) missing.push('custos fixos');
+    if (val('f_variable') === null) missing.push('custos variáveis (%)');
+    if (val('f_tax') === null) missing.push('impostos (%)');
+    if (missing.length) return { ok: false, missing };
+    const assumed = [];
+    const g = (val('f_growth') ?? (assumed.push('crescimento de 0% ao mês (não informado)'), 0)) / 100;
+    const varPct = val('f_variable') / 100, taxPct = val('f_tax') / 100;
+    const fixed = val('f_fixed'), pro = val('f_prolabore') ?? 0, debt = val('f_debt') ?? 0;
+    const fixedAll = fixed + pro + debt;
+    const invest = val('f_invest') ?? 0, own = val('f_own') ?? 0;
+    const contribPct = 1 - varPct - taxPct;
+    const month = (rev, i) => {
+      const variable = rev * varPct, tax = rev * taxPct, contrib = rev - variable - tax;
+      return { m: i, revenue: rev, variable, tax, contrib, fixed: fixedAll, result: contrib - fixedAll };
+    };
+    const run = (base, growth, months) => [...Array(months)].map((_, i) => month(base * Math.pow(1 + growth, i), i + 1));
+    const m60 = run(revenueBase, g, 60);
+    const months = m60.slice(0, 12);
+    const years = [0, 1, 2].map(y => {
+      const ms = m60.slice(y * 12, y * 12 + 12);
+      const sum = k => ms.reduce((s, x) => s + x[k], 0);
+      return { year: y + 1, revenue: sum('revenue'), variable: sum('variable'), tax: sum('tax'), contrib: sum('contrib'), fixed: sum('fixed'), result: sum('result') };
+    });
+    let cum = -invest, payback = null;
+    m60.forEach(x => { cum += x.result; x.cumulative = cum; if (payback === null && invest > 0 && cum >= 0) payback = x.m; });
+    const breakEven = contribPct > 0 ? fixedAll / contribPct : null;
+    const scenario = (label, revFactor, growthFactor) => {
+      const ms = run(revenueBase * revFactor, g * growthFactor, 12);
+      return { label, revenue: ms.reduce((s, x) => s + x.revenue, 0), result: ms.reduce((s, x) => s + x.result, 0), lastMonth: ms[11].revenue };
+    };
+    return {
+      ok: true, assumed,
+      inputs: { revenueBase, growth: g * 100, varPct: varPct * 100, taxPct: taxPct * 100, fixed, prolabore: pro, debt, invest, own },
+      contribPct: contribPct * 100, breakEven,
+      breakEvenGap: breakEven === null ? null : revenueBase - breakEven,
+      monthResult: months[0].result, netMarginPct: revenueBase ? (months[0].result / revenueBase) * 100 : null,
+      capitalGap: Math.max(0, invest - own), payback, months, years,
+      scenarios: [scenario('Pessimista', 0.8, 0.5), scenario('Realista', 1, 1), scenario('Otimista', 1.2, 1.5)],
+    };
+  }
+
+  // Tabelas do financeiro e dos cenários em texto (o mesmo formato do documento).
+  function financeTables(f) {
+    if (!f.ok) return `**Faltam dados para calcular:** ${f.missing.join('; ')}. [A definir na reunião]`;
+    const i = f.inputs;
+    const lines = [
+      '### Premissas',
+      `- Faturamento de partida: ${brl(i.revenueBase)} por mês, crescendo ${pct(i.growth)} ao mês`,
+      `- Custos variáveis: ${pct(i.varPct)} das vendas; impostos: ${pct(i.taxPct)}`,
+      `- Custos fixos: ${brl(i.fixed)} + pró-labore ${brl(i.prolabore)} + parcelas de dívidas ${brl(i.debt)} por mês`,
+      i.invest ? `- Investimento: ${brl(i.invest)}, com ${brl(i.own)} de recursos próprios` : null,
+      ...f.assumed.map(x => `- Premissa assumida: ${x}`),
+      '', '### Indicadores',
+      `- Margem de contribuição: ${pct(f.contribPct)}`,
+      `- Ponto de equilíbrio: ${f.breakEven === null ? 'não há (custos variáveis e impostos passam de 100%)' : `${brl(f.breakEven)} por mês`}`,
+      f.breakEvenGap !== null ? `- Hoje o faturamento está ${f.breakEvenGap >= 0 ? `${brl(f.breakEvenGap)} acima` : `${brl(-f.breakEvenGap)} abaixo`} do ponto de equilíbrio` : null,
+      `- Resultado do primeiro mês: ${brl(f.monthResult)} (margem líquida ${pct(f.netMarginPct)})`,
+      i.invest ? `- Necessidade de capital de terceiros: ${brl(f.capitalGap)}` : null,
+      i.invest ? `- Retorno do investimento: ${f.payback ? `em ${f.payback} meses` : 'não acontece em 5 anos com estas premissas'}` : null,
+      '', '### Projeção dos 12 primeiros meses',
+      '| Mês | Faturamento | Variáveis + impostos | Custos fixos | Resultado | Acumulado |',
+      '|---|---|---|---|---|---|',
+      ...f.months.map(x => `| ${x.m} | ${brl(x.revenue)} | ${brl(x.variable + x.tax)} | ${brl(x.fixed)} | ${brl(x.result)} | ${brl(x.cumulative)} |`),
+      '', '### Projeção de 3 anos',
+      '| Ano | Faturamento | Margem de contribuição | Custos fixos | Resultado |',
+      '|---|---|---|---|---|',
+      ...f.years.map(y => `| ${y.year} | ${brl(y.revenue)} | ${brl(y.contrib)} | ${brl(y.fixed)} | ${brl(y.result)} |`),
+    ];
+    return lines.filter(x => x !== null).join('\n');
+  }
+  function scenarioTable(f) {
+    if (!f.ok) return '[A definir na reunião: faltam os dados financeiros]';
+    return ['| Cenário | Premissa | Faturamento em 12 meses | Resultado em 12 meses | Faturamento no mês 12 |', '|---|---|---|---|---|',
+      ...f.scenarios.map((s, i) => `| ${s.label} | ${['vendas 20% menores e metade do crescimento', 'as premissas informadas', 'vendas 20% maiores e 50% mais crescimento'][i]} | ${brl(s.revenue)} | ${brl(s.result)} | ${brl(s.lastMonth)} |`)].join('\n');
+  }
+
+  // Resposta em texto (para a IA e para o rascunho).
+  function answerText(q, v) {
+    if (isEmpty(v)) return '';
+    if (q.type === 'money') return brl(Number(v));
+    if (q.type === 'percent') return pct(Number(v));
+    if (Array.isArray(v)) return v.join('; ');
+    return String(v);
+  }
+
+  // ---------- rascunho sem IA: as respostas organizadas nas seções ----------
+  function draft(answers = {}, unknown = [], meta = {}) {
+    const f = finance(answers);
+    const A = id => answers[id];
+    const T = id => answerText(BY_ID[id], A(id));
+    const pend = id => `[A definir na reunião: ${BY_ID[id].label.replace(/[?.:\s]+$/, '').toLowerCase()}]`;
+    const para = id => (isEmpty(A(id)) ? pend(id) : T(id));
+    const bullets = id => (isEmpty(A(id)) ? pend(id) : (Array.isArray(A(id)) ? A(id).map(x => `- ${x}`).join('\n') : T(id)));
+    const item = (label, id) => `- **${label}:** ${isEmpty(A(id)) ? pend(id) : T(id)}`;
+    const name = A('b_name') || meta.company || 'O negócio';
+    const sec = {
+      sumario: [`**${name}** ${A('b_what') ? `— ${A('b_what')}` : ''}`.trim(), '',
+        item('Setor', 'b_segment'), item('Momento', 'b_stage'), item('Onde atua', 'b_location'), item('Problema que resolve', 'b_problem'),
+        item('Diferencial', 'c_why'),
+        f.ok ? `- **Números:** faturamento de ${brl(f.inputs.revenueBase)} por mês, margem de contribuição de ${pct(f.contribPct)} e ponto de equilíbrio em ${brl(f.breakEven)} por mês.` : '- **Números:** [A definir na reunião: dados financeiros]',
+        isEmpty(A('r_goals')) ? '' : `- **Metas:** ${T('r_goals')}`].filter(x => x !== '').join('\n'),
+      negocio: [item('Nome', 'b_name'), item('Setor', 'b_segment'), item('Momento', 'b_stage'), item('Desde', 'b_since'), item('Localização e atendimento', 'b_location'),
+        '', '### O que faz', para('b_what'), '', '### Propósito e visão', para('b_purpose'), '', '### Valores', bullets('b_values')].join('\n'),
+      proposta: [item('Vende para', 'c_type'), item('Clientes ativos', 'c_count'), item('Peso dos 3 maiores clientes no faturamento', 'c_concentration'),
+        '', '### Cliente ideal', para('c_ideal'), '', '### Dores e desejos', bullets('c_pains'), '', '### Por que compram de nós', para('c_why')].join('\n'),
+      mercado: [item('Área de atuação', 'm_region'), '', '### Tamanho do mercado', para('m_size'), '', '### Tendências', bullets('m_trends')].join('\n'),
+      concorrencia: ['### Principais concorrentes', bullets('k_list'), '', '### Onde eles são melhores', para('k_better'), '', '### Onde somos melhores', para('k_worse'), '', item('Preço em relação a eles', 'k_price')].join('\n'),
+      receita: ['### Produtos e serviços', bullets('p_list'), '', item('Como ganha dinheiro', 'p_model'), item('Ticket médio', 'p_ticket'), item('Vendas por mês', 'p_sales'), item('Recompra', 'p_repeat'),
+        !isEmpty(A('s_spend')) && !isEmpty(A('p_sales')) && Number(A('p_sales')) > 0 ? `- **Custo de marketing e vendas por venda (aproximado):** ${brl(Number(A('s_spend')) / Number(A('p_sales')))}` : null].filter(x => x !== null).join('\n'),
+      marketing: [item('Canais', 's_channels'), item('Investimento mensal em marketing e vendas', 's_spend'), '', '### Processo de venda', para('s_process'), '', '### Retenção e indicação', para('s_retention')].join('\n'),
+      operacao: ['### Etapas da entrega', bullets('o_steps'), '', '### Fornecedores e parceiros', bullets('o_suppliers'), '', '### Sistemas e ferramentas', bullets('o_tools'), '', '### O que trava a operação', para('o_bottleneck')].join('\n'),
+      pessoas: ['### Sócios', bullets('g_partners'), '', item('Pessoas no negócio', 'g_team'), '', '### Contratações previstas', bullets('g_hire'), '', '### Gestão e decisões', para('g_management')].join('\n'),
+      financeiro: financeTables(f),
+      cenarios: scenarioTable(f),
+      swot: ['| Forças | Fraquezas |', '|---|---|', `| ${isEmpty(A('k_worse')) ? '[A definir]' : T('k_worse')} | ${isEmpty(A('k_better')) ? '[A definir]' : T('k_better')} |`,
+        '', '| Oportunidades | Ameaças |', '|---|---|', `| ${isEmpty(A('m_trends')) ? '[A definir]' : T('m_trends')} | ${isEmpty(A('r_risks')) ? '[A definir]' : T('r_risks')} |`].join('\n'),
+      riscos: [bullets('r_risks'), !isEmpty(A('c_concentration')) && Number(A('c_concentration')) > 50 ? '- Dependência de poucos clientes: os 3 maiores somam mais da metade do faturamento.' : null].filter(x => x !== null).join('\n'),
+      esg: para('r_esg'),
+      metas: [bullets('r_goals'), '', 'Para cada meta: definir o indicador, o valor de hoje, o valor desejado e o responsável. [A definir na reunião]'].join('\n'),
+      acao: ['| O quê | Quem | Até quando |', '|---|---|---|', ...(Array.isArray(A('r_goals')) ? A('r_goals') : ['[A definir na reunião]']).map(g => `| ${g} | [A definir] | [A definir] |`),
+        ...(Array.isArray(A('r_help')) ? [`| Plano de apoio da consultoria em: ${A('r_help').join(', ')} | Opps Consultoria | [A definir] |`] : [])].join('\n'),
+      pendencias: pendencias(answers, unknown, f),
+    };
+    return DOC.map(([key, title]) => ({ key, title, content: sec[key] || '' }));
+  }
+  function pendencias(answers, unknown, f) {
+    const list = QUESTIONS.filter(q => unknown.includes(q.id) || isEmpty(answers[q.id])).map(q => `- ${q.label}${unknown.includes(q.id) ? ' (respondido "não sei")' : ''}`);
+    if (f && f.ok) f.assumed.forEach(x => list.push(`- Confirmar a premissa: ${x}`));
+    return list.length ? list.join('\n') : 'Nenhuma: todas as perguntas foram respondidas.';
+  }
+
+  // Lê o formato do documento (### subtítulo, - lista, **negrito**, tabelas com |) em blocos,
+  // usados na tela, na impressão e no Word.
+  function inline(text) {
+    const out = [];
+    String(text).split(/(\*\*[^*]+\*\*)/).forEach(part => {
+      if (!part) return;
+      const m = /^\*\*([^*]+)\*\*$/.exec(part);
+      out.push(m ? { t: m[1], b: true } : { t: part, b: false });
+    });
+    return out;
+  }
+  function parseMd(text) {
+    const blocks = [];
+    const lines = String(text || '').replace(/\r/g, '').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trimEnd();
+      if (!line.trim()) continue;
+      const h = /^#{1,6}\s+(.*)$/.exec(line.trim());
+      if (h) { blocks.push({ type: 'h', text: h[1] }); continue; }
+      if (/^\s*[-*•]\s+/.test(line)) {
+        const items = [];
+        while (i < lines.length && /^\s*[-*•]\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*[-*•]\s+/, '').trim()); i++; }
+        i--; blocks.push({ type: 'ul', items }); continue;
+      }
+      if (/^\s*\d+[.)]\s+/.test(line)) {
+        const items = [];
+        while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*\d+[.)]\s+/, '').trim()); i++; }
+        i--; blocks.push({ type: 'ol', items }); continue;
+      }
+      if (/^\s*\|/.test(line)) {
+        const rows = [];
+        while (i < lines.length && /^\s*\|/.test(lines[i])) {
+          const cells = lines[i].trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+          if (!cells.every(c => /^:?-{2,}:?$/.test(c))) rows.push(cells);
+          i++;
+        }
+        i--; if (rows.length) blocks.push({ type: 'table', rows }); continue;
+      }
+      const para = [line.trim()];
+      while (i + 1 < lines.length && lines[i + 1].trim() && !/^(#{1,6}\s|\s*[-*•]\s|\s*\d+[.)]\s|\s*\|)/.test(lines[i + 1])) { para.push(lines[i + 1].trim()); i++; }
+      blocks.push({ type: 'p', text: para.join(' ') });
+    }
+    return blocks;
+  }
+
+  // CNPJ: 14 dígitos com os dígitos verificadores certos.
+  function validCnpj(v) {
+    const d = String(v || '').replace(/\D/g, '');
+    if (d.length !== 14 || /^(\d)\1+$/.test(d)) return false;
+    const calc = n => { let s = 0, w = n - 7; for (let i = 0; i < n; i++) { s += Number(d[i]) * w--; if (w < 2) w = 9; } const r = s % 11; return r < 2 ? 0 : 11 - r; };
+    return calc(12) === Number(d[12]) && calc(13) === Number(d[13]);
+  }
+  const fmtCnpj = v => String(v || '').replace(/\D/g, '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+
+  return { REVENUE_BANDS, SECTIONS, QUESTIONS, BY_ID, DOC, DOC_TITLE, clean, progress, finance, financeTables, scenarioTable, answerText, draft, pendencias, validCnpj, fmtCnpj, brl, pct, isEmpty, parseMd, inline };
+}));
+
+</script>
+<script>
+'use strict';
 /* global Shared */
 // API do protótipo: a mesma interface do servidor (app.js), rodando dentro do navegador.
 // As regras (colunas, alertas, recorrência, %, quem vê) vêm de shared.js, igual ao servidor.
 // Os dados são fictícios e ficam só neste navegador (localStorage, quando disponível).
 (function () {
   const S = window.Shared;
-  const KEY = 'tarefas-prototipo-v8';
+  const KEY = 'tarefas-prototipo-v9';
   const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
   const d = n => S.addDays(S.today(), n);
 
@@ -1199,6 +1633,26 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
       diary(uid, d(-1), 'Corrigir lançamento duplicado', '10:00', '11:30', 'urgent', true);
       diary(uid, d(-1), 'Organizar pastas do drive', '14:00', '15:00', 'circumstantial', false);
     }
+    // Plano de negócio da Padaria (meio respondido) e um lead do diagnóstico.
+    db.bizplans = [{ id: 300, client_id: 1, lead_id: null, title: 'Plano de negócio · Padaria Exemplo', token: null, submitted_at: null, doc: null, doc_status: 'none',
+      doc_error: null, doc_source: null, shared: 0, created_by: 1, created_at: now(), updated_at: now(), unknown: ['m_size', 'c_concentration'],
+      answers: { b_name: 'Padaria Exemplo', b_segment: 'Alimentação', b_stage: 'Crescendo', b_since: 2018, b_location: 'Campinas/SP, bairro Cambuí e entregas pela cidade',
+        b_what: 'Pães artesanais de fermentação natural, cafés especiais e encomendas para eventos.', b_problem: 'Quem quer pão fresco e saudável perto de casa, sem conservantes.',
+        b_purpose: 'Ser a padaria artesanal de referência da cidade e abrir mais duas lojas em 5 anos.', b_values: ['Qualidade dos ingredientes', 'Atendimento próximo', 'Respeito à equipe'],
+        c_type: ['Pessoas (consumidor final)', 'Empresas'], c_ideal: 'Famílias e profissionais de 25 a 55 anos do bairro, que valorizam comida de verdade e pagam um pouco mais por isso; cafés e restaurantes que revendem.',
+        c_pains: ['Pão industrializado sem sabor', 'Pouco tempo para ir longe', 'Encomendas que atrasam'], c_why: 'Fermentação natural feita na hora e atendimento que conhece o cliente pelo nome.', c_count: 900,
+        m_region: 'Bairro ou cidade', m_trends: ['Procura por alimentação saudável', 'Pedidos por aplicativo e WhatsApp', 'Custo do trigo em alta'],
+        k_list: ['Padaria Central', 'Supermercados do bairro', 'Panificadoras de aplicativo'], k_better: 'Preço menor e mais pontos de venda.', k_worse: 'Sabor, frescor e atendimento.', k_price: 'Mais caro',
+        p_list: ['Pães de fermentação natural', 'Cafés especiais', 'Encomendas para eventos'], p_model: ['Venda avulsa', 'Contrato ou projeto'], p_ticket: 38, p_sales: 1400, p_repeat: 'Com frequência',
+        s_channels: ['Indicação', 'Instagram', 'WhatsApp', 'Loja física'], s_spend: 2500,
+        f_revenue: 52000, f_fixed: 16000, f_variable: 38, f_tax: 6, f_prolabore: 9000, f_debt: 1500, f_growth: 2, f_invest: 80000, f_own: 30000,
+        r_goals: ['Faturar R$ 80 mil por mês', 'Abrir um quiosque no shopping', 'Lançar assinatura semanal de pães'], r_risks: ['Alta do trigo', 'Saída do padeiro-chefe'] } }];
+    db.leads = [{ id: 310, name: 'Fábio Souza', company: 'Mercado Bom Preço', cnpj: '11.222.333/0001-81', email: 'fabio@mercadobom.com.br', phone: '(19) 99999-0000',
+      revenue_band: 'ate-1m', status: 'new', notes: '', client_id: null, consent_at: now(), created_at: now() }];
+    db.bizplans.push({ id: 311, client_id: null, lead_id: 310, title: 'Diagnóstico · Mercado Bom Preço', token: 'exemplo-de-link-do-lead-0001', submitted_at: now(), doc: null, doc_status: 'none',
+      doc_error: null, doc_source: null, shared: 0, created_by: null, created_at: now(), updated_at: now(), unknown: ['f_tax'],
+      answers: { b_name: 'Mercado Bom Preço', b_what: 'Mercadinho de bairro com hortifrúti e açougue.', b_segment: 'Comércio', f_revenue: 80000, r_help: ['Finanças', 'Gestão e estratégia'] } });
+    db.plan_versions = [];
     return db;
   }
 
@@ -1209,7 +1663,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
   db.meetings = db.meetings || [];
   db.meeting_items = db.meeting_items || [];
   db.calendar_links = db.calendar_links || {};
-  for (const k of ['user_clients', 'stages', 'board', 'attachments', 'events', 'conversations', 'conv_members', 'messages', 'inbox', 'diary']) db[k] = db[k] || [];
+  for (const k of ['user_clients', 'stages', 'board', 'attachments', 'events', 'conversations', 'conv_members', 'messages', 'inbox', 'diary', 'bizplans', 'plan_versions', 'leads']) db[k] = db[k] || [];
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sem armazenamento: fica só na memória */ } };
   let sessionUser = null;
   try { sessionUser = Number(sessionStorage.getItem(KEY + '-user')) || null; } catch { /* idem */ }
@@ -2074,6 +2528,159 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     return msgOut(m);
   });
 
+  // ---------- plano de negócio ----------
+  const BP = window.BizPlan;
+  const bandLabel = b => (BP.REVENUE_BANDS.find(x => x[0] === b) || [])[1] || b;
+  function canSeePlan(user, p) {
+    if (!p) return false;
+    if (user.role === 'admin') return true;
+    if (user.role === 'client') return !!p.client_id && p.client_id === user.client_id;
+    return !!p.lead_id || p.created_by === user.id || (!!p.client_id && clientIdsOf(user.id).includes(p.client_id));
+  }
+  const loadPlan = (user, pid) => { const p = db.bizplans.find(x => x.id === pid); if (!canSeePlan(user, p)) fail(404, 'Plano não encontrado'); return p; };
+  const planMeta = p => { const lead = p.lead_id ? db.leads.find(l => l.id === p.lead_id) : null; const client = p.client_id ? clientOf(p.client_id) : null;
+    return { lead, client, company: (client && client.name) || (lead && lead.company) || '', revenue_band: lead ? bandLabel(lead.revenue_band) : '' }; };
+  const planSummary = p => { const m = planMeta(p);
+    return { id: p.id, title: p.title, client_id: p.client_id, client_name: m.client ? m.client.name : null, lead_id: p.lead_id, lead_company: m.lead ? m.lead.company : null,
+      progress: BP.progress(p.answers, p.unknown), submitted_at: p.submitted_at, doc_status: p.doc_status, shared: !!p.shared, updated_at: p.updated_at }; };
+  function planOut(user, p) {
+    const staff = user.role !== 'client';
+    const showDoc = staff || (p.shared && p.doc_status === 'ready');
+    const m = planMeta(p);
+    return { ...planSummary(p), answers: { ...p.answers }, unknown: [...p.unknown], finance: staff ? BP.finance(p.answers) : undefined,
+      doc: showDoc && p.doc ? JSON.parse(JSON.stringify(p.doc)) : null, doc_status: staff ? p.doc_status : (showDoc ? 'ready' : 'none'),
+      doc_error: staff ? p.doc_error : null, doc_source: staff ? p.doc_source : null, lead: staff && m.lead ? { ...m.lead, revenue_band_label: m.revenue_band } : null, ai: false };
+  }
+  function savePlanAnswers(p, body) {
+    const answers = { ...p.answers }; let unknown = [...p.unknown];
+    if (body.answers !== undefined) {
+      for (const [k, v] of Object.entries(body.answers || {})) {
+        let c; try { c = BP.clean(k, v); } catch (e) { fail(400, e.message); }
+        if (c === null) delete answers[k]; else { answers[k] = c; unknown = unknown.filter(x => x !== k); }
+      }
+    }
+    if (body.unknown !== undefined) {
+      if (!Array.isArray(body.unknown) || !body.unknown.every(x => BP.BY_ID[x])) fail(400, 'Campo inválido: não sei');
+      unknown = [...new Set(body.unknown)]; unknown.forEach(k => delete answers[k]);
+    }
+    Object.assign(p, { answers, unknown, updated_at: now() });
+  }
+  function submitPlan(p, who) {
+    if (p.submitted_at) return;
+    p.submitted_at = now();
+    const team = p.client_id ? db.user_clients.filter(x => x.client_id === p.client_id).map(x => x.user_id) : [];
+    pushInbox([...db.users.filter(u => u.role === 'admin' && u.active).map(u => u.id), p.created_by, ...team],
+      { kind: 'bizplan', ref: `plan-${p.id}`, title: `${who} concluiu o questionário do plano de negócio`, body: planMeta(p).company || p.title, link: `#/plano/${p.id}` });
+  }
+  const saveDoc = (user, p, sections, note, source) => {
+    Object.assign(p, { doc: sections, doc_status: 'ready', doc_error: null, doc_source: source || p.doc_source, updated_at: now() });
+    db.plan_versions.push({ id: nextId(), plan_id: p.id, doc: JSON.parse(JSON.stringify(sections)), note: String(note || '').slice(0, 200), user_id: user ? user.id : null, created_at: now() });
+  };
+  route('GET', '/api/bizplans', ({ user }) => db.bizplans.filter(p => canSeePlan(user, p)).sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id - a.id).map(planSummary));
+  route('POST', '/api/bizplans', ({ user, body }) => {
+    requireStaff(user);
+    const c = clientOf(Number(body.client_id)); if (!c) fail(400, 'Cliente inválido');
+    const p = { id: nextId(), client_id: c.id, lead_id: null, title: str(body.title, 'nome do plano', { max: 120, required: false }) || `Plano de negócio · ${c.name}`, token: null,
+      submitted_at: null, doc: null, doc_status: 'none', doc_error: null, doc_source: null, shared: 0, created_by: user.id, created_at: now(), updated_at: now(), answers: { b_name: c.name }, unknown: [] };
+    db.bizplans.push(p);
+    pushInbox(db.users.filter(u => u.role === 'client' && u.client_id === c.id && u.active).map(u => u.id), { kind: 'bizplan', ref: `plan-${p.id}`,
+      title: 'Há um questionário de plano de negócio para você responder', body: p.title, link: `#/plano/${p.id}` }, user.id);
+    return planOut(user, p);
+  });
+  route('GET', '/api/bizplans/:id', ({ user, id }) => planOut(user, loadPlan(user, id)));
+  route('PATCH', '/api/bizplans/:id', ({ user, body, id }) => {
+    const p = loadPlan(user, id);
+    if (user.role === 'client' && ('title' in body || 'shared' in body)) fail(403, 'Sem permissão');
+    if ('answers' in body || 'unknown' in body) savePlanAnswers(p, body);
+    if ('title' in body) p.title = str(body.title, 'nome do plano', { max: 120 });
+    if ('shared' in body) {
+      if (body.shared && p.doc_status !== 'ready') fail(409, 'Gere o documento antes de mostrar ao cliente');
+      p.shared = body.shared ? 1 : 0;
+      if (p.shared && p.client_id) pushInbox(db.users.filter(u => u.role === 'client' && u.client_id === p.client_id && u.active).map(u => u.id),
+        { kind: 'bizplan', ref: `plan-doc-${p.id}`, title: 'Seu plano de negócio está disponível', body: p.title, link: `#/plano/${p.id}` }, user.id);
+    }
+    if (body.submit) submitPlan(p, user.name);
+    return planOut(user, p);
+  });
+  route('POST', '/api/bizplans/:id/generate', ({ user, id }) => {
+    requireStaff(user);
+    const p = loadPlan(user, id);
+    saveDoc(user, p, BP.draft(p.answers, p.unknown, planMeta(p)), 'Rascunho gerado das respostas (sem IA)', 'draft');
+    return planOut(user, p);
+  });
+  route('PUT', '/api/bizplans/:id/doc', ({ user, body, id }) => {
+    requireStaff(user);
+    const p = loadPlan(user, id);
+    if (!Array.isArray(body.sections) || !body.sections.length) fail(400, 'Documento inválido');
+    saveDoc(user, p, body.sections.map(s => ({ key: String(s.key), title: str(s.title, 'título da seção', { max: 120 }), content: str(s.content, 'texto', { max: 30000, required: false }) })), body.note || 'Editado', null);
+    return planOut(user, p);
+  });
+  route('POST', '/api/bizplans/:id/rewrite', () => fail(409, 'A IA não está ligada no protótipo'));
+  route('GET', '/api/bizplans/:id/versions', ({ user, id }) => {
+    requireStaff(user); const p = loadPlan(user, id);
+    return db.plan_versions.filter(v => v.plan_id === p.id).sort((a, b) => b.id - a.id).map(v => ({ id: v.id, note: v.note, created_at: v.created_at, author: userName(v.user_id) || null }));
+  });
+  routes.push({ method: 'POST', re: /^\/api\/bizplans\/(\d+)\/versions\/(\d+)\/restore$/, pub: false, handler: ({ user, id, path }) => {
+    requireStaff(user); const p = loadPlan(user, id);
+    const vid = Number(/versions\/(\d+)/.exec(path)[1]);
+    const v = db.plan_versions.find(x => x.id === vid && x.plan_id === p.id); if (!v) fail(404, 'Versão não encontrada');
+    saveDoc(user, p, JSON.parse(JSON.stringify(v.doc)), `Restaurada a versão de ${v.created_at}`, null);
+    return planOut(user, p);
+  } });
+  route('GET', '/api/leads', ({ user }) => {
+    requireStaff(user);
+    return db.leads.slice().sort((a, b) => b.id - a.id).map(l => {
+      const p = db.bizplans.find(x => x.lead_id === l.id);
+      return { ...l, plan_id: p ? p.id : null, revenue_band_label: bandLabel(l.revenue_band), progress: p ? BP.progress(p.answers, p.unknown).pct : 0, submitted_at: p ? p.submitted_at : null };
+    });
+  });
+  route('PATCH', '/api/leads/:id', ({ user, body, id }) => {
+    requireStaff(user);
+    const l = db.leads.find(x => x.id === id); if (!l) fail(404, 'Lead não encontrado');
+    if ('status' in body) l.status = oneOf(body.status, 'situação', ['new', 'contacted', 'converted', 'lost']);
+    if ('notes' in body) l.notes = str(body.notes, 'anotações', { max: 5000, required: false });
+    return l;
+  });
+  route('POST', '/api/leads/:id/convert', ({ user, id }) => {
+    requireAdmin(user);
+    const l = db.leads.find(x => x.id === id); if (!l) fail(404, 'Lead não encontrado');
+    const cid = nextId();
+    db.clients.push({ id: cid, name: l.company, logo: null });
+    Object.assign(l, { status: 'converted', client_id: cid });
+    db.bizplans.filter(p => p.lead_id === l.id).forEach(p => { p.client_id = cid; p.updated_at = now(); });
+    return { ok: true, client_id: cid };
+  });
+  const leadPlan = token => { const p = db.bizplans.find(x => x.token && x.token === token && x.lead_id); if (!p) fail(404, 'Link inválido ou expirado'); return p; };
+  const publicPlanOut = p => { const l = db.leads.find(x => x.id === p.lead_id);
+    return { token: p.token, name: l.name, company: l.company, answers: { ...p.answers }, unknown: [...p.unknown], submitted_at: p.submitted_at, progress: BP.progress(p.answers, p.unknown), org: db.org.name }; };
+  route('GET', '/api/public/diagnostico/info', () => ({ org: db.org.name, logo: null, accent: db.org.accent, bands: BP.REVENUE_BANDS }), true);
+  route('POST', '/api/public/diagnostico', ({ body }) => {
+    const name = str(body.name, 'seu nome', { max: 120 }), company = str(body.company, 'empresa', { max: 160 });
+    const email = str(body.email, 'e-mail', { max: 200 }).toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(400, 'E-mail inválido');
+    const phone = str(body.phone, 'celular', { max: 30 });
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 10 || digits.length > 13) fail(400, 'Celular inválido: use DDD e número');
+    const cnpj = str(body.cnpj, 'CNPJ', { max: 20, required: false });
+    if (cnpj && !BP.validCnpj(cnpj)) fail(400, 'CNPJ inválido');
+    const band = oneOf(body.revenue_band, 'faixa de faturamento', BP.REVENUE_BANDS.map(b => b[0]));
+    if (body.consent !== true) fail(400, 'Para continuar, aceite o uso dos dados para o diagnóstico e o contato da consultoria');
+    const lid = nextId();
+    db.leads.push({ id: lid, name, company, cnpj: cnpj ? BP.fmtCnpj(cnpj) : '', email, phone, revenue_band: band, status: 'new', notes: '', client_id: null, consent_at: now(), created_at: now() });
+    const p = { id: nextId(), client_id: null, lead_id: lid, title: `Diagnóstico · ${company}`, token: 'lead-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2),
+      submitted_at: null, doc: null, doc_status: 'none', doc_error: null, doc_source: null, shared: 0, created_by: null, created_at: now(), updated_at: now(), answers: { b_name: company }, unknown: [] };
+    db.bizplans.push(p);
+    pushInbox(db.users.filter(u => u.role === 'admin' && u.active).map(u => u.id), { kind: 'lead', ref: `lead-plan-${p.id}`, title: `Novo lead: ${company}`, body: `${name} · ${bandLabel(band)}`, link: `#/plano/${p.id}` });
+    return publicPlanOut(p);
+  }, true);
+  route('GET', '/api/public/diagnostico', ({ query }) => publicPlanOut(leadPlan(query.token)), true);
+  route('PATCH', '/api/public/diagnostico', ({ body }) => {
+    const p = leadPlan(body.token);
+    if ('answers' in body || 'unknown' in body) savePlanAnswers(p, body);
+    if (body.submit) { const l = db.leads.find(x => x.id === p.lead_id); submitPlan(p, `${l.name} (${l.company})`); }
+    return publicPlanOut(p);
+  }, true);
+
   // ---------- diário de bordo ----------
   const CATS = Object.keys(S.TRIAD);
   const time = (v, field) => { if (v === undefined || v === null || v === '') return null; if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail(400, `${field}: hora inválida (use HH:MM)`); return v; };
@@ -2189,7 +2796,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
       const m = r.re.exec(url.pathname);
       const user = db.users.find(u => u.id === sessionUser && u.active) || null;
       if (!r.pub && !user) fail(401, 'Faça login');
-      const out = r.handler({ user, body: init.body ? JSON.parse(init.body) : {}, id: m[1] ? Number(m[1]) : null, query: Object.fromEntries(url.searchParams) });
+      const out = r.handler({ user, body: init.body ? JSON.parse(init.body) : {}, id: m[1] ? Number(m[1]) : null, query: Object.fromEntries(url.searchParams), path: url.pathname });
       persist();
       return reply(200, out);
     } catch (err) {
@@ -2382,6 +2989,53 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     return new Blob([bytes], { type: 'application/pdf' });
   }
 
+  // ---------- Word (.docx) ----------
+  // Documento em blocos (BizPlan.parseMd): título, subtítulo e seções com subtítulos, parágrafos, listas e tabelas.
+  const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+  function docx({ title, subtitle, sections, brandColor = 'D2400F' }) {
+    const BP = root.BizPlan;
+    const runs = text => BP.inline(text).map(r => `<w:r>${r.b ? '<w:rPr><w:b/></w:rPr>' : ''}<w:t xml:space="preserve">${xml(r.t)}</w:t></w:r>`).join('');
+    const p = (text, style, extra = '') => `<w:p><w:pPr>${style ? `<w:pStyle w:val="${style}"/>` : ''}${extra}</w:pPr>${runs(text)}</w:p>`;
+    const border = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(k => `<w:${k} w:val="single" w:sz="4" w:space="0" w:color="C9CED8"/>`).join('');
+    const table = rows => {
+      const cols = Math.max(...rows.map(r => r.length));
+      const width = Math.floor(9638 / cols);
+      return `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders>${border}</w:tblBorders><w:tblCellMar><w:left w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar></w:tblPr>`
+        + `<w:tblGrid>${'<w:gridCol w:w="' + width + '"/>'.repeat(cols)}</w:tblGrid>`
+        + rows.map((r, i) => `<w:tr>${[...Array(cols)].map((_, c) => `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/>${i === 0 ? '<w:shd w:val="clear" w:color="auto" w:fill="F1F3F7"/>' : ''}</w:tcPr>`
+          + `<w:p><w:pPr><w:spacing w:after="0"/></w:pPr>${i === 0 ? runs(`**${(r[c] || '').replace(/\*\*/g, '')}**`) : runs(r[c] || '')}</w:p></w:tc>`).join('')}</w:tr>`).join('')
+        + '</w:tbl><w:p/>';
+    };
+    const block = b => {
+      if (b.type === 'h') return p(b.text, 'Heading2');
+      if (b.type === 'p') return p(b.text);
+      if (b.type === 'ul' || b.type === 'ol') return b.items.map((it, n) => p(`${b.type === 'ul' ? '•' : `${n + 1}.`}\t${it}`, null, '<w:ind w:left="567" w:hanging="283"/><w:spacing w:after="60"/>')).join('');
+      if (b.type === 'table') return table(b.rows);
+      return '';
+    };
+    const body = [p(title, 'Title'), subtitle ? p(subtitle, 'Subtitle') : '',
+      ...sections.map((sec, i) => p(`${i + 1}. ${sec.title}`, 'Heading1') + BP.parseMd(sec.content).map(block).join(''))].join('');
+    const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W}><w:body>${body}`
+      + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>';
+    const style = (id, name, ppr, rpr) => `<w:style w:type="paragraph" w:styleId="${id}"><w:name w:val="${name}"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:pPr>${ppr}</w:pPr><w:rPr>${rpr}</w:rPr></w:style>`;
+    const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${W}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="22"/><w:lang w:val="pt-BR"/></w:rPr></w:rPrDefault>`
+      + '<w:pPrDefault><w:pPr><w:spacing w:after="120" w:line="276" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>'
+      + '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>'
+      + style('Title', 'Title', '<w:spacing w:after="60"/>', '<w:b/><w:sz w:val="44"/><w:color w:val="121826"/>')
+      + style('Subtitle', 'Subtitle', '<w:spacing w:after="360"/>', '<w:sz w:val="24"/><w:color w:val="5B6475"/>')
+      + style('Heading1', 'heading 1', '<w:keepNext/><w:spacing w:before="360" w:after="120"/><w:outlineLvl w:val="0"/>', `<w:b/><w:sz w:val="32"/><w:color w:val="${brandColor}"/>`)
+      + style('Heading2', 'heading 2', '<w:keepNext/><w:spacing w:before="200" w:after="80"/><w:outlineLvl w:val="1"/>', '<w:b/><w:sz w:val="24"/><w:color w:val="121826"/>')
+      + '</w:styles>';
+    const files = [
+      { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>' },
+      { name: '_rels/.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>' },
+      { name: 'word/_rels/document.xml.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+      { name: 'word/document.xml', data: docXml },
+      { name: 'word/styles.xml', data: styles },
+    ];
+    return new Blob([zip(files)], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+  }
+
   // Baixa um arquivo. Dentro do visualizador de artefatos do Claude (a prévia), o download direto é
   // bloqueado: lá o arquivo vai pela permissão de salvar do visualizador, que pede confirmação.
   let saver;
@@ -2405,7 +3059,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
-  root.Exports = { xlsx, pdf, download, zip, crc32 };
+  root.Exports = { xlsx, pdf, docx, download, zip, crc32 };
 })(typeof self !== 'undefined' ? self : this);
 
 </script>
@@ -2834,6 +3488,7 @@ const ICONS = {
   chat: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 4v-4h0A1.5 1.5 0 0 1 4 14.5z"/>',
   book: '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3M9 7.5h6M9 11h4"/>',
   send: '<path d="M4 12l16-8-6 16-2.5-6.5z"/><path d="M11.5 13.5L20 4"/>',
+  target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
 };
 function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -2873,13 +3528,13 @@ function renderLogin(message) {
 // Estrutura: menu lateral (gaveta no celular) + barra superior com o título e a ação da página.
 function shell(content, { title, sub } = {}) {
   const nav = isStaff()
-    ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/diario', 'Diário de bordo', 'book'], ['#/chats', 'Chats', 'chat'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/reunioes', 'Reuniões', 'meet'], ['#/alertas', 'Alertas', 'alert'],
+    ? [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Tarefas', 'board'], ['#/diario', 'Diário de bordo', 'book'], ['#/chats', 'Chats', 'chat'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/reunioes', 'Reuniões', 'meet'], ['#/planos', 'Planos de negócio', 'target'], ['#/alertas', 'Alertas', 'alert'],
       ['#/clientes', 'Clientes', 'building'], ['#/modelos', 'Modelos', 'copy'], ['#/relatorio', 'Relatórios', 'chart'], ['#/equipe', 'Pessoas', 'users'],
       ...(isAdmin() ? [['#/avisos', 'Avisos', 'mail']] : []),
       ['#/config', 'Configurações', 'settings']]
-    : [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Minhas entregas', 'board'], ['#/chats', 'Chats', 'chat'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/alertas', 'Alertas', 'alert'],
+    : [['#/painel', 'Dashboard', 'home'], ['#/tarefas', 'Minhas entregas', 'board'], ['#/chats', 'Chats', 'chat'], ['#/recorrentes', 'Recorrentes', 'repeat'], ['#/compromissos', 'Compromissos', 'calendar'], ['#/planos', 'Plano de negócio', 'target'], ['#/alertas', 'Alertas', 'alert'],
       ['#/config', 'Minha conta', 'settings']];
-  const current = (location.hash.split('?')[0] || nav[0][0]).replace(/^#\/chats\/\d+$/, '#/chats');
+  const current = (location.hash.split('?')[0] || nav[0][0]).replace(/^#\/chats\/\d+$/, '#/chats').replace(/^#\/plano\/\d+$/, '#/planos');
   const page = nav.find(n => n[0] === current) || (current === '#/notificacoes' ? ['#/notificacoes', 'Notificações'] : nav[0]);
   document.title = `${title || page[1]} · ${APP_NAME}`;
   const shellEl = h('div', { class: 'app' });
@@ -2958,6 +3613,8 @@ function startInboxPolling() {
 }
 
 async function boot() {
+  // Diagnóstico público (leads): não precisa de login.
+  if (location.hash.startsWith('#/diagnostico')) { await guard(renderDiagnostic)(); return; }
   try { await loadCommon(); } catch { renderLogin(); return; }
   startInboxPolling();
   route();
@@ -2965,10 +3622,11 @@ async function boot() {
 
 const ROUTES = {
   '#/avisos': viewNotifications, '#/reunioes': viewMeetings, '#/compromissos': viewEvents, '#/painel': viewDashboard, '#/tarefas': viewTasks, '#/recorrentes': viewRecurring, '#/alertas': viewAlerts, '#/clientes': viewClients, '#/modelos': viewTemplates,
-  '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings, '#/notificacoes': viewInbox, '#/chats': () => viewChats(null), '#/diario': viewDiary,
+  '#/relatorio': viewReport, '#/equipe': viewTeam, '#/config': viewSettings, '#/notificacoes': viewInbox, '#/chats': () => viewChats(null), '#/diario': viewDiary, '#/planos': viewPlans,
 };
 
 async function route() {
+  if (location.hash.startsWith('#/diagnostico')) { if (!document.querySelector('.diag-wrap')) await guard(renderDiagnostic)(); return; }
   if (!state.me) return;
   const key = location.hash.split('?')[0];
   // Link direto para uma tarefa (usado nos e-mails): abre o quadro e o card.
@@ -2981,10 +3639,12 @@ async function route() {
     await guard(() => viewMeeting(Number(meeting[1])))();
     return;
   }
+  const plan = /^#\/plano\/(\d+)$/.exec(key);
+  if (plan) { try { await refreshAlerts(); } catch { /* segue */ } await guard(() => viewPlan(Number(plan[1])))(); return; }
   const chat = /^#\/chats\/(\d+)$/.exec(key);
   if (chat) { try { await refreshAlerts(); } catch { /* segue */ } await guard(() => viewChats(Number(chat[1])))(); return; }
   const fallback = '#/painel';
-  const clientPages = ['#/painel', '#/tarefas', '#/recorrentes', '#/compromissos', '#/alertas', '#/config', '#/chats', '#/notificacoes'];
+  const clientPages = ['#/painel', '#/tarefas', '#/recorrentes', '#/compromissos', '#/alertas', '#/config', '#/chats', '#/notificacoes', '#/planos'];
   const view = ROUTES[key];
   if (!view || (!isStaff() && !clientPages.includes(key))) { location.hash = fallback; return; }
   try { await refreshAlerts(); } catch { /* segue sem o contador */ }
@@ -4328,7 +4988,7 @@ const goTo = link => { if (location.hash === link) route(); else location.hash =
 async function viewInbox() {
   const r = await api('GET', '/api/inbox');
   state.inboxUnread = r.unread;
-  const KIND = { chat: ['chat', 'Chat'], task_chat: ['chat', 'Chat da tarefa'], task_comment: ['chat', 'Conversa na tarefa'], task: ['board', 'Tarefa'] };
+  const KIND = { chat: ['chat', 'Chat'], task_chat: ['chat', 'Chat da tarefa'], task_comment: ['chat', 'Conversa na tarefa'], task: ['board', 'Tarefa'], bizplan: ['target', 'Plano de negócio'], lead: ['users', 'Novo lead'] };
   const open = guard(async n => { if (!n.read_at) await api('POST', `/api/inbox/${n.id}/read`); goTo(n.link || '#/painel'); });
   shell([
     r.unread ? h('div', { class: 'toolbar' }, h('button', { class: 'btn', type: 'button', onclick: guard(async () => { await api('POST', '/api/inbox/read-all'); route(); }) },
@@ -4745,6 +5405,458 @@ function diaryToTask(e) {
       err,
       h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, 'Criar tarefa'), h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
   });
+}
+
+// ---------- plano de negócio ----------
+const BP = window.BizPlan;
+const BAND_LABEL = Object.fromEntries(BP.REVENUE_BANDS);
+const LEAD_STATUS = { new: 'Novo', contacted: 'Em contato', converted: 'Virou cliente', lost: 'Não seguiu' };
+
+// Texto do documento (### subtítulo, - lista, **negrito**, tabelas) em elementos da página.
+function mdNodes(text) {
+  const runs = t => BP.inline(t).map(r => (r.b ? h('strong', {}, r.t) : r.t));
+  return BP.parseMd(text).map(b => {
+    if (b.type === 'h') return h('h3', {}, runs(b.text));
+    if (b.type === 'p') return h('p', { class: /\[A definir/.test(b.text) ? 'pending-text' : null }, runs(b.text));
+    if (b.type === 'ul') return h('ul', {}, b.items.map(i => h('li', {}, runs(i))));
+    if (b.type === 'ol') return h('ol', {}, b.items.map(i => h('li', {}, runs(i))));
+    if (b.type === 'table') {
+      return h('div', { class: 'table-wrap' }, h('table', { class: 'md-table' },
+        h('thead', {}, h('tr', {}, b.rows[0].map(c => h('th', {}, runs(c))))),
+        h('tbody', {}, b.rows.slice(1).map(r => h('tr', {}, r.map(c => h('td', { class: /^-?(R\$\s?)?-?[\d.,]+%?$|^-?R\$/.test(c.trim()) ? 'num' : null }, runs(c))))))));
+    }
+    return null;
+  });
+}
+
+// Questionário no estilo quiz: uma pergunta por tela, salva a cada avanço, aceita "não sei".
+// save(patch) grava; submit() envia (no fim). Devolve o elemento.
+function quiz({ plan, save, submit, intro }) {
+  const answers = { ...plan.answers };
+  let unknown = [...plan.unknown];
+  const Q = BP.QUESTIONS;
+  const firstOpen = Q.findIndex(q => BP.isEmpty(answers[q.id]) && !unknown.includes(q.id));
+  let idx = firstOpen < 0 ? Q.length : firstOpen;
+  const box = h('div', { class: 'quiz' });
+  const secTitle = key => (BP.SECTIONS.find(s => s[0] === key) || [])[1];
+  const fmtNum = v => (v === null || v === undefined || v === '' ? '' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 }));
+
+  function input(q) {
+    const v = answers[q.id];
+    if (q.type === 'choice') {
+      return h('div', { class: 'quiz-options', role: 'radiogroup', 'aria-label': q.label }, q.options.map(o => h('button', {
+        type: 'button', role: 'radio', class: 'quiz-option', 'aria-checked': String(v === o),
+        onclick: () => { answers[q.id] = o; next(); },
+      }, o)));
+    }
+    if (q.type === 'multi') {
+      return h('div', { class: 'quiz-options multi', role: 'group', 'aria-label': q.label }, q.options.map(o => h('label', { class: 'quiz-option' },
+        h('input', { type: 'checkbox', value: o, checked: (v || []).includes(o) }), o)));
+    }
+    if (q.type === 'long' || q.type === 'list') {
+      return h('textarea', { id: 'quiz-in', rows: 5, placeholder: q.type === 'list' ? 'Um item por linha' : 'Escreva aqui',
+        onkeydown: e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); next(); } } },
+      Array.isArray(v) ? v.join('\n') : (v || ''));
+    }
+    const field = h('input', { id: 'quiz-in', type: 'text', inputmode: q.type === 'text' ? null : (q.type === 'int' ? 'numeric' : 'decimal'), autocomplete: 'off',
+      placeholder: q.placeholder || (q.type === 'money' ? '0,00' : q.type === 'percent' ? '0' : ''), maxlength: q.type === 'text' ? 300 : 20,
+      value: q.type === 'text' ? (v || '') : fmtNum(v), onkeydown: e => { if (e.key === 'Enter') { e.preventDefault(); next(); } } });
+    if (q.type === 'money') return h('div', { class: 'quiz-affix' }, h('span', {}, 'R$'), field);
+    if (q.type === 'percent') return h('div', { class: 'quiz-affix after' }, field, h('span', {}, '%'));
+    return field;
+  }
+  function read(q) {
+    if (q.type === 'choice') return answers[q.id] ?? null;
+    if (q.type === 'multi') return [...box.querySelectorAll('.quiz-options input:checked')].map(i => i.value);
+    const el = box.querySelector('#quiz-in');
+    if (!el) return null;
+    if (['money', 'percent', 'int'].includes(q.type)) {
+      const raw = el.value.trim();
+      if (!raw) return null;
+      const n = Number(raw.replace(/[R$\s%]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+      if (!Number.isFinite(n)) throw new Error('Digite só o número. Ex.: 12.500,00');
+      return n;
+    }
+    return q.type === 'list' ? el.value.split('\n').map(x => x.trim()).filter(Boolean) : el.value;
+  }
+  // Salva a resposta atual (se mudou) e vai para outra pergunta.
+  async function commit(to, { markUnknown = false } = {}) {
+    if (idx < Q.length) {
+      const q = Q[idx];
+      let patch = null;
+      if (markUnknown) {
+        if (!unknown.includes(q.id)) { unknown = [...unknown, q.id]; delete answers[q.id]; patch = { unknown }; }
+      } else {
+        const v = read(q);
+        const before = JSON.stringify(plan.answers[q.id] ?? null);
+        if (JSON.stringify(BP.isEmpty(v) ? null : v) !== before) {
+          patch = { answers: { [q.id]: BP.isEmpty(v) ? null : v } };
+          if (BP.isEmpty(v)) delete answers[q.id]; else { answers[q.id] = v; unknown = unknown.filter(x => x !== q.id); }
+        }
+      }
+      if (patch) {
+        const out = await save(patch);
+        Object.assign(plan, { answers: out.answers, unknown: out.unknown, progress: out.progress, submitted_at: out.submitted_at });
+        Object.assign(answers, out.answers); unknown = [...out.unknown];
+      }
+    }
+    idx = Math.max(0, Math.min(Q.length, to));
+    paint();
+  }
+  const next = guard(() => commit(idx + 1));
+  const back = guard(() => commit(idx - 1));
+
+  function paint() {
+    box.replaceChildren();
+    const pr = BP.progress(answers, unknown);
+    const bar = h('div', { class: 'quiz-progress' }, h('div', { class: 'progress' }, h('div', { class: 'bar', role: 'progressbar', 'aria-valuenow': pr.pct, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': 'Respondido' },
+      h('span', { style: `width:${pr.pct}%` })), h('span', { class: 'pct' }, `${pr.pct}%`)));
+    const jump = h('select', { class: 'quiz-jump', 'aria-label': 'Ir para a parte', onchange: guard(async e => {
+      const target = e.target.value === 'fim' ? Q.length : Q.findIndex(q => q.s === e.target.value);
+      await commit(target);
+    }) }, BP.SECTIONS.map(([k, t]) => { const s = pr.bySection.find(x => x.key === k); return h('option', { value: k, selected: idx < Q.length && Q[idx].s === k }, `${t} (${s.done}/${s.total})`); }),
+    h('option', { value: 'fim', selected: idx >= Q.length }, 'Revisar e enviar'));
+    if (idx >= Q.length) {
+      const pending = Q.filter(q => BP.isEmpty(answers[q.id]) && !unknown.includes(q.id));
+      box.append(h('div', { class: 'quiz-head' }, jump, bar),
+        h('div', { class: 'card-box quiz-card' },
+          h('h2', {}, plan.submitted_at ? 'Respostas enviadas' : 'Revisar e enviar'),
+          h('p', {}, `${pr.done} de ${pr.total} perguntas respondidas${unknown.length ? `, ${unknown.length} marcadas como "não sei" (vamos ver juntos na reunião)` : ''}.`),
+          pending.length ? [h('p', { class: 'muted' }, `Ainda sem resposta (${pending.length}):`),
+            h('ul', { class: 'quiz-pending' }, pending.slice(0, 12).map(q => h('li', {}, h('button', { type: 'button', class: 'link', onclick: guard(() => commit(Q.indexOf(q))) }, q.label))),
+              pending.length > 12 ? h('li', { class: 'muted' }, `e mais ${pending.length - 12}`) : null)] : null,
+          h('div', { class: 'row', style: 'margin-top:12px' },
+            h('button', { class: 'btn', type: 'button', onclick: back }, '‹ Voltar'),
+            plan.submitted_at ? h('span', { class: 'muted small' }, `Enviado em ${fmtDateTime(plan.submitted_at)}. Você ainda pode mudar as respostas.`)
+              : h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
+                if (pending.length && !(await ask(`Faltam ${pending.length} perguntas. Enviar assim mesmo? Dá para completar depois ou na reunião.`, { ok: 'Enviar' }))) return;
+                const out = await submit(); Object.assign(plan, out); paint();
+              }) }, icon('check'), submit.label || 'Enviar respostas'))));
+      return;
+    }
+    const q = Q[idx];
+    const isUnknown = unknown.includes(q.id);
+    box.append(...[h('div', { class: 'quiz-head' }, jump, bar),
+      idx === 0 && intro ? intro : null,
+      h('div', { class: 'card-box quiz-card' },
+        h('div', { class: 'quiz-meta' }, `${secTitle(q.s)} · pergunta ${idx + 1} de ${Q.length}`),
+        h('h2', { class: 'quiz-q' }, h('label', { for: 'quiz-in' }, q.label)),
+        q.help ? h('p', { class: 'muted quiz-help' }, q.help) : null,
+        input(q),
+        isUnknown ? h('p', { class: 'quiz-unknown' }, 'Marcada como "não sei": vamos ver juntos na reunião. Se souber agora, é só responder.') : null,
+        h('div', { class: 'quiz-actions' },
+          h('button', { class: 'btn', type: 'button', onclick: back, disabled: idx === 0 }, '‹ Voltar'),
+          h('button', { class: 'btn ghost', type: 'button', onclick: guard(() => commit(idx + 1, { markUnknown: true })) }, 'Não sei'),
+          h('button', { class: 'btn primary', type: 'button', onclick: next }, idx === Q.length - 1 ? 'Concluir ›' : 'Próxima ›')),
+        ['long', 'list'].includes(q.type) ? h('p', { class: 'muted small' }, 'Dica: Ctrl+Enter vai para a próxima.') : null)].filter(Boolean));
+    const el = box.querySelector('#quiz-in');
+    if (el && !matchMedia('(pointer: coarse)').matches) el.focus({ preventScroll: true });
+  }
+  paint();
+  return box;
+}
+
+// Lista de planos (e, para a equipe, os leads do diagnóstico).
+const planView = { tab: 'plans' };
+async function viewPlans() {
+  const plans = await api('GET', '/api/bizplans');
+  if (!isStaff()) {
+    if (plans.length === 1) { location.hash = `#/plano/${plans[0].id}`; return; }
+    shell([plans.length ? h('div', { class: 'plan-cards' }, plans.map(planCard))
+      : h('div', { class: 'card-box empty' }, 'Nenhum plano de negócio por enquanto. Quando a consultoria abrir um para você, ele aparece aqui.')],
+    { title: 'Plano de negócio', sub: 'Responda o questionário; a consultoria monta o plano com você' });
+    return;
+  }
+  const leads = planView.tab === 'leads' ? await api('GET', '/api/leads') : null;
+  const link = `${location.origin}${location.pathname}#/diagnostico`;
+  shell([
+    h('div', { class: 'toolbar' },
+      h('div', { class: 'seg', role: 'group', 'aria-label': 'Mostrar' }, [['plans', 'Planos'], ['leads', 'Leads do diagnóstico']].map(([k, l]) =>
+        h('button', { type: 'button', class: 'seg-btn', 'aria-pressed': String(planView.tab === k), onclick: () => { planView.tab = k; route(); } }, l))),
+      h('button', { class: 'btn', type: 'button', onclick: () => modal(close => h('div', {},
+        h('h2', {}, 'Link do diagnóstico para leads'),
+        h('p', {}, 'Quem ainda não é cliente preenche nome, empresa, CNPJ, e-mail, celular e faixa de faturamento, e responde o mesmo questionário. Você recebe um aviso no sino a cada lead novo.'),
+        h('div', { class: 'row nowrap' }, h('input', { value: link, readonly: true, 'aria-label': 'Link', onfocus: e => e.target.select() }),
+          h('button', { class: 'btn primary', type: 'button', onclick: () => copyText(link, 'Link copiado.') }, 'Copiar')),
+        h('p', { class: 'muted small' }, 'Use no Instagram, no WhatsApp, no site ou em campanhas.'),
+        h('div', { class: 'row' }, h('a', { class: 'btn', href: '#/diagnostico', target: '_blank', rel: 'noopener' }, 'Ver como o lead vê'), h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar')))) }, 'Link para leads'),
+      h('button', { class: 'btn primary', type: 'button', onclick: newPlanDialog }, icon('plus'), 'Novo plano')),
+    planView.tab === 'plans'
+      ? (plans.length ? h('div', { class: 'card-box table-wrap' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Plano'), h('th', {}, 'Empresa'), h('th', {}, 'Questionário'), h('th', {}, 'Documento'), h('th', {}, 'Atualizado'))),
+        h('tbody', {}, plans.map(p => h('tr', { class: 'row-link', onclick: () => { location.hash = `#/plano/${p.id}`; } },
+          h('td', {}, h('a', { href: `#/plano/${p.id}` }, p.title)),
+          h('td', {}, p.client_name || h('span', {}, p.lead_company, ' ', h('span', { class: 'tag' }, 'Lead'))),
+          h('td', { class: 'plan-prog' }, progressBar(p.progress.pct), p.submitted_at ? h('span', { class: 'tag ok' }, 'Enviado') : null),
+          h('td', {}, { none: '–', generating: 'Gerando…', ready: p.shared ? 'Pronto · cliente vê' : 'Pronto', error: 'Erro' }[p.doc_status]),
+          h('td', {}, fmtDateTime(p.updated_at)))))))
+        : h('div', { class: 'card-box empty' }, 'Nenhum plano ainda. Crie um para um cliente em "Novo plano" ou divulgue o link do diagnóstico para leads.'))
+      : (leads.length ? h('div', { class: 'card-box table-wrap' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Empresa'), h('th', {}, 'Contato'), h('th', {}, 'Faturamento'), h('th', {}, 'Questionário'), h('th', {}, 'Situação'), h('th', {}, ''))),
+        h('tbody', {}, leads.map(l => h('tr', {},
+          h('td', {}, h('strong', {}, l.company), l.cnpj ? h('div', { class: 'muted small' }, `CNPJ ${l.cnpj}`) : null, h('div', { class: 'muted small' }, `Recebido ${fmtDateTime(l.created_at)}`)),
+          h('td', {}, l.name, h('div', { class: 'small' }, h('a', { href: `mailto:${l.email}` }, l.email)),
+            h('div', { class: 'small' }, h('a', { href: `https://wa.me/55${l.phone.replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '')}`, target: '_blank', rel: 'noopener' }, l.phone))),
+          h('td', {}, l.revenue_band_label),
+          h('td', { class: 'plan-prog' }, progressBar(l.progress), l.submitted_at ? h('span', { class: 'tag ok' }, 'Enviado') : null),
+          h('td', {}, h('select', { 'aria-label': `Situação de ${l.company}`, disabled: l.status === 'converted', onchange: guard(async e => { await api('PATCH', `/api/leads/${l.id}`, { status: e.target.value }); toast('Situação salva'); }) },
+            Object.entries(LEAD_STATUS).filter(([k]) => k !== 'converted' || l.status === 'converted').map(([k, v]) => h('option', { value: k, selected: l.status === k }, v)))),
+          h('td', { class: 'actions' },
+            l.plan_id ? h('a', { class: 'btn small', href: `#/plano/${l.plan_id}` }, 'Abrir') : null,
+            isAdmin() && l.status !== 'converted' ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
+              if (!(await ask(`Transformar ${l.company} em cliente? A empresa entra em Clientes e o plano vai junto. O acesso da pessoa você cria depois em Pessoas.`, { ok: 'Virar cliente' }))) return;
+              await api('POST', `/api/leads/${l.id}/convert`, {}); state.clients = await api('GET', '/api/clients'); toast(`${l.company} agora é cliente.`); route();
+            }) }, 'Virar cliente') : null))))))
+        : h('div', { class: 'card-box empty' }, 'Nenhum lead ainda. Copie o "Link para leads" e divulgue.')),
+  ], { title: 'Planos de negócio', sub: 'Questionário, plano gerado e editado na reunião, e leads do diagnóstico' });
+}
+function planCard(p) {
+  return h('a', { class: 'card-box plan-card', href: `#/plano/${p.id}` }, h('strong', {}, p.title), progressBar(p.progress.pct),
+    h('span', { class: 'muted small' }, p.doc_status === 'ready' ? 'Plano disponível para ler' : p.submitted_at ? 'Respostas enviadas' : 'Continuar respondendo'));
+}
+function newPlanDialog() {
+  modal(close => {
+    const err = h('p', { class: 'error', role: 'alert' });
+    return h('form', { onsubmit: guard(async e => {
+      e.preventDefault();
+      try {
+        const p = await api('POST', '/api/bizplans', { client_id: Number(e.target.elements.client.value), title: e.target.elements.title.value });
+        close(); location.hash = `#/plano/${p.id}`;
+      } catch (ex) { err.textContent = ex.message; }
+    }) },
+      h('h2', {}, 'Novo plano de negócio'),
+      h('div', { class: 'field' }, h('label', { for: 'np-client' }, 'Cliente'), h('select', { id: 'np-client', name: 'client', required: true },
+        state.clients.map(c => h('option', { value: c.id }, c.name)))),
+      h('div', { class: 'field' }, h('label', { for: 'np-title' }, 'Nome do plano (opcional)'), h('input', { id: 'np-title', name: 'title', maxlength: 120, placeholder: 'Plano de negócio · nome do cliente' })),
+      h('p', { class: 'muted small' }, 'As pessoas do cliente recebem um aviso para responder pelo login delas. Você também pode responder junto, aqui, na sessão do cliente.'),
+      err,
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, 'Criar'), h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
+  });
+}
+
+// Um plano: questionário, respostas, financeiro e documento.
+const planTab = {};
+let planPoll = null;
+async function viewPlan(planId) {
+  clearTimeout(planPoll);
+  const p = await api('GET', `/api/bizplans/${planId}`);
+  const staff = isStaff();
+  const tabs = staff ? [['quiz', 'Questionário'], ['answers', 'Respostas'], ['finance', 'Financeiro'], ['doc', 'Plano']]
+    : [['quiz', 'Questionário'], ...(p.doc ? [['doc', 'Plano']] : [])];
+  let tab = planTab[planId] || (staff ? (p.doc ? 'doc' : 'quiz') : (p.doc ? 'doc' : 'quiz'));
+  if (!tabs.some(t => t[0] === tab)) tab = tabs[0][0];
+  const save = patch => api('PATCH', `/api/bizplans/${planId}`, patch);
+  const submit = Object.assign(() => api('PATCH', `/api/bizplans/${planId}`, { submit: true }), { label: staff ? 'Marcar como enviado' : 'Enviar para a consultoria' });
+  let body;
+  if (tab === 'quiz') body = quiz({ plan: p, save, submit });
+  else if (tab === 'answers') body = answersView(p);
+  else if (tab === 'finance') body = financeView(p);
+  else body = staff ? docEditor(p) : docReader(p);
+  const company = p.client_name || p.lead_company || '';
+  shell([
+    h('div', { class: 'toolbar plan-top' },
+      staff ? h('a', { class: 'btn small', href: '#/planos' }, '‹ Planos') : null,
+      tabs.length > 1 ? h('div', { class: 'seg', role: 'group', 'aria-label': 'Partes do plano' }, tabs.map(([k, l]) => h('button', { type: 'button', class: 'seg-btn',
+        'aria-pressed': String(tab === k), onclick: () => { planTab[planId] = k; route(); } }, l))) : null,
+      staff && p.lead ? h('span', { class: 'tag' }, 'Lead') : null),
+    staff && p.lead ? h('div', { class: 'card-box lead-box' },
+      h('strong', {}, p.lead.company), p.lead.cnpj ? ` · CNPJ ${p.lead.cnpj}` : '', h('br'),
+      `${p.lead.name} · `, h('a', { href: `mailto:${p.lead.email}` }, p.lead.email), ' · ', p.lead.phone, ' · ', p.lead.revenue_band_label) : null,
+    body,
+  ], { title: p.title, sub: [company, `${p.progress.pct}% respondido`, p.submitted_at ? `enviado em ${fmtDate(p.submitted_at)}` : null].filter(Boolean).join(' · ') });
+  if (p.doc_status === 'generating' && tab === 'doc') planPoll = setTimeout(() => { if (location.hash === `#/plano/${planId}`) route(); }, 4000);
+}
+function answersView(p) {
+  return h('div', {}, BP.SECTIONS.map(([key, title]) => h('div', { class: 'card-box' }, h('h2', {}, title),
+    h('dl', { class: 'answers' }, BP.QUESTIONS.filter(q => q.s === key).map(q => [
+      h('dt', {}, q.label),
+      h('dd', { class: p.unknown.includes(q.id) ? 'pending-text' : (BP.isEmpty(p.answers[q.id]) ? 'muted' : null) },
+        p.unknown.includes(q.id) ? 'Não sei (ver na reunião)' : (BP.answerText(q, p.answers[q.id]) || 'Sem resposta')),
+    ])))));
+}
+function financeView(p) {
+  const f = p.finance;
+  return h('div', {},
+    h('div', { class: 'card-box' }, h('h2', {}, 'Plano financeiro'),
+      h('p', { class: 'muted small' }, 'Calculado pelo sistema a partir das respostas (não pela IA). Mude as respostas de Finanças no questionário e a conta se refaz.'),
+      f.ok ? h('div', { class: 'stats-row fin-stats' },
+        h('div', { class: 'stat' }, h('strong', {}, BP.brl(f.breakEven)), h('span', {}, 'ponto de equilíbrio / mês')),
+        h('div', { class: 'stat' }, h('strong', {}, BP.pct(f.contribPct)), h('span', {}, 'margem de contribuição')),
+        h('div', { class: 'stat' }, h('strong', {}, BP.brl(f.monthResult)), h('span', {}, 'resultado no 1º mês'))) : null,
+      mdNodes(BP.financeTables(f))),
+    h('div', { class: 'card-box' }, h('h2', {}, 'Cenários'), mdNodes(BP.scenarioTable(f))));
+}
+function docReader(p) {
+  return h('div', { class: 'doc' },
+    h('div', { class: 'row doc-tools' },
+      h('button', { class: 'btn', type: 'button', onclick: () => downloadPlanDocx(p, p.doc) }, 'Baixar Word'),
+      h('button', { class: 'btn', type: 'button', onclick: () => printPlan(p, p.doc) }, 'Imprimir ou salvar PDF')),
+    p.doc.map((s, i) => h('section', { class: 'card-box doc-section', id: `sec-${s.key}` }, h('h2', {}, `${i + 1}. ${s.title}`), mdNodes(s.content))));
+}
+function docEditor(p) {
+  if (p.doc_status === 'generating') {
+    return h('div', { class: 'card-box doc-empty' }, h('div', { class: 'spinner', 'aria-hidden': 'true' }),
+      h('h2', {}, 'A IA está escrevendo o plano'), h('p', { class: 'muted' }, 'Leva de 1 a 3 minutos. Pode sair desta tela: o plano fica pronto do mesmo jeito.'));
+  }
+  const generate = mode => guard(async () => {
+    if (p.doc && !(await ask('Gerar de novo substitui o documento atual (ele fica salvo em Versões). Continuar?', { ok: 'Gerar de novo' }))) return;
+    await api('POST', `/api/bizplans/${p.id}/generate`, { mode }); route();
+  });
+  if (!p.doc) {
+    return h('div', { class: 'card-box doc-empty' },
+      h('h2', {}, 'Gerar o plano de negócio'),
+      h('p', {}, `${p.progress.done} de ${p.progress.total} perguntas respondidas${p.unknown.length ? `, ${p.unknown.length} como "não sei"` : ''}. O que faltar vira "[A definir na reunião]" no documento.`),
+      p.doc_status === 'error' && p.doc_error ? h('p', { class: 'error' }, p.doc_error) : null,
+      h('div', { class: 'row' },
+        p.ai ? h('button', { class: 'btn primary', type: 'button', onclick: generate('ai') }, 'Gerar com IA') : null,
+        h('button', { class: p.ai ? 'btn' : 'btn primary', type: 'button', onclick: generate('draft') }, 'Gerar rascunho sem IA')),
+      p.ai ? h('p', { class: 'muted small' }, 'Com IA: o texto é escrito a partir das respostas; os números vêm da conta do sistema. Sem IA: as respostas organizadas nas seções, para escrever na reunião.')
+        : h('p', { class: 'muted small' }, 'A IA ainda não está ligada (falta a chave da Anthropic no servidor). O rascunho organiza as respostas nas seções e calcula o financeiro; o texto vocês ajustam na reunião.'));
+  }
+  const doc = p.doc.map(s => ({ ...s }));
+  const saveDoc = async note => api('PUT', `/api/bizplans/${p.id}/doc`, { sections: doc, note });
+  const sectionCard = (s, i) => {
+    const card = h('section', { class: 'card-box doc-section', id: `sec-${s.key}` });
+    const view = () => card.replaceChildren(
+      h('div', { class: 'doc-sec-head' }, h('h2', {}, `${i + 1}. ${s.title}`),
+        h('div', { class: 'row' },
+          h('button', { class: 'btn small', type: 'button', onclick: edit }, 'Editar'),
+          p.ai ? h('button', { class: 'btn small', type: 'button', onclick: askAi }, 'Pedir à IA') : null)),
+      ...mdNodes(s.content));
+    const edit = () => {
+      const ta = h('textarea', { class: 'doc-edit', rows: Math.min(30, Math.max(8, s.content.split('\n').length + 2)), 'aria-label': `Texto de ${s.title}` }, s.content);
+      card.replaceChildren(h('h2', {}, `${i + 1}. ${s.title}`), ta,
+        h('p', { class: 'muted small' }, 'Formato: "### " para subtítulo, "- " para lista, **negrito**, e tabelas com | coluna | coluna |.'),
+        h('div', { class: 'row' },
+          h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => { s.content = ta.value; await saveDoc(`Editado: ${s.title}`); toast('Seção salva'); view(); }) }, 'Salvar'),
+          h('button', { class: 'btn', type: 'button', onclick: view }, 'Cancelar')));
+      ta.focus();
+    };
+    const askAi = () => {
+      const inp = h('input', { placeholder: 'Ex.: deixe mais curto; inclua a meta de abrir a filial; tom mais formal', maxlength: 1000, 'aria-label': 'Pedido para a IA' });
+      const out = h('div', {});
+      const run = guard(async () => {
+        if (!inp.value.trim()) return;
+        out.replaceChildren(h('p', { class: 'muted' }, 'A IA está reescrevendo…'));
+        const r = await api('POST', `/api/bizplans/${p.id}/rewrite`, { key: s.key, instruction: inp.value }).catch(e => { out.replaceChildren(h('p', { class: 'error' }, e.message)); return null; });
+        if (!r) return;
+        out.replaceChildren(h('div', { class: 'ai-suggestion' }, h('p', { class: 'muted small' }, 'Sugestão da IA:'), mdNodes(r.content)),
+          h('div', { class: 'row' },
+            h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => { s.content = r.content; await saveDoc(`IA: ${inp.value.slice(0, 120)} (${s.title})`); toast('Seção atualizada'); view(); }) }, 'Usar esta versão'),
+            h('button', { class: 'btn', type: 'button', onclick: view }, 'Descartar')));
+      });
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+      card.replaceChildren(h('h2', {}, `${i + 1}. ${s.title}`),
+        h('div', { class: 'row nowrap' }, inp, h('button', { class: 'btn primary', type: 'button', onclick: run }, 'Reescrever')), out,
+        h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn', type: 'button', onclick: view }, 'Fechar')));
+      inp.focus();
+    };
+    view();
+    return card;
+  };
+  return h('div', { class: 'doc' },
+    h('div', { class: 'card-box doc-tools' },
+      h('div', { class: 'row' },
+        p.client_id ? h('label', { class: 'check inline' }, h('input', { type: 'checkbox', checked: p.shared, onchange: guard(async e => {
+          await api('PATCH', `/api/bizplans/${p.id}`, { shared: e.target.checked }); toast(e.target.checked ? 'O cliente já pode ver o plano.' : 'O cliente não vê mais o plano.');
+        }) }), 'Cliente pode ver') : h('span', { class: 'muted small' }, 'Lead: o plano fica só com a equipe até virar cliente.'),
+        h('button', { class: 'btn', type: 'button', onclick: () => downloadPlanDocx(p, doc) }, 'Baixar Word'),
+        h('button', { class: 'btn', type: 'button', onclick: () => printPlan(p, doc) }, 'Imprimir ou PDF'),
+        h('button', { class: 'btn', type: 'button', onclick: guard(() => versionsDialog(p)) }, 'Versões'),
+        h('button', { class: 'btn', type: 'button', onclick: generate(p.ai ? 'ai' : 'draft') }, p.ai ? 'Gerar de novo com IA' : 'Gerar rascunho de novo')),
+      h('p', { class: 'muted small' }, `${p.doc_source === 'ai' ? 'Escrito pela IA a partir das respostas' : 'Rascunho montado das respostas'}. Os números vêm da conta do sistema. Cada mudança salva uma versão.`),
+      p.doc_status === 'error' && p.doc_error ? h('p', { class: 'error' }, p.doc_error) : null,
+      h('nav', { class: 'doc-toc', 'aria-label': 'Seções' }, doc.map((s, i) => h('a', { href: `#sec-${s.key}`, onclick: e => { e.preventDefault(); document.getElementById(`sec-${s.key}`)?.scrollIntoView({ behavior: 'smooth' }); } }, `${i + 1}. ${s.title}`)))),
+    doc.map(sectionCard));
+}
+async function versionsDialog(p) {
+  const vs = await api('GET', `/api/bizplans/${p.id}/versions`);
+  modal(close => h('div', {},
+    h('h2', {}, 'Versões do plano'),
+    h('ul', { class: 'versions' }, vs.map((v, i) => h('li', {},
+      h('div', { class: 'grow' }, h('strong', {}, v.note || 'Versão'), h('div', { class: 'muted small' }, `${fmtDateTime(v.created_at)}${v.author ? ` · ${v.author}` : ''}${i === 0 ? ' · atual' : ''}`)),
+      i > 0 ? h('button', { class: 'btn small', type: 'button', onclick: guard(async () => {
+        if (!(await ask('Voltar o plano para esta versão? A atual continua guardada.', { ok: 'Restaurar' }))) return;
+        await api('POST', `/api/bizplans/${p.id}/versions/${v.id}/restore`); close(); toast('Versão restaurada'); route();
+      }) }, 'Restaurar') : null))),
+    h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Fechar'))));
+}
+// Nome do arquivo sem acentos nem símbolos (alguns navegadores ignoram o nome quando tem).
+const planFileName = p => `${p.title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s-]+/g, ' ').trim().replace(/\s+/g, '-').toLowerCase() || 'plano-de-negocio'}.docx`;
+function downloadPlanDocx(p, doc) {
+  const accent = (getComputedStyle(document.documentElement).getPropertyValue('--accent') || '').trim().replace('#', '');
+  Exports.download(Exports.docx({ title: p.title, subtitle: [p.client_name || p.lead_company, state.org ? state.org.name : null, fmtDate(today())].filter(Boolean).join(' · '),
+    sections: doc, brandColor: /^[0-9a-f]{6}$/i.test(accent) ? accent : 'D2400F' }), planFileName(p));
+}
+// Impressão (e "salvar como PDF" do navegador): só o documento, com capa simples.
+function printPlan(p, doc) {
+  const root = h('div', { id: 'print-root', class: 'print-doc' },
+    h('header', { class: 'print-cover' }, state.org && state.org.logo ? h('img', { src: state.org.logo, alt: '' }) : null,
+      h('h1', {}, p.title), h('p', {}, [p.client_name || p.lead_company, state.org ? state.org.name : null, fmtDate(today())].filter(Boolean).join(' · '))),
+    doc.map((s, i) => h('section', {}, h('h2', {}, `${i + 1}. ${s.title}`), mdNodes(s.content))));
+  document.body.append(root);
+  document.body.classList.add('printing');
+  const done = () => { root.remove(); document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  try { window.print(); } catch { toast('Não deu para abrir a impressão aqui. Use "Baixar Word".'); }
+  setTimeout(() => { if (document.body.contains(root) && !matchMedia('print').matches) done(); }, 1500);
+}
+
+// ---------- diagnóstico público (lead, sem login) ----------
+const DIAG_KEY = 'diagnostico-token';
+async function renderDiagnostic() {
+  const info = await api('GET', '/api/public/diagnostico/info').catch(() => ({ org: '', bands: BP.REVENUE_BANDS }));
+  if (info.accent) applyAccent(info.accent);
+  document.title = `Diagnóstico do seu negócio · ${info.org || APP_NAME}`;
+  const urlToken = new URLSearchParams(location.hash.split('?')[1] || '').get('c');
+  let token = urlToken;
+  try { token = token || localStorage.getItem(DIAG_KEY); } catch { /* sem armazenamento */ }
+  const page = h('div', { class: 'diag' });
+  const head = h('header', { class: 'diag-head' }, wordmark());
+  app().replaceChildren(h('div', { class: 'diag-wrap' }, head, page));
+  const remember = t => { try { localStorage.setItem(DIAG_KEY, t); } catch { /* idem */ } history.replaceState(null, '', `#/diagnostico?c=${t}`); };
+  const showQuiz = plan => {
+    const done = () => page.replaceChildren(h('div', { class: 'card-box diag-done' }, icon('check'),
+      h('h1', {}, 'Recebemos suas respostas!'),
+      h('p', {}, `Obrigado, ${plan.name.split(' ')[0]}. A equipe da ${plan.org} vai analisar e falar com você pelo WhatsApp ou e-mail para apresentar o diagnóstico.`),
+      h('p', { class: 'muted small' }, 'Se quiser completar ou mudar alguma resposta, é só voltar por este mesmo link.'),
+      h('button', { class: 'btn', type: 'button', onclick: () => showQuizInner() }, 'Ver minhas respostas')));
+    const showQuizInner = () => page.replaceChildren(
+      h('div', { class: 'diag-title' }, h('h1', {}, `Diagnóstico · ${plan.company}`), h('p', { class: 'muted' }, 'Responda o que souber. Onde não souber, toque em "Não sei". Tudo fica salvo a cada pergunta.')),
+      quiz({ plan, save: patch => api('PATCH', '/api/public/diagnostico', { token: plan.token, ...patch }),
+        submit: Object.assign(async () => { const out = await api('PATCH', '/api/public/diagnostico', { token: plan.token, submit: true }); setTimeout(done, 0); return out; }, { label: 'Enviar diagnóstico' }) }));
+    if (plan.submitted_at && !urlToken) done(); else showQuizInner();
+  };
+  if (token) {
+    try { const plan = await api('GET', `/api/public/diagnostico?token=${encodeURIComponent(token)}`); remember(plan.token); showQuiz(plan); return; }
+    catch { try { localStorage.removeItem(DIAG_KEY); } catch { /* idem */ } }
+  }
+  const err = h('p', { class: 'error', role: 'alert' });
+  const field = (id, label, attrs = {}) => h('div', { class: 'field' }, h('label', { for: id }, label), h('input', { id, name: id, ...attrs }));
+  page.replaceChildren(h('form', { class: 'card-box diag-form', onsubmit: async e => {
+    e.preventDefault();
+    const f = e.target.elements;
+    err.textContent = '';
+    try {
+      const plan = await api('POST', '/api/public/diagnostico', { name: f.d_name.value, company: f.d_company.value, cnpj: f.d_cnpj.value, email: f.d_email.value,
+        phone: f.d_phone.value, revenue_band: f.d_band.value, consent: f.d_consent.checked });
+      remember(plan.token); showQuiz(plan);
+    } catch (ex) { err.textContent = ex.message; }
+  } },
+    h('h1', {}, 'Diagnóstico gratuito do seu negócio'),
+    h('p', {}, `Responda um questionário rápido sobre o seu negócio, no seu ritmo. A equipe da ${info.org || 'consultoria'} analisa e mostra para você um diagnóstico com os próximos passos.`),
+    h('div', { class: 'grid2' },
+      field('d_name', 'Seu nome', { required: true, maxlength: 120, autocomplete: 'name' }),
+      field('d_company', 'Empresa', { required: true, maxlength: 160, autocomplete: 'organization' }),
+      field('d_cnpj', 'CNPJ (se tiver)', { inputmode: 'numeric', maxlength: 18, placeholder: '00.000.000/0000-00' }),
+      field('d_email', 'E-mail', { type: 'email', required: true, maxlength: 200, autocomplete: 'email' }),
+      field('d_phone', 'Celular (WhatsApp)', { type: 'tel', required: true, maxlength: 30, autocomplete: 'tel', placeholder: '(00) 00000-0000' }),
+      h('div', { class: 'field' }, h('label', { for: 'd_band' }, 'Faturamento'), h('select', { id: 'd_band', name: 'd_band', required: true },
+        h('option', { value: '' }, 'Escolha a faixa'), (info.bands || BP.REVENUE_BANDS).map(([v, l]) => h('option', { value: v }, l))))),
+    h('label', { class: 'check consent' }, h('input', { type: 'checkbox', name: 'd_consent', required: true }),
+      h('span', {}, `Autorizo a ${info.org || 'consultoria'} a usar estes dados e as minhas respostas para preparar o diagnóstico e entrar em contato comigo (LGPD). As respostas podem ser analisadas com ajuda de inteligência artificial.`)),
+    err,
+    h('button', { class: 'btn primary big', type: 'submit' }, 'Começar o diagnóstico ›')));
 }
 
 // ---------- pessoas ----------

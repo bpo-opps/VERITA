@@ -5,7 +5,7 @@
 // Os dados são fictícios e ficam só neste navegador (localStorage, quando disponível).
 (function () {
   const S = window.Shared;
-  const KEY = 'tarefas-prototipo-v8';
+  const KEY = 'tarefas-prototipo-v9';
   const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
   const d = n => S.addDays(S.today(), n);
 
@@ -96,6 +96,26 @@
       diary(uid, d(-1), 'Corrigir lançamento duplicado', '10:00', '11:30', 'urgent', true);
       diary(uid, d(-1), 'Organizar pastas do drive', '14:00', '15:00', 'circumstantial', false);
     }
+    // Plano de negócio da Padaria (meio respondido) e um lead do diagnóstico.
+    db.bizplans = [{ id: 300, client_id: 1, lead_id: null, title: 'Plano de negócio · Padaria Exemplo', token: null, submitted_at: null, doc: null, doc_status: 'none',
+      doc_error: null, doc_source: null, shared: 0, created_by: 1, created_at: now(), updated_at: now(), unknown: ['m_size', 'c_concentration'],
+      answers: { b_name: 'Padaria Exemplo', b_segment: 'Alimentação', b_stage: 'Crescendo', b_since: 2018, b_location: 'Campinas/SP, bairro Cambuí e entregas pela cidade',
+        b_what: 'Pães artesanais de fermentação natural, cafés especiais e encomendas para eventos.', b_problem: 'Quem quer pão fresco e saudável perto de casa, sem conservantes.',
+        b_purpose: 'Ser a padaria artesanal de referência da cidade e abrir mais duas lojas em 5 anos.', b_values: ['Qualidade dos ingredientes', 'Atendimento próximo', 'Respeito à equipe'],
+        c_type: ['Pessoas (consumidor final)', 'Empresas'], c_ideal: 'Famílias e profissionais de 25 a 55 anos do bairro, que valorizam comida de verdade e pagam um pouco mais por isso; cafés e restaurantes que revendem.',
+        c_pains: ['Pão industrializado sem sabor', 'Pouco tempo para ir longe', 'Encomendas que atrasam'], c_why: 'Fermentação natural feita na hora e atendimento que conhece o cliente pelo nome.', c_count: 900,
+        m_region: 'Bairro ou cidade', m_trends: ['Procura por alimentação saudável', 'Pedidos por aplicativo e WhatsApp', 'Custo do trigo em alta'],
+        k_list: ['Padaria Central', 'Supermercados do bairro', 'Panificadoras de aplicativo'], k_better: 'Preço menor e mais pontos de venda.', k_worse: 'Sabor, frescor e atendimento.', k_price: 'Mais caro',
+        p_list: ['Pães de fermentação natural', 'Cafés especiais', 'Encomendas para eventos'], p_model: ['Venda avulsa', 'Contrato ou projeto'], p_ticket: 38, p_sales: 1400, p_repeat: 'Com frequência',
+        s_channels: ['Indicação', 'Instagram', 'WhatsApp', 'Loja física'], s_spend: 2500,
+        f_revenue: 52000, f_fixed: 16000, f_variable: 38, f_tax: 6, f_prolabore: 9000, f_debt: 1500, f_growth: 2, f_invest: 80000, f_own: 30000,
+        r_goals: ['Faturar R$ 80 mil por mês', 'Abrir um quiosque no shopping', 'Lançar assinatura semanal de pães'], r_risks: ['Alta do trigo', 'Saída do padeiro-chefe'] } }];
+    db.leads = [{ id: 310, name: 'Fábio Souza', company: 'Mercado Bom Preço', cnpj: '11.222.333/0001-81', email: 'fabio@mercadobom.com.br', phone: '(19) 99999-0000',
+      revenue_band: 'ate-1m', status: 'new', notes: '', client_id: null, consent_at: now(), created_at: now() }];
+    db.bizplans.push({ id: 311, client_id: null, lead_id: 310, title: 'Diagnóstico · Mercado Bom Preço', token: 'exemplo-de-link-do-lead-0001', submitted_at: now(), doc: null, doc_status: 'none',
+      doc_error: null, doc_source: null, shared: 0, created_by: null, created_at: now(), updated_at: now(), unknown: ['f_tax'],
+      answers: { b_name: 'Mercado Bom Preço', b_what: 'Mercadinho de bairro com hortifrúti e açougue.', b_segment: 'Comércio', f_revenue: 80000, r_help: ['Finanças', 'Gestão e estratégia'] } });
+    db.plan_versions = [];
     return db;
   }
 
@@ -106,7 +126,7 @@
   db.meetings = db.meetings || [];
   db.meeting_items = db.meeting_items || [];
   db.calendar_links = db.calendar_links || {};
-  for (const k of ['user_clients', 'stages', 'board', 'attachments', 'events', 'conversations', 'conv_members', 'messages', 'inbox', 'diary']) db[k] = db[k] || [];
+  for (const k of ['user_clients', 'stages', 'board', 'attachments', 'events', 'conversations', 'conv_members', 'messages', 'inbox', 'diary', 'bizplans', 'plan_versions', 'leads']) db[k] = db[k] || [];
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* sem armazenamento: fica só na memória */ } };
   let sessionUser = null;
   try { sessionUser = Number(sessionStorage.getItem(KEY + '-user')) || null; } catch { /* idem */ }
@@ -971,6 +991,159 @@
     return msgOut(m);
   });
 
+  // ---------- plano de negócio ----------
+  const BP = window.BizPlan;
+  const bandLabel = b => (BP.REVENUE_BANDS.find(x => x[0] === b) || [])[1] || b;
+  function canSeePlan(user, p) {
+    if (!p) return false;
+    if (user.role === 'admin') return true;
+    if (user.role === 'client') return !!p.client_id && p.client_id === user.client_id;
+    return !!p.lead_id || p.created_by === user.id || (!!p.client_id && clientIdsOf(user.id).includes(p.client_id));
+  }
+  const loadPlan = (user, pid) => { const p = db.bizplans.find(x => x.id === pid); if (!canSeePlan(user, p)) fail(404, 'Plano não encontrado'); return p; };
+  const planMeta = p => { const lead = p.lead_id ? db.leads.find(l => l.id === p.lead_id) : null; const client = p.client_id ? clientOf(p.client_id) : null;
+    return { lead, client, company: (client && client.name) || (lead && lead.company) || '', revenue_band: lead ? bandLabel(lead.revenue_band) : '' }; };
+  const planSummary = p => { const m = planMeta(p);
+    return { id: p.id, title: p.title, client_id: p.client_id, client_name: m.client ? m.client.name : null, lead_id: p.lead_id, lead_company: m.lead ? m.lead.company : null,
+      progress: BP.progress(p.answers, p.unknown), submitted_at: p.submitted_at, doc_status: p.doc_status, shared: !!p.shared, updated_at: p.updated_at }; };
+  function planOut(user, p) {
+    const staff = user.role !== 'client';
+    const showDoc = staff || (p.shared && p.doc_status === 'ready');
+    const m = planMeta(p);
+    return { ...planSummary(p), answers: { ...p.answers }, unknown: [...p.unknown], finance: staff ? BP.finance(p.answers) : undefined,
+      doc: showDoc && p.doc ? JSON.parse(JSON.stringify(p.doc)) : null, doc_status: staff ? p.doc_status : (showDoc ? 'ready' : 'none'),
+      doc_error: staff ? p.doc_error : null, doc_source: staff ? p.doc_source : null, lead: staff && m.lead ? { ...m.lead, revenue_band_label: m.revenue_band } : null, ai: false };
+  }
+  function savePlanAnswers(p, body) {
+    const answers = { ...p.answers }; let unknown = [...p.unknown];
+    if (body.answers !== undefined) {
+      for (const [k, v] of Object.entries(body.answers || {})) {
+        let c; try { c = BP.clean(k, v); } catch (e) { fail(400, e.message); }
+        if (c === null) delete answers[k]; else { answers[k] = c; unknown = unknown.filter(x => x !== k); }
+      }
+    }
+    if (body.unknown !== undefined) {
+      if (!Array.isArray(body.unknown) || !body.unknown.every(x => BP.BY_ID[x])) fail(400, 'Campo inválido: não sei');
+      unknown = [...new Set(body.unknown)]; unknown.forEach(k => delete answers[k]);
+    }
+    Object.assign(p, { answers, unknown, updated_at: now() });
+  }
+  function submitPlan(p, who) {
+    if (p.submitted_at) return;
+    p.submitted_at = now();
+    const team = p.client_id ? db.user_clients.filter(x => x.client_id === p.client_id).map(x => x.user_id) : [];
+    pushInbox([...db.users.filter(u => u.role === 'admin' && u.active).map(u => u.id), p.created_by, ...team],
+      { kind: 'bizplan', ref: `plan-${p.id}`, title: `${who} concluiu o questionário do plano de negócio`, body: planMeta(p).company || p.title, link: `#/plano/${p.id}` });
+  }
+  const saveDoc = (user, p, sections, note, source) => {
+    Object.assign(p, { doc: sections, doc_status: 'ready', doc_error: null, doc_source: source || p.doc_source, updated_at: now() });
+    db.plan_versions.push({ id: nextId(), plan_id: p.id, doc: JSON.parse(JSON.stringify(sections)), note: String(note || '').slice(0, 200), user_id: user ? user.id : null, created_at: now() });
+  };
+  route('GET', '/api/bizplans', ({ user }) => db.bizplans.filter(p => canSeePlan(user, p)).sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id - a.id).map(planSummary));
+  route('POST', '/api/bizplans', ({ user, body }) => {
+    requireStaff(user);
+    const c = clientOf(Number(body.client_id)); if (!c) fail(400, 'Cliente inválido');
+    const p = { id: nextId(), client_id: c.id, lead_id: null, title: str(body.title, 'nome do plano', { max: 120, required: false }) || `Plano de negócio · ${c.name}`, token: null,
+      submitted_at: null, doc: null, doc_status: 'none', doc_error: null, doc_source: null, shared: 0, created_by: user.id, created_at: now(), updated_at: now(), answers: { b_name: c.name }, unknown: [] };
+    db.bizplans.push(p);
+    pushInbox(db.users.filter(u => u.role === 'client' && u.client_id === c.id && u.active).map(u => u.id), { kind: 'bizplan', ref: `plan-${p.id}`,
+      title: 'Há um questionário de plano de negócio para você responder', body: p.title, link: `#/plano/${p.id}` }, user.id);
+    return planOut(user, p);
+  });
+  route('GET', '/api/bizplans/:id', ({ user, id }) => planOut(user, loadPlan(user, id)));
+  route('PATCH', '/api/bizplans/:id', ({ user, body, id }) => {
+    const p = loadPlan(user, id);
+    if (user.role === 'client' && ('title' in body || 'shared' in body)) fail(403, 'Sem permissão');
+    if ('answers' in body || 'unknown' in body) savePlanAnswers(p, body);
+    if ('title' in body) p.title = str(body.title, 'nome do plano', { max: 120 });
+    if ('shared' in body) {
+      if (body.shared && p.doc_status !== 'ready') fail(409, 'Gere o documento antes de mostrar ao cliente');
+      p.shared = body.shared ? 1 : 0;
+      if (p.shared && p.client_id) pushInbox(db.users.filter(u => u.role === 'client' && u.client_id === p.client_id && u.active).map(u => u.id),
+        { kind: 'bizplan', ref: `plan-doc-${p.id}`, title: 'Seu plano de negócio está disponível', body: p.title, link: `#/plano/${p.id}` }, user.id);
+    }
+    if (body.submit) submitPlan(p, user.name);
+    return planOut(user, p);
+  });
+  route('POST', '/api/bizplans/:id/generate', ({ user, id }) => {
+    requireStaff(user);
+    const p = loadPlan(user, id);
+    saveDoc(user, p, BP.draft(p.answers, p.unknown, planMeta(p)), 'Rascunho gerado das respostas (sem IA)', 'draft');
+    return planOut(user, p);
+  });
+  route('PUT', '/api/bizplans/:id/doc', ({ user, body, id }) => {
+    requireStaff(user);
+    const p = loadPlan(user, id);
+    if (!Array.isArray(body.sections) || !body.sections.length) fail(400, 'Documento inválido');
+    saveDoc(user, p, body.sections.map(s => ({ key: String(s.key), title: str(s.title, 'título da seção', { max: 120 }), content: str(s.content, 'texto', { max: 30000, required: false }) })), body.note || 'Editado', null);
+    return planOut(user, p);
+  });
+  route('POST', '/api/bizplans/:id/rewrite', () => fail(409, 'A IA não está ligada no protótipo'));
+  route('GET', '/api/bizplans/:id/versions', ({ user, id }) => {
+    requireStaff(user); const p = loadPlan(user, id);
+    return db.plan_versions.filter(v => v.plan_id === p.id).sort((a, b) => b.id - a.id).map(v => ({ id: v.id, note: v.note, created_at: v.created_at, author: userName(v.user_id) || null }));
+  });
+  routes.push({ method: 'POST', re: /^\/api\/bizplans\/(\d+)\/versions\/(\d+)\/restore$/, pub: false, handler: ({ user, id, path }) => {
+    requireStaff(user); const p = loadPlan(user, id);
+    const vid = Number(/versions\/(\d+)/.exec(path)[1]);
+    const v = db.plan_versions.find(x => x.id === vid && x.plan_id === p.id); if (!v) fail(404, 'Versão não encontrada');
+    saveDoc(user, p, JSON.parse(JSON.stringify(v.doc)), `Restaurada a versão de ${v.created_at}`, null);
+    return planOut(user, p);
+  } });
+  route('GET', '/api/leads', ({ user }) => {
+    requireStaff(user);
+    return db.leads.slice().sort((a, b) => b.id - a.id).map(l => {
+      const p = db.bizplans.find(x => x.lead_id === l.id);
+      return { ...l, plan_id: p ? p.id : null, revenue_band_label: bandLabel(l.revenue_band), progress: p ? BP.progress(p.answers, p.unknown).pct : 0, submitted_at: p ? p.submitted_at : null };
+    });
+  });
+  route('PATCH', '/api/leads/:id', ({ user, body, id }) => {
+    requireStaff(user);
+    const l = db.leads.find(x => x.id === id); if (!l) fail(404, 'Lead não encontrado');
+    if ('status' in body) l.status = oneOf(body.status, 'situação', ['new', 'contacted', 'converted', 'lost']);
+    if ('notes' in body) l.notes = str(body.notes, 'anotações', { max: 5000, required: false });
+    return l;
+  });
+  route('POST', '/api/leads/:id/convert', ({ user, id }) => {
+    requireAdmin(user);
+    const l = db.leads.find(x => x.id === id); if (!l) fail(404, 'Lead não encontrado');
+    const cid = nextId();
+    db.clients.push({ id: cid, name: l.company, logo: null });
+    Object.assign(l, { status: 'converted', client_id: cid });
+    db.bizplans.filter(p => p.lead_id === l.id).forEach(p => { p.client_id = cid; p.updated_at = now(); });
+    return { ok: true, client_id: cid };
+  });
+  const leadPlan = token => { const p = db.bizplans.find(x => x.token && x.token === token && x.lead_id); if (!p) fail(404, 'Link inválido ou expirado'); return p; };
+  const publicPlanOut = p => { const l = db.leads.find(x => x.id === p.lead_id);
+    return { token: p.token, name: l.name, company: l.company, answers: { ...p.answers }, unknown: [...p.unknown], submitted_at: p.submitted_at, progress: BP.progress(p.answers, p.unknown), org: db.org.name }; };
+  route('GET', '/api/public/diagnostico/info', () => ({ org: db.org.name, logo: null, accent: db.org.accent, bands: BP.REVENUE_BANDS }), true);
+  route('POST', '/api/public/diagnostico', ({ body }) => {
+    const name = str(body.name, 'seu nome', { max: 120 }), company = str(body.company, 'empresa', { max: 160 });
+    const email = str(body.email, 'e-mail', { max: 200 }).toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(400, 'E-mail inválido');
+    const phone = str(body.phone, 'celular', { max: 30 });
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 10 || digits.length > 13) fail(400, 'Celular inválido: use DDD e número');
+    const cnpj = str(body.cnpj, 'CNPJ', { max: 20, required: false });
+    if (cnpj && !BP.validCnpj(cnpj)) fail(400, 'CNPJ inválido');
+    const band = oneOf(body.revenue_band, 'faixa de faturamento', BP.REVENUE_BANDS.map(b => b[0]));
+    if (body.consent !== true) fail(400, 'Para continuar, aceite o uso dos dados para o diagnóstico e o contato da consultoria');
+    const lid = nextId();
+    db.leads.push({ id: lid, name, company, cnpj: cnpj ? BP.fmtCnpj(cnpj) : '', email, phone, revenue_band: band, status: 'new', notes: '', client_id: null, consent_at: now(), created_at: now() });
+    const p = { id: nextId(), client_id: null, lead_id: lid, title: `Diagnóstico · ${company}`, token: 'lead-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2),
+      submitted_at: null, doc: null, doc_status: 'none', doc_error: null, doc_source: null, shared: 0, created_by: null, created_at: now(), updated_at: now(), answers: { b_name: company }, unknown: [] };
+    db.bizplans.push(p);
+    pushInbox(db.users.filter(u => u.role === 'admin' && u.active).map(u => u.id), { kind: 'lead', ref: `lead-plan-${p.id}`, title: `Novo lead: ${company}`, body: `${name} · ${bandLabel(band)}`, link: `#/plano/${p.id}` });
+    return publicPlanOut(p);
+  }, true);
+  route('GET', '/api/public/diagnostico', ({ query }) => publicPlanOut(leadPlan(query.token)), true);
+  route('PATCH', '/api/public/diagnostico', ({ body }) => {
+    const p = leadPlan(body.token);
+    if ('answers' in body || 'unknown' in body) savePlanAnswers(p, body);
+    if (body.submit) { const l = db.leads.find(x => x.id === p.lead_id); submitPlan(p, `${l.name} (${l.company})`); }
+    return publicPlanOut(p);
+  }, true);
+
   // ---------- diário de bordo ----------
   const CATS = Object.keys(S.TRIAD);
   const time = (v, field) => { if (v === undefined || v === null || v === '') return null; if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) fail(400, `${field}: hora inválida (use HH:MM)`); return v; };
@@ -1086,7 +1259,7 @@
       const m = r.re.exec(url.pathname);
       const user = db.users.find(u => u.id === sessionUser && u.active) || null;
       if (!r.pub && !user) fail(401, 'Faça login');
-      const out = r.handler({ user, body: init.body ? JSON.parse(init.body) : {}, id: m[1] ? Number(m[1]) : null, query: Object.fromEntries(url.searchParams) });
+      const out = r.handler({ user, body: init.body ? JSON.parse(init.body) : {}, id: m[1] ? Number(m[1]) : null, query: Object.fromEntries(url.searchParams), path: url.pathname });
       persist();
       return reply(200, out);
     } catch (err) {
