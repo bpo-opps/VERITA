@@ -209,3 +209,48 @@ test('lead pelo link público: cadastro, questionário, aviso, e virar cliente',
     assert.equal((await anon('POST', '/api/public/diagnostico', { ...lead, email: 'y@m.test' })).status, 429, 'limite de cadastros por endereço');
   } finally { server.close(); }
 });
+
+test('diagnóstico automático: alertas, atenção, oportunidades e pontos fortes a partir das respostas', () => {
+  const ins = B.insights({ ...ANSWERS, c_concentration: 70, p_repeat: 'Com frequência', p_model: ['Venda avulsa'], s_channels: ['Indicação'],
+    k_price: 'Mais caro', r_goals: ['Faturar R$ 80 mil por mês'] }, []);
+  const titles = ins.map(i => i.title);
+  assert.ok(titles.includes('Dependência de poucos clientes'), 'concentração acima de 50% é alerta');
+  assert.equal(ins.find(i => i.title === 'Dependência de poucos clientes').level, 'alerta');
+  assert.ok(titles.includes('Espaço para receita recorrente'));
+  assert.ok(titles.includes('Um só canal de vendas'));
+  assert.ok(titles.includes('Preço acima da concorrência sem diferencial claro'), 'mais caro e sem diferencial respondido');
+  assert.ok(titles.includes(`Precisa captar ${B.brl(40000)}`));
+  const goal = ins.find(i => i.title === 'Meta de faturamento acima da projeção');
+  assert.ok(goal, 'meta de R$ 80 mil contra a projeção');
+  assert.match(goal.action, /crescer cerca de/);
+  assert.deepEqual([...new Set(ins.map(i => i.level))], ['alerta', 'atencao', 'oportunidade', 'forte'].filter(l => ins.some(i => i.level === l)), 'alertas primeiro');
+  const below = B.insights({ f_revenue: 20000, f_fixed: 15000, f_variable: 40, f_tax: 6 }, []);
+  assert.equal(below[0].title, 'Faturamento abaixo do ponto de equilíbrio');
+  assert.equal(B.insights({}, []).find(i => i.area === 'Finanças').title, 'Faltam dados para a conta financeira');
+  const doc = B.draft(ANSWERS, []);
+  assert.match(doc.find(s => s.key === 'diagnostico').content, /O que fazer:/, 'o diagnóstico entra no plano');
+});
+
+test('escrever com o Claude: o texto colado vira o plano, com as partes do sistema', async () => {
+  const prompt = B.manualPrompt({ answers: ANSWERS, unknown: [], meta: { company: 'Padaria A' } });
+  assert.match(prompt, /# Sumário executivo\n# O negócio/);
+  assert.match(prompt, /Diagnóstico automático do sistema/);
+  assert.doesNotMatch(prompt, /# Diagnóstico: alertas/, 'o diagnóstico não é pedido ao Claude');
+  const pasted = 'Aqui está o plano:\n\n# 1. Sumário executivo\nA **Padaria A** vai crescer.\n\n## Plano financeiro\nA margem é boa.\n# Outra coisa\nignorar\n```';
+  const parsed = B.parsePasted(pasted);
+  assert.deepEqual(Object.keys(parsed), ['sumario', 'financeiro']);
+  const sections = B.assemble(parsed, { answers: ANSWERS, unknown: [] });
+  assert.equal(sections.length, B.DOC.length);
+  assert.equal(sections[0].content, 'A **Padaria A** vai crescer.');
+  assert.match(sections.find(s => s.key === 'financeiro').content, /^A margem é boa\.[\s\S]*### Projeção dos 12 primeiros meses/);
+  assert.match(sections.find(s => s.key === 'diagnostico').content, /O que fazer:/);
+  const w = world();
+  const { server, login } = await serve(w, null);
+  try {
+    const bia = await login('bia@opps.test');
+    const p = (await bia('POST', '/api/bizplans', { client_id: w.a })).body;
+    const r = await bia('PUT', `/api/bizplans/${p.id}/doc`, { sections, note: 'Escrito no Claude', source: 'ai-paste' });
+    assert.equal(r.body.doc_source, 'ai-paste');
+    assert.equal(r.body.doc[0].content, 'A **Padaria A** vai crescer.');
+  } finally { server.close(); }
+});

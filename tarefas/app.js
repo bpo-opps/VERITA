@@ -1207,7 +1207,8 @@ route('PUT', '/api/bizplans/:id/doc', ({ db, user, body, params }) => {
   requireStaff(user);
   const p = loadPlan(db, user, params.id);
   if (p.doc_status === 'generating') fail(409, 'Espere a IA terminar de gerar o plano');
-  saveDoc(db, user, p, docSections(body.sections), body.note || 'Editado', null);
+  // source "ai-paste": o texto veio do claude.ai (botão "Escrever com o Claude", copiar e colar).
+  saveDoc(db, user, p, docSections(body.sections), body.note || 'Editado', body.source === 'ai-paste' ? 'ai-paste' : null);
   return planOut(db, user, db.prepare('select * from bizplans where id = ?').get(p.id));
 }, { maxBody: 2 * 1024 * 1024 });
 route('POST', '/api/bizplans/:id/rewrite', async ({ db, user, body, params }) => {

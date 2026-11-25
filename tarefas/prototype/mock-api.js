@@ -1069,18 +1069,7 @@
   });
   // Na prévia a IA não roda: "Gerar com IA" mostra o exemplo pronto da Padaria Exemplo (prototype/ai-example.js),
   // montado igual ao sistema (texto + tabelas calculadas + pendências). Nos outros planos, sai o rascunho e um aviso.
-  function exampleDoc(p) {
-    const fin = BP.finance(p.answers);
-    const base = Object.fromEntries(BP.draft(p.answers, p.unknown, planMeta(p)).map(s => [s.key, s.content]));
-    const ex = window.AI_EXAMPLE || {};
-    return BP.DOC.map(([key, title]) => {
-      let content = ex[key] || base[key] || '';
-      if (key === 'financeiro') content = `${ex[key] || ''}\n\n${BP.financeTables(fin)}`.trim();
-      if (key === 'cenarios') content = `${ex[key] || ''}\n\n${BP.scenarioTable(fin)}`.trim();
-      if (key === 'pendencias') content = base.pendencias;
-      return { key, title, content };
-    });
-  }
+  const exampleDoc = p => BP.assemble(window.AI_EXAMPLE || {}, { answers: p.answers, unknown: p.unknown, meta: planMeta(p) });
   route('POST', '/api/bizplans/:id/generate', ({ user, id, body }) => {
     requireStaff(user);
     const p = loadPlan(user, id);
@@ -1100,7 +1089,7 @@
     requireStaff(user);
     const p = loadPlan(user, id);
     if (!Array.isArray(body.sections) || !body.sections.length) fail(400, 'Documento inválido');
-    saveDoc(user, p, body.sections.map(s => ({ key: String(s.key), title: str(s.title, 'título da seção', { max: 120 }), content: str(s.content, 'texto', { max: 30000, required: false }) })), body.note || 'Editado', null);
+    saveDoc(user, p, body.sections.map(s => ({ key: String(s.key), title: str(s.title, 'título da seção', { max: 120 }), content: str(s.content, 'texto', { max: 30000, required: false }) })), body.note || 'Editado', body.source === 'ai-paste' ? 'ai-paste' : null);
     return planOut(user, p);
   });
   route('POST', '/api/bizplans/:id/rewrite', () => fail(409, 'Na prévia, "Pedir à IA" não roda. No sistema, com a chave da Anthropic, aqui aparece a seção reescrita para você aprovar.'));

@@ -2351,7 +2351,7 @@ async function viewPlan(planId) {
   clearTimeout(planPoll);
   const p = await api('GET', `/api/bizplans/${planId}`);
   const staff = isStaff();
-  const tabs = staff ? [['quiz', 'Questionário'], ['answers', 'Respostas'], ['finance', 'Financeiro'], ['doc', 'Plano']]
+  const tabs = staff ? [['quiz', 'Questionário'], ['answers', 'Respostas'], ['insights', 'Diagnóstico'], ['finance', 'Financeiro'], ['doc', 'Plano']]
     : [['quiz', 'Questionário'], ...(p.doc ? [['doc', 'Plano']] : [])];
   let tab = planTab[planId] || (staff ? (p.doc ? 'doc' : 'quiz') : (p.doc ? 'doc' : 'quiz'));
   if (!tabs.some(t => t[0] === tab)) tab = tabs[0][0];
@@ -2361,6 +2361,7 @@ async function viewPlan(planId) {
   if (tab === 'quiz') body = quiz({ plan: p, save, submit });
   else if (tab === 'answers') body = answersView(p);
   else if (tab === 'finance') body = financeView(p);
+  else if (tab === 'insights') body = insightsView(p);
   else body = staff ? docEditor(p) : docReader(p);
   const company = p.client_name || p.lead_company || '';
   shell([
@@ -2383,6 +2384,60 @@ function answersView(p) {
       h('dd', { class: p.unknown.includes(q.id) ? 'pending-text' : (BP.isEmpty(p.answers[q.id]) ? 'muted' : null) },
         p.unknown.includes(q.id) ? 'Não sei (ver na reunião)' : (BP.answerText(q, p.answers[q.id]) || 'Sem resposta')),
     ])))));
+}
+// Diagnóstico automático: regras do sistema sobre as respostas e a conta (sem IA).
+function insightsView(p) {
+  const list = BP.insights(p.answers, p.unknown);
+  const PLURAL = { alerta: ['alerta', 'alertas'], atencao: ['ponto de atenção', 'pontos de atenção'], oportunidade: ['oportunidade', 'oportunidades'], forte: ['ponto forte', 'pontos fortes'] };
+  const counts = Object.keys(BP.LEVELS).map(l => {
+    const n = list.filter(i => i.level === l).length;
+    return h('span', { class: `insight-chip lv-${l}` }, `${n} ${PLURAL[l][n === 1 ? 0 : 1]}`);
+  });
+  const cards = list.map(i => h('div', { class: `card-box insight lv-${i.level}` },
+    h('div', { class: 'insight-head' }, h('span', { class: `insight-chip lv-${i.level}` }, BP.LEVELS[i.level]), h('span', { class: 'muted small' }, i.area)),
+    h('h3', {}, i.title), h('p', {}, i.text), h('p', { class: 'insight-action' }, h('strong', {}, 'O que fazer: '), i.action)));
+  return h('div', {},
+    h('div', { class: 'card-box' }, h('h2', {}, 'Diagnóstico automático'),
+      h('p', { class: 'muted small' }, 'Feito pelo sistema a partir das respostas e da conta financeira, sem IA. Atualiza sozinho quando as respostas mudam e entra no plano na seção "Diagnóstico".'),
+      h('div', { class: 'insight-counts' }, counts)),
+    list.length ? cards : h('div', { class: 'card-box empty' }, 'Responda mais perguntas para o diagnóstico aparecer.'));
+}
+// Escrever o plano com o Claude pela assinatura (claude.ai): copiar as instruções e os dados, colar o texto de volta.
+function claudeDialog(p) {
+  const meta = { company: p.client_name || p.lead_company || '', revenue_band: p.lead ? p.lead.revenue_band_label : '' };
+  const prompt = BP.manualPrompt({ answers: p.answers, unknown: p.unknown, meta });
+  modal(close => {
+    const err = h('p', { class: 'error', role: 'alert' });
+    const ta = h('textarea', { id: 'cl-paste', rows: 10, placeholder: 'Cole aqui todo o texto que o Claude escreveu' });
+    const status = h('p', { class: 'muted small' });
+    ta.addEventListener('input', () => {
+      const n = Object.keys(BP.parsePasted(ta.value)).length;
+      status.textContent = ta.value.trim() ? `${n} de ${BP.AI_KEYS.length} seções reconhecidas.` : '';
+    });
+    return h('div', { class: 'claude-dialog' },
+      h('h2', {}, 'Escrever com o Claude'),
+      h('p', { class: 'muted small' }, 'Usa a sua assinatura do claude.ai, sem custo de API. As respostas deste cliente vão para a sua conta do Claude.'),
+      h('ol', { class: 'steps' },
+        h('li', {}, h('strong', {}, 'Copie '), 'as instruções com as respostas, os números e o diagnóstico.',
+          h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: () => copyText(prompt, 'Copiado. Agora cole no Claude.') }, 'Copiar para o Claude'),
+            h('a', { class: 'btn', href: 'https://claude.ai/new', target: '_blank', rel: 'noopener' }, 'Abrir o claude.ai'))),
+        h('li', {}, h('strong', {}, 'Cole '), 'no claude.ai, envie e espere o Claude escrever o plano inteiro.'),
+        h('li', {}, h('strong', {}, 'Copie a resposta '), 'do Claude e cole aqui embaixo.',
+          h('label', { for: 'cl-paste', class: 'sr-only' }, 'Texto do Claude'), ta, status)),
+      h('p', { class: 'muted small' }, 'O sistema separa as seções pelos títulos. As tabelas do financeiro, o diagnóstico e as pendências continuam vindo da conta do sistema. Seção que não vier fica com o rascunho.'),
+      err,
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
+          const parsed = BP.parsePasted(ta.value);
+          const n = Object.keys(parsed).length;
+          if (!n) { err.textContent = 'Não encontrei as seções. Confira se colou a resposta inteira do Claude, com os títulos (# Sumário executivo, # O negócio...).'; return; }
+          if (p.doc && !(await ask('Substituir o plano atual pelo texto do Claude? O atual fica salvo em Versões.', { ok: 'Substituir' }))) return;
+          const sections = BP.assemble(parsed, { answers: p.answers, unknown: p.unknown, meta });
+          await api('PUT', `/api/bizplans/${p.id}/doc`, { sections, note: `Escrito no Claude (${n} seções coladas)`, source: 'ai-paste' });
+          close(); toast(`Plano montado com ${n} seções do Claude.`); route();
+        }) }, 'Montar o plano'),
+        h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
+  });
 }
 function financeView(p) {
   const f = p.finance;
@@ -2419,7 +2474,8 @@ function docEditor(p) {
       p.doc_status === 'error' && p.doc_error ? h('p', { class: 'error' }, p.doc_error) : null,
       h('div', { class: 'row' },
         p.ai ? h('button', { class: 'btn primary', type: 'button', onclick: generate('ai') }, 'Gerar com IA') : null,
-        h('button', { class: p.ai ? 'btn' : 'btn primary', type: 'button', onclick: generate('draft') }, 'Gerar rascunho sem IA')),
+        h('button', { class: p.ai ? 'btn' : 'btn primary', type: 'button', onclick: generate('draft') }, 'Gerar rascunho sem IA'),
+        h('button', { class: 'btn', type: 'button', onclick: () => claudeDialog(p) }, 'Escrever com o Claude (assinatura)')),
       p.ai ? h('p', { class: 'muted small' }, 'Com IA: o texto é escrito a partir das respostas; os números vêm da conta do sistema. Sem IA: as respostas organizadas nas seções, para escrever na reunião.')
         : h('p', { class: 'muted small' }, 'A IA ainda não está ligada (falta a chave da Anthropic no servidor). O rascunho organiza as respostas nas seções e calcula o financeiro; o texto vocês ajustam na reunião.'));
   }
@@ -2473,9 +2529,10 @@ function docEditor(p) {
         h('button', { class: 'btn', type: 'button', onclick: () => downloadPlanDocx(p, doc) }, 'Baixar Word'),
         h('button', { class: 'btn', type: 'button', onclick: () => printPlan(p, doc) }, 'Imprimir ou PDF'),
         h('button', { class: 'btn', type: 'button', onclick: guard(() => versionsDialog(p)) }, 'Versões'),
-        h('button', { class: 'btn', type: 'button', onclick: generate(p.ai ? 'ai' : 'draft') }, p.ai ? 'Gerar de novo com IA' : 'Gerar rascunho de novo')),
+        h('button', { class: 'btn', type: 'button', onclick: generate(p.ai ? 'ai' : 'draft') }, p.ai ? 'Gerar de novo com IA' : 'Gerar rascunho de novo'),
+        h('button', { class: 'btn', type: 'button', onclick: () => claudeDialog(p) }, 'Escrever com o Claude')),
       p.doc_source === 'ai-example' ? h('p', { class: 'example-note' }, 'Prévia: este é um exemplo do texto que a IA escreve a partir das respostas. No sistema, com a chave da Anthropic, cada plano recebe o seu.') : null,
-      h('p', { class: 'muted small' }, `${p.doc_source === 'ai' || p.doc_source === 'ai-example' ? 'Escrito pela IA a partir das respostas' : 'Rascunho montado das respostas'}. Os números vêm da conta do sistema. Cada mudança salva uma versão.`),
+      h('p', { class: 'muted small' }, `${{ ai: 'Escrito pela IA a partir das respostas', 'ai-example': 'Escrito pela IA a partir das respostas', 'ai-paste': 'Escrito no Claude (copiado e colado)' }[p.doc_source] || 'Rascunho montado das respostas'}. Os números e o diagnóstico vêm do sistema. Cada mudança salva uma versão.`),
       p.doc_status === 'error' && p.doc_error ? h('p', { class: 'error' }, p.doc_error) : null,
       h('nav', { class: 'doc-toc', 'aria-label': 'Seções' }, doc.map((s, i) => h('a', { href: `#sec-${s.key}`, onclick: e => { e.preventDefault(); document.getElementById(`sec-${s.key}`)?.scrollIntoView({ behavior: 'smooth' }); } }, `${i + 1}. ${s.title}`)))),
     doc.map(sectionCard));

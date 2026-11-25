@@ -826,6 +826,27 @@ ul.versions li { display: flex; gap: 8px; align-items: center; padding: 8px 0; b
 .quiz-q label { font: inherit; color: inherit; margin: 0; display: block; }
 .example-note { margin: 6px 0; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--s-review-bg); color: var(--s-review); font-size: 13px; font-weight: 600; }
 
+/* ---------- plano de negócio: diagnóstico automático e "Escrever com o Claude" ---------- */
+.insight-counts { display: flex; flex-wrap: wrap; gap: 8px; }
+.insight-chip { display: inline-flex; align-items: center; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 3px 10px; }
+.insight-chip.lv-alerta { color: var(--s-overdue); background: var(--s-overdue-bg); }
+.insight-chip.lv-atencao { color: var(--s-late); background: var(--s-late-bg); }
+.insight-chip.lv-oportunidade { color: var(--s-doing); background: var(--s-doing-bg); }
+.insight-chip.lv-forte { color: var(--s-ontime); background: var(--s-ontime-bg); }
+.insight { border-left: 4px solid var(--border); }
+.insight.lv-alerta { border-left-color: var(--s-overdue); }
+.insight.lv-atencao { border-left-color: var(--s-late); }
+.insight.lv-oportunidade { border-left-color: var(--s-doing); }
+.insight.lv-forte { border-left-color: var(--s-ontime); }
+.insight-head { display: flex; gap: 8px; align-items: center; }
+.insight h3 { margin: 8px 0 4px; font-size: 16px; }
+.insight p { margin: 4px 0; }
+.insight-action { background: var(--surface-2); border-radius: var(--radius-sm); padding: 8px 10px; }
+.claude-dialog .steps { padding-left: 20px; margin: 12px 0; }
+.claude-dialog .steps li { margin-bottom: 12px; }
+.claude-dialog .steps .row { margin-top: 6px; }
+.claude-dialog textarea { margin-top: 6px; width: 100%; }
+
 #demo-bar { position: relative; z-index: 45; background: #0b0f17; color: #ffffff; padding-block: 8px; padding-left: var(--gutter-l); padding-right: var(--gutter-r); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
 #demo-bar strong { margin-right: 4px; }
 @media (min-width: 861px) { .sidebar { height: calc(100dvh - 44px); } }
@@ -1295,7 +1316,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
 
   // As seções do documento, na ordem.
   const DOC = [
-    ['sumario', 'Sumário executivo'], ['negocio', 'O negócio'], ['proposta', 'Clientes e proposta de valor'], ['mercado', 'Análise de mercado'],
+    ['sumario', 'Sumário executivo'], ['diagnostico', 'Diagnóstico: alertas e oportunidades'], ['negocio', 'O negócio'], ['proposta', 'Clientes e proposta de valor'], ['mercado', 'Análise de mercado'],
     ['concorrencia', 'Concorrência e posicionamento'], ['receita', 'Produtos, preços e modelo de receita'], ['marketing', 'Marketing e vendas'],
     ['operacao', 'Operação e tecnologia'], ['pessoas', 'Pessoas, gestão e governança'], ['financeiro', 'Plano financeiro'], ['cenarios', 'Cenários'],
     ['swot', 'Análise SWOT'], ['riscos', 'Riscos e como reduzir'], ['esg', 'Sustentabilidade e impacto (ESG)'], ['metas', 'Metas e OKRs para 12 meses'],
@@ -1473,6 +1494,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
       metas: [bullets('r_goals'), '', 'Para cada meta: definir o indicador, o valor de hoje, o valor desejado e o responsável. [A definir na reunião]'].join('\n'),
       acao: ['| O quê | Quem | Até quando |', '|---|---|---|', ...(Array.isArray(A('r_goals')) ? A('r_goals') : ['[A definir na reunião]']).map(g => `| ${g} | [A definir] | [A definir] |`),
         ...(Array.isArray(A('r_help')) ? [`| Plano de apoio da consultoria em: ${A('r_help').join(', ')} | Opps Consultoria | [A definir] |`] : [])].join('\n'),
+      diagnostico: insightsText(insights(answers, unknown)),
       pendencias: pendencias(answers, unknown, f),
     };
     return DOC.map(([key, title]) => ({ key, title, content: sec[key] || '' }));
@@ -1528,6 +1550,164 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     return blocks;
   }
 
+  // ---------- diagnóstico automático (sem IA): regras sobre as respostas e a conta ----------
+  // Cada item: { level: 'alerta' | 'atencao' | 'oportunidade' | 'forte', area, title, text, action }.
+  const LEVELS = { alerta: 'Alerta', atencao: 'Atenção', oportunidade: 'Oportunidade', forte: 'Ponto forte' };
+  // "Faturar R$ 80 mil por mês" -> 80000 (meta de faturamento mensal escrita nas metas).
+  function revenueGoal(goals) {
+    for (const g of Array.isArray(goals) ? goals : []) {
+      if (!/fatur|receita|vend/i.test(g)) continue;
+      const m = /R?\$?\s*([\d.,]+)\s*(mil|k|milh(?:ão|ões|ao|oes)|mi)?\b/i.exec(g);
+      if (!m) continue;
+      let n = Number(m[1].replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+      if (!Number.isFinite(n) || n <= 0) continue;
+      const unit = (m[2] || '').toLowerCase();
+      if (unit === 'mil' || unit === 'k') n *= 1e3; else if (unit.startsWith('mi')) n *= 1e6;
+      const yearly = /ano|anual/i.test(g) && !/m[eê]s/i.test(g);
+      return { text: g, monthly: yearly ? n / 12 : n };
+    }
+    return null;
+  }
+  function insights(a = {}, unknown = []) {
+    const out = [];
+    const add = (level, area, title, text, action) => out.push({ level, area, title, text, action });
+    const has = id => !isEmpty(a[id]);
+    const f = finance(a);
+    if (f.ok) {
+      const rev = f.inputs.revenueBase;
+      const safety = f.breakEven === null ? null : (rev - f.breakEven) / rev;
+      if (f.breakEven === null) add('alerta', 'Finanças', 'Custos variáveis e impostos passam de 100% da venda', 'Cada venda dá prejuízo antes mesmo dos custos fixos.', 'Rever preços e custos variáveis com urgência.');
+      else if (safety < 0) add('alerta', 'Finanças', 'Faturamento abaixo do ponto de equilíbrio', `O negócio precisa de ${brl(f.breakEven)} por mês para empatar e fatura ${brl(rev)}: faltam ${brl(f.breakEven - rev)} por mês.`, 'Prioridade: aumentar vendas ou margem e cortar custos fixos antes de investir.');
+      else if (safety < 0.1) add('atencao', 'Finanças', 'Pouca folga sobre o ponto de equilíbrio', `O faturamento está só ${pct(safety * 100)} acima do ponto de equilíbrio (${brl(f.breakEven)}): uma queda dessas nas vendas leva ao prejuízo.`, 'Aumentar a folga antes de assumir novos custos fixos (receita recorrente, preço, negociação de insumos).');
+      else if (safety >= 0.25) add('forte', 'Finanças', 'Boa folga sobre o ponto de equilíbrio', `O faturamento está ${pct(safety * 100)} acima do ponto de equilíbrio.`, 'Usar essa folga para investir em crescimento com segurança.');
+      if (f.breakEven !== null && f.contribPct < 30) add('atencao', 'Finanças', 'Margem de contribuição baixa', `Sobram só ${pct(f.contribPct)} de cada venda para pagar os custos fixos.`, 'Revisar preços, mix de produtos e custos variáveis (compras, comissões, taxas).');
+      if (f.netMarginPct !== null && f.netMarginPct < 0 && f.breakEven !== null && safety >= 0) add('atencao', 'Finanças', 'Resultado negativo', `O primeiro mês fecha em ${brl(f.monthResult)}.`, 'Rever custos fixos e pró-labore.');
+      if (f.inputs.debt > 0 && f.inputs.debt / rev > 0.1) add('atencao', 'Finanças', 'Dívidas pesam no caixa', `As parcelas (${brl(f.inputs.debt)} por mês) são ${pct((f.inputs.debt / rev) * 100)} do faturamento.`, 'Avaliar renegociação de prazo ou troca por uma linha mais barata.');
+      if (f.inputs.invest > 0) {
+        if (f.capitalGap > 0) add('atencao', 'Finanças', `Precisa captar ${brl(f.capitalGap)}`, `O investimento é de ${brl(f.inputs.invest)} e há ${brl(f.inputs.own)} de recursos próprios.`, 'Buscar crédito com carência (as parcelas começam depois que o investimento gera caixa) ou fazer o investimento em etapas.');
+        if (!f.payback) add('alerta', 'Finanças', 'O investimento não se paga em 5 anos', 'Com as premissas informadas, o resultado acumulado não cobre o investimento.', 'Rever o tamanho do investimento ou as premissas de venda antes de seguir.');
+        else if (f.payback > 36) add('atencao', 'Finanças', 'Retorno do investimento demorado', `O investimento se paga em ${f.payback} meses.`, 'Avaliar um investimento menor ou em etapas.');
+        else if (f.payback <= 18) add('forte', 'Finanças', 'Retorno rápido do investimento', `O investimento se paga em ${f.payback} meses.`, 'Confirmar as premissas de venda: é o que sustenta esse prazo.');
+      }
+      const pess = f.scenarios[0];
+      if (pess.result < 0 && f.scenarios[1].result > 0) add('atencao', 'Finanças', 'Plano sensível a queda nas vendas', `No cenário pessimista o ano fecha em ${brl(pess.result)}.`, 'Ter um plano B: o que cortar ou adiar se as vendas vierem abaixo do esperado.');
+      const g = f.inputs.growth / 100;
+      if (g > 0.05) add('atencao', 'Finanças', 'Meta de crescimento agressiva', `Crescer ${pct(g * 100)} ao mês dá cerca de ${pct((Math.pow(1 + g, 12) - 1) * 100)} no ano.`, 'Mostrar de onde vem esse crescimento (canais, equipe, investimento).');
+      const goal = revenueGoal(a.r_goals);
+      if (goal) {
+        const m12 = f.months[11].revenue;
+        const need = Math.pow(goal.monthly / rev, 1 / 11) - 1;
+        if (m12 + 1 < goal.monthly) add('atencao', 'Metas', 'Meta de faturamento acima da projeção', `"${goal.text}": com crescimento de ${pct(g * 100)} ao mês o faturamento chega a ${brl(m12)} no mês 12.`, `Para chegar lá em 12 meses é preciso crescer cerca de ${pct(need * 100)} ao mês, ou rever o prazo da meta.`);
+        else add('forte', 'Metas', 'Meta de faturamento coerente com a projeção', `"${goal.text}": a projeção chega a ${brl(m12)} no mês 12.`, 'Acompanhar mês a mês se o crescimento está no ritmo.');
+      }
+    } else add('atencao', 'Finanças', 'Faltam dados para a conta financeira', `Sem ${f.missing.join(', ')} não dá para calcular ponto de equilíbrio, resultado e retorno.`, 'Levantar esses números com o contador antes da reunião.');
+    if (!has('f_growth') && f.ok) add('atencao', 'Finanças', 'Sem meta de crescimento', 'A projeção considerou 0% de crescimento.', 'Definir uma meta realista de crescimento mensal.');
+
+    const conc = Number(a.c_concentration);
+    if (has('c_concentration') && conc > 50) add('alerta', 'Clientes', 'Dependência de poucos clientes', `Os 3 maiores clientes somam ${pct(conc)} do faturamento.`, 'Diversificar a carteira e ter contratos com prazo e aviso de saída.');
+    else if (has('c_concentration') && conc >= 30) add('atencao', 'Clientes', 'Concentração de clientes', `Os 3 maiores clientes somam ${pct(conc)} do faturamento.`, 'Acompanhar a satisfação desses clientes de perto e buscar novos.');
+    if (a.p_repeat === 'Quase nunca') add('atencao', 'Receita', 'Pouca recompra', 'O cliente quase não compra de novo: todo mês é preciso conquistar clientes novos.', 'Criar motivos para voltar (pós-venda, novos produtos, programa de indicação).');
+    if (['Com frequência', 'Paga todo mês'].includes(a.p_repeat) && !(a.p_model || []).includes('Assinatura ou mensalidade')) add('oportunidade', 'Receita', 'Espaço para receita recorrente', 'O cliente já volta com frequência, mas não há assinatura ou mensalidade.', 'Testar um plano de assinatura com os clientes mais fiéis.');
+    if (['Com frequência', 'Paga todo mês'].includes(a.p_repeat)) add('forte', 'Clientes', 'Clientes fiéis', 'O cliente compra de novo com frequência.', 'Usar essa base para indicações e lançamentos.');
+    const channels = a.s_channels || [];
+    const digital = ['Instagram', 'Google', 'Site', 'WhatsApp', 'Marketplace', 'LinkedIn'];
+    if (has('s_channels') && channels.length === 1) add('atencao', 'Vendas', 'Um só canal de vendas', `Os clientes chegam só por ${channels[0]}.`, 'Abrir um segundo canal para não depender de um só.');
+    if (has('s_channels') && !channels.some(c => digital.includes(c))) add('oportunidade', 'Vendas', 'Pouca presença digital', 'Nenhum canal digital entre os que trazem clientes.', 'Começar por WhatsApp e Instagram, que custam pouco.');
+    if (channels.includes('Indicação')) add('forte', 'Vendas', 'Indicação funciona', 'Clientes chegam por indicação.', 'Transformar em programa: um benefício para quem indica e para o indicado.');
+    if (f.ok && has('s_spend') && Number(a.s_spend) / f.inputs.revenueBase > 0.15) add('atencao', 'Vendas', 'Gasto alto com marketing e vendas', `${pct((Number(a.s_spend) / f.inputs.revenueBase) * 100)} do faturamento vai para marketing e vendas.`, 'Medir quantos clientes cada canal traz e cortar o que não traz.');
+    if (has('s_spend') && has('p_sales') && has('p_ticket') && Number(a.p_sales) > 0 && Number(a.s_spend) / Number(a.p_sales) > 0.3 * Number(a.p_ticket)) add('atencao', 'Vendas', 'Custo para vender alto em relação ao ticket', `Cada venda custa cerca de ${brl(Number(a.s_spend) / Number(a.p_sales))} em marketing e vendas, para um ticket de ${brl(Number(a.p_ticket))}.`, 'Aumentar o ticket (combos, kits) ou focar nos canais mais baratos.');
+    if (a.k_price === 'Mais caro') add(has('c_why') ? 'forte' : 'atencao', 'Concorrência', has('c_why') ? 'Preço acima da concorrência com diferencial claro' : 'Preço acima da concorrência sem diferencial claro',
+      has('c_why') ? `O cliente paga mais por: ${a.c_why}` : 'Não ficou claro por que o cliente paga mais.', has('c_why') ? 'Mostrar esse diferencial em toda a comunicação; nunca entrar em guerra de preço.' : 'Definir e comunicar o diferencial, ou rever o preço.');
+    if (a.k_price === 'Mais barato' && f.ok && f.contribPct < 40) add('atencao', 'Concorrência', 'Preço baixo com margem apertada', 'Competir por preço com margem de contribuição baixa deixa pouco espaço para crescer.', 'Rever preço e buscar diferenciais que não dependam de preço.');
+    if (!has('m_trends')) add('atencao', 'Mercado', 'Sem leitura das mudanças do setor', 'Não foram citadas tendências que afetam o negócio.', 'Levantar 3 mudanças do setor (clientes, tecnologia, leis) e como responder a cada uma.');
+    if (!has('o_tools')) add('oportunidade', 'Operação', 'Ferramentas de gestão', 'Não foram citados sistemas de gestão.', 'Um controle simples de vendas, estoque e caixa já ajuda nas decisões.');
+    else if ((a.o_tools || []).every(t => /planilha|excel|caderno/i.test(t))) add('oportunidade', 'Operação', 'Gestão em planilhas', 'A gestão roda em planilhas.', 'Avaliar um sistema de gestão (ERP) do porte do negócio.');
+    if (!has('g_management')) add('atencao', 'Gestão', 'Gestão sem rotina definida', 'Não ficou claro como são acompanhados os resultados.', 'Reunião mensal de resultados com 3 a 5 indicadores.');
+    if (has('g_hire') && f.ok && f.monthResult < 0.05 * f.inputs.revenueBase) add('atencao', 'Pessoas', 'Contratações com resultado apertado', `Há ${a.g_hire.length} contratação(ões) prevista(s) e o resultado mensal está em ${brl(f.monthResult)}.`, 'Contratar junto com o aumento de vendas, não antes.');
+    if (!has('r_goals')) add('atencao', 'Metas', 'Sem metas definidas', 'Não foram definidas metas para os próximos 12 meses.', 'Definir 3 metas mensuráveis, com responsável e prazo.');
+    if (has('r_risks')) add('forte', 'Riscos', 'Riscos mapeados', `${a.r_risks.length === 1 ? 'Foi citado 1 risco' : `Foram citados ${a.r_risks.length} riscos`}.`, 'Para cada um, definir o que fazer para reduzir e quem acompanha.');
+    if (!has('r_esg')) add('oportunidade', 'ESG', 'Práticas de ESG', 'Não foram citadas práticas sociais, ambientais ou de gestão.', 'Começar com ações simples e visíveis para o cliente (resíduos, equipe, contas organizadas).');
+    if (unknown.length >= 8) add('atencao', 'Geral', 'Muitas respostas "não sei"', `${unknown.length} perguntas ficaram como "não sei".`, 'Separar um tempo da reunião para levantar esses dados juntos.');
+    const order = { alerta: 0, atencao: 1, oportunidade: 2, forte: 3 };
+    return out.sort((x, y) => order[x.level] - order[y.level]);
+  }
+  function insightsText(list) {
+    if (!list.length) return 'Sem pontos automáticos: faltam respostas para o diagnóstico.';
+    const icon = { alerta: '🔴', atencao: '🟡', oportunidade: '🔵', forte: '🟢' };
+    return Object.keys(LEVELS).filter(l => list.some(i => i.level === l)).map(l =>
+      [`### ${icon[l]} ${l === 'forte' ? 'Pontos fortes' : l === 'atencao' ? 'Pontos de atenção' : l === 'alerta' ? 'Alertas' : 'Oportunidades'}`,
+        ...list.filter(i => i.level === l).map(i => `- **${i.title}** (${i.area}): ${i.text} **O que fazer:** ${i.action}`)].join('\n')).join('\n\n');
+  }
+
+  // ---------- texto para a IA (pela API ou copiado para o claude.ai) ----------
+  const AI_FORMAT = 'Formato do texto de cada seção: subtítulos com "### ", listas com "- ", destaque com **negrito** e tabelas com "| a | b |" e a linha "|---|---|" embaixo do cabeçalho. Nada de HTML. Não repita o título da seção.';
+  const AI_SYSTEM = `Você é consultor de negócios de uma consultoria brasileira e escreve planos de negócio para pequenas e médias empresas.
+Escreva em português do Brasil, claro e direto, para o dono do negócio: frases curtas, sem jargão sem explicação, sem frases de efeito.
+Use só o que está nas respostas do questionário, nos números calculados e no diagnóstico automático. Não invente fatos, nomes, clientes, concorrentes, pesquisas nem números.
+Números: use apenas os que aparecem nas respostas ou no bloco "Números calculados pelo sistema", copiados como estão. Não faça contas novas.
+Quando faltar uma informação importante, escreva "[A definir na reunião: o que falta]" no lugar, em vez de supor.
+Pode e deve analisar: tirar conclusões, apontar riscos e oportunidades, recomendar próximos passos, sempre ligando ao que foi respondido. Use o diagnóstico automático como ponto de partida das análises.
+Seções:
+- sumario: o plano em uma página (negócio, proposta de valor, mercado, números principais, metas, o que precisa).
+- negocio, proposta, mercado, concorrencia, receita, marketing, operacao, pessoas: análise de cada tema. Em "proposta", inclua dores, ganhos e o diferencial do ponto de vista do cliente. Em "receita", explique o modelo de receita e, quando houver dados, o custo de vendas por venda e a recompra.
+- financeiro: comente os números calculados (margem, ponto de equilíbrio, resultado, necessidade de capital, retorno). As tabelas serão anexadas pelo sistema logo abaixo do seu texto: não as repita.
+- cenarios: o que muda em cada cenário e o que fazer em cada um. A tabela será anexada pelo sistema: não a repita.
+- swot: forças, fraquezas, oportunidades e ameaças em duas tabelas 2x1 ou em quatro listas.
+- riscos: os principais riscos e como reduzir cada um.
+- esg: práticas atuais e sugestões simples e possíveis para o porte do negócio.
+- metas: 3 objetivos com 2 ou 3 resultados-chave mensuráveis cada (formato OKR), a partir das metas respondidas.
+- acao: tabela "O quê | Quem | Até quando" com as ações dos próximos 90 dias; quem e quando ficam "[A definir]" se não houver dado.
+Cada seção com 120 a 350 palavras (o sumário pode ter até 450).
+${AI_FORMAT}`;
+  // Seções escritas pela IA (diagnóstico e pendências são do sistema).
+  const AI_KEYS = DOC.map(([k]) => k).filter(k => k !== 'pendencias' && k !== 'diagnostico');
+  function contextText({ answers = {}, unknown = [], meta = {} }) {
+    const fin = finance(answers);
+    const lines = [`Empresa: ${meta.company || answers.b_name || '-'}${meta.revenue_band ? ` (faixa de faturamento informada: ${meta.revenue_band})` : ''}`, '', 'Respostas do questionário:'];
+    for (const [key, title] of SECTIONS) {
+      lines.push('', `## ${title}`);
+      for (const q of QUESTIONS.filter(x => x.s === key)) {
+        const v = unknown.includes(q.id) ? '(não sabe: ver na reunião)' : (answerText(q, answers[q.id]) || '(sem resposta)');
+        lines.push(`- ${q.label} ${v}`);
+      }
+    }
+    lines.push('', 'Números calculados pelo sistema:', financeTables(fin), '', 'Cenários:', scenarioTable(fin), '', 'Diagnóstico automático do sistema:', insightsText(insights(answers, unknown)));
+    return lines.join('\n');
+  }
+  // Para colar no claude.ai: instruções + dados + o formato de resposta que o sistema sabe ler de volta.
+  function manualPrompt(args) {
+    const titles = DOC.filter(([k]) => AI_KEYS.includes(k)).map(([, t]) => `# ${t}`).join('\n');
+    return `${AI_SYSTEM}\n\nResponda só com o plano, em texto (não use artefato nem bloco de código), com cada seção começando por uma linha com o título exatamente assim, nesta ordem:\n${titles}\n\nDentro das seções, use "### " para subtítulos (nunca "# " ou "## ").\n\n---\n\n${contextText(args)}\n\nEscreva todas as seções do plano de negócio.`;
+  }
+  // Lê o texto colado do claude.ai: separa as seções pelos títulos "# Título".
+  const norm = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  function parsePasted(text) {
+    const byTitle = Object.fromEntries(DOC.filter(([k]) => AI_KEYS.includes(k)).map(([k, t]) => [norm(t), k]));
+    const found = {};
+    let cur = null;
+    for (const raw of String(text || '').replace(/\r/g, '').split('\n')) {
+      const m = /^\s*#{1,2}\s+(?:\d+[.)]\s*)?(.+?)\s*#*\s*$/.exec(raw);
+      const key = m && byTitle[norm(m[1].replace(/\*\*/g, ''))];
+      if (key) { cur = key; found[cur] = []; continue; }
+      if (cur) found[cur].push(raw);
+    }
+    return Object.fromEntries(Object.entries(found).map(([k, ls]) => [k, ls.join('\n').replace(/^```\w*\s*$/gm, '').trim()]).filter(([, v]) => v));
+  }
+  // Junta o texto da IA com o que é do sistema: tabelas do financeiro e cenários, diagnóstico e pendências.
+  // Seção que a IA não mandou fica com o rascunho.
+  function assemble(aiByKey, { answers = {}, unknown = [], meta = {} }) {
+    const fin = finance(answers);
+    const base = Object.fromEntries(draft(answers, unknown, meta).map(s => [s.key, s.content]));
+    const ai = Object.fromEntries(Object.entries(aiByKey || {}).filter(([k, v]) => AI_KEYS.includes(k) && v).map(([k, v]) => [k, String(v).trim().slice(0, 20000)]));
+    return DOC.map(([key, title]) => {
+      let content = ai[key] || base[key] || '';
+      if (key === 'financeiro') content = `${ai[key] || ''}\n\n${financeTables(fin)}`.trim();
+      if (key === 'cenarios') content = `${ai[key] || ''}\n\n${scenarioTable(fin)}`.trim();
+      if (key === 'pendencias' || key === 'diagnostico') content = base[key];
+      return { key, title, content };
+    });
+  }
+
   // CNPJ: 14 dígitos com os dígitos verificadores certos.
   function validCnpj(v) {
     const d = String(v || '').replace(/\D/g, '');
@@ -1537,7 +1717,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
   }
   const fmtCnpj = v => String(v || '').replace(/\D/g, '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 
-  return { REVENUE_BANDS, SECTIONS, QUESTIONS, BY_ID, DOC, DOC_TITLE, clean, progress, finance, financeTables, scenarioTable, answerText, draft, pendencias, validCnpj, fmtCnpj, brl, pct, isEmpty, parseMd, inline };
+  return { REVENUE_BANDS, SECTIONS, QUESTIONS, BY_ID, DOC, DOC_TITLE, clean, progress, finance, financeTables, scenarioTable, answerText, draft, pendencias, validCnpj, fmtCnpj, brl, pct, isEmpty, parseMd, inline, LEVELS, insights, insightsText, AI_SYSTEM, AI_KEYS, contextText, manualPrompt, parsePasted, assemble };
 }));
 
 </script>
@@ -2807,18 +2987,7 @@ Essas práticas também reforçam a proposta de valor: o cliente que paga mais p
   });
   // Na prévia a IA não roda: "Gerar com IA" mostra o exemplo pronto da Padaria Exemplo (prototype/ai-example.js),
   // montado igual ao sistema (texto + tabelas calculadas + pendências). Nos outros planos, sai o rascunho e um aviso.
-  function exampleDoc(p) {
-    const fin = BP.finance(p.answers);
-    const base = Object.fromEntries(BP.draft(p.answers, p.unknown, planMeta(p)).map(s => [s.key, s.content]));
-    const ex = window.AI_EXAMPLE || {};
-    return BP.DOC.map(([key, title]) => {
-      let content = ex[key] || base[key] || '';
-      if (key === 'financeiro') content = `${ex[key] || ''}\n\n${BP.financeTables(fin)}`.trim();
-      if (key === 'cenarios') content = `${ex[key] || ''}\n\n${BP.scenarioTable(fin)}`.trim();
-      if (key === 'pendencias') content = base.pendencias;
-      return { key, title, content };
-    });
-  }
+  const exampleDoc = p => BP.assemble(window.AI_EXAMPLE || {}, { answers: p.answers, unknown: p.unknown, meta: planMeta(p) });
   route('POST', '/api/bizplans/:id/generate', ({ user, id, body }) => {
     requireStaff(user);
     const p = loadPlan(user, id);
@@ -2838,7 +3007,7 @@ Essas práticas também reforçam a proposta de valor: o cliente que paga mais p
     requireStaff(user);
     const p = loadPlan(user, id);
     if (!Array.isArray(body.sections) || !body.sections.length) fail(400, 'Documento inválido');
-    saveDoc(user, p, body.sections.map(s => ({ key: String(s.key), title: str(s.title, 'título da seção', { max: 120 }), content: str(s.content, 'texto', { max: 30000, required: false }) })), body.note || 'Editado', null);
+    saveDoc(user, p, body.sections.map(s => ({ key: String(s.key), title: str(s.title, 'título da seção', { max: 120 }), content: str(s.content, 'texto', { max: 30000, required: false }) })), body.note || 'Editado', body.source === 'ai-paste' ? 'ai-paste' : null);
     return planOut(user, p);
   });
   route('POST', '/api/bizplans/:id/rewrite', () => fail(409, 'Na prévia, "Pedir à IA" não roda. No sistema, com a chave da Anthropic, aqui aparece a seção reescrita para você aprovar.'));
@@ -5867,7 +6036,7 @@ async function viewPlan(planId) {
   clearTimeout(planPoll);
   const p = await api('GET', `/api/bizplans/${planId}`);
   const staff = isStaff();
-  const tabs = staff ? [['quiz', 'Questionário'], ['answers', 'Respostas'], ['finance', 'Financeiro'], ['doc', 'Plano']]
+  const tabs = staff ? [['quiz', 'Questionário'], ['answers', 'Respostas'], ['insights', 'Diagnóstico'], ['finance', 'Financeiro'], ['doc', 'Plano']]
     : [['quiz', 'Questionário'], ...(p.doc ? [['doc', 'Plano']] : [])];
   let tab = planTab[planId] || (staff ? (p.doc ? 'doc' : 'quiz') : (p.doc ? 'doc' : 'quiz'));
   if (!tabs.some(t => t[0] === tab)) tab = tabs[0][0];
@@ -5877,6 +6046,7 @@ async function viewPlan(planId) {
   if (tab === 'quiz') body = quiz({ plan: p, save, submit });
   else if (tab === 'answers') body = answersView(p);
   else if (tab === 'finance') body = financeView(p);
+  else if (tab === 'insights') body = insightsView(p);
   else body = staff ? docEditor(p) : docReader(p);
   const company = p.client_name || p.lead_company || '';
   shell([
@@ -5899,6 +6069,60 @@ function answersView(p) {
       h('dd', { class: p.unknown.includes(q.id) ? 'pending-text' : (BP.isEmpty(p.answers[q.id]) ? 'muted' : null) },
         p.unknown.includes(q.id) ? 'Não sei (ver na reunião)' : (BP.answerText(q, p.answers[q.id]) || 'Sem resposta')),
     ])))));
+}
+// Diagnóstico automático: regras do sistema sobre as respostas e a conta (sem IA).
+function insightsView(p) {
+  const list = BP.insights(p.answers, p.unknown);
+  const PLURAL = { alerta: ['alerta', 'alertas'], atencao: ['ponto de atenção', 'pontos de atenção'], oportunidade: ['oportunidade', 'oportunidades'], forte: ['ponto forte', 'pontos fortes'] };
+  const counts = Object.keys(BP.LEVELS).map(l => {
+    const n = list.filter(i => i.level === l).length;
+    return h('span', { class: `insight-chip lv-${l}` }, `${n} ${PLURAL[l][n === 1 ? 0 : 1]}`);
+  });
+  const cards = list.map(i => h('div', { class: `card-box insight lv-${i.level}` },
+    h('div', { class: 'insight-head' }, h('span', { class: `insight-chip lv-${i.level}` }, BP.LEVELS[i.level]), h('span', { class: 'muted small' }, i.area)),
+    h('h3', {}, i.title), h('p', {}, i.text), h('p', { class: 'insight-action' }, h('strong', {}, 'O que fazer: '), i.action)));
+  return h('div', {},
+    h('div', { class: 'card-box' }, h('h2', {}, 'Diagnóstico automático'),
+      h('p', { class: 'muted small' }, 'Feito pelo sistema a partir das respostas e da conta financeira, sem IA. Atualiza sozinho quando as respostas mudam e entra no plano na seção "Diagnóstico".'),
+      h('div', { class: 'insight-counts' }, counts)),
+    list.length ? cards : h('div', { class: 'card-box empty' }, 'Responda mais perguntas para o diagnóstico aparecer.'));
+}
+// Escrever o plano com o Claude pela assinatura (claude.ai): copiar as instruções e os dados, colar o texto de volta.
+function claudeDialog(p) {
+  const meta = { company: p.client_name || p.lead_company || '', revenue_band: p.lead ? p.lead.revenue_band_label : '' };
+  const prompt = BP.manualPrompt({ answers: p.answers, unknown: p.unknown, meta });
+  modal(close => {
+    const err = h('p', { class: 'error', role: 'alert' });
+    const ta = h('textarea', { id: 'cl-paste', rows: 10, placeholder: 'Cole aqui todo o texto que o Claude escreveu' });
+    const status = h('p', { class: 'muted small' });
+    ta.addEventListener('input', () => {
+      const n = Object.keys(BP.parsePasted(ta.value)).length;
+      status.textContent = ta.value.trim() ? `${n} de ${BP.AI_KEYS.length} seções reconhecidas.` : '';
+    });
+    return h('div', { class: 'claude-dialog' },
+      h('h2', {}, 'Escrever com o Claude'),
+      h('p', { class: 'muted small' }, 'Usa a sua assinatura do claude.ai, sem custo de API. As respostas deste cliente vão para a sua conta do Claude.'),
+      h('ol', { class: 'steps' },
+        h('li', {}, h('strong', {}, 'Copie '), 'as instruções com as respostas, os números e o diagnóstico.',
+          h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: () => copyText(prompt, 'Copiado. Agora cole no Claude.') }, 'Copiar para o Claude'),
+            h('a', { class: 'btn', href: 'https://claude.ai/new', target: '_blank', rel: 'noopener' }, 'Abrir o claude.ai'))),
+        h('li', {}, h('strong', {}, 'Cole '), 'no claude.ai, envie e espere o Claude escrever o plano inteiro.'),
+        h('li', {}, h('strong', {}, 'Copie a resposta '), 'do Claude e cole aqui embaixo.',
+          h('label', { for: 'cl-paste', class: 'sr-only' }, 'Texto do Claude'), ta, status)),
+      h('p', { class: 'muted small' }, 'O sistema separa as seções pelos títulos. As tabelas do financeiro, o diagnóstico e as pendências continuam vindo da conta do sistema. Seção que não vier fica com o rascunho.'),
+      err,
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary', type: 'button', onclick: guard(async () => {
+          const parsed = BP.parsePasted(ta.value);
+          const n = Object.keys(parsed).length;
+          if (!n) { err.textContent = 'Não encontrei as seções. Confira se colou a resposta inteira do Claude, com os títulos (# Sumário executivo, # O negócio...).'; return; }
+          if (p.doc && !(await ask('Substituir o plano atual pelo texto do Claude? O atual fica salvo em Versões.', { ok: 'Substituir' }))) return;
+          const sections = BP.assemble(parsed, { answers: p.answers, unknown: p.unknown, meta });
+          await api('PUT', `/api/bizplans/${p.id}/doc`, { sections, note: `Escrito no Claude (${n} seções coladas)`, source: 'ai-paste' });
+          close(); toast(`Plano montado com ${n} seções do Claude.`); route();
+        }) }, 'Montar o plano'),
+        h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar')));
+  });
 }
 function financeView(p) {
   const f = p.finance;
@@ -5935,7 +6159,8 @@ function docEditor(p) {
       p.doc_status === 'error' && p.doc_error ? h('p', { class: 'error' }, p.doc_error) : null,
       h('div', { class: 'row' },
         p.ai ? h('button', { class: 'btn primary', type: 'button', onclick: generate('ai') }, 'Gerar com IA') : null,
-        h('button', { class: p.ai ? 'btn' : 'btn primary', type: 'button', onclick: generate('draft') }, 'Gerar rascunho sem IA')),
+        h('button', { class: p.ai ? 'btn' : 'btn primary', type: 'button', onclick: generate('draft') }, 'Gerar rascunho sem IA'),
+        h('button', { class: 'btn', type: 'button', onclick: () => claudeDialog(p) }, 'Escrever com o Claude (assinatura)')),
       p.ai ? h('p', { class: 'muted small' }, 'Com IA: o texto é escrito a partir das respostas; os números vêm da conta do sistema. Sem IA: as respostas organizadas nas seções, para escrever na reunião.')
         : h('p', { class: 'muted small' }, 'A IA ainda não está ligada (falta a chave da Anthropic no servidor). O rascunho organiza as respostas nas seções e calcula o financeiro; o texto vocês ajustam na reunião.'));
   }
@@ -5989,9 +6214,10 @@ function docEditor(p) {
         h('button', { class: 'btn', type: 'button', onclick: () => downloadPlanDocx(p, doc) }, 'Baixar Word'),
         h('button', { class: 'btn', type: 'button', onclick: () => printPlan(p, doc) }, 'Imprimir ou PDF'),
         h('button', { class: 'btn', type: 'button', onclick: guard(() => versionsDialog(p)) }, 'Versões'),
-        h('button', { class: 'btn', type: 'button', onclick: generate(p.ai ? 'ai' : 'draft') }, p.ai ? 'Gerar de novo com IA' : 'Gerar rascunho de novo')),
+        h('button', { class: 'btn', type: 'button', onclick: generate(p.ai ? 'ai' : 'draft') }, p.ai ? 'Gerar de novo com IA' : 'Gerar rascunho de novo'),
+        h('button', { class: 'btn', type: 'button', onclick: () => claudeDialog(p) }, 'Escrever com o Claude')),
       p.doc_source === 'ai-example' ? h('p', { class: 'example-note' }, 'Prévia: este é um exemplo do texto que a IA escreve a partir das respostas. No sistema, com a chave da Anthropic, cada plano recebe o seu.') : null,
-      h('p', { class: 'muted small' }, `${p.doc_source === 'ai' || p.doc_source === 'ai-example' ? 'Escrito pela IA a partir das respostas' : 'Rascunho montado das respostas'}. Os números vêm da conta do sistema. Cada mudança salva uma versão.`),
+      h('p', { class: 'muted small' }, `${{ ai: 'Escrito pela IA a partir das respostas', 'ai-example': 'Escrito pela IA a partir das respostas', 'ai-paste': 'Escrito no Claude (copiado e colado)' }[p.doc_source] || 'Rascunho montado das respostas'}. Os números e o diagnóstico vêm do sistema. Cada mudança salva uma versão.`),
       p.doc_status === 'error' && p.doc_error ? h('p', { class: 'error' }, p.doc_error) : null,
       h('nav', { class: 'doc-toc', 'aria-label': 'Seções' }, doc.map((s, i) => h('a', { href: `#sec-${s.key}`, onclick: e => { e.preventDefault(); document.getElementById(`sec-${s.key}`)?.scrollIntoView({ behavior: 'smooth' }); } }, `${i + 1}. ${s.title}`)))),
     doc.map(sectionCard));

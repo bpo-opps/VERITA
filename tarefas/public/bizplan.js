@@ -92,7 +92,7 @@
 
   // As seções do documento, na ordem.
   const DOC = [
-    ['sumario', 'Sumário executivo'], ['negocio', 'O negócio'], ['proposta', 'Clientes e proposta de valor'], ['mercado', 'Análise de mercado'],
+    ['sumario', 'Sumário executivo'], ['diagnostico', 'Diagnóstico: alertas e oportunidades'], ['negocio', 'O negócio'], ['proposta', 'Clientes e proposta de valor'], ['mercado', 'Análise de mercado'],
     ['concorrencia', 'Concorrência e posicionamento'], ['receita', 'Produtos, preços e modelo de receita'], ['marketing', 'Marketing e vendas'],
     ['operacao', 'Operação e tecnologia'], ['pessoas', 'Pessoas, gestão e governança'], ['financeiro', 'Plano financeiro'], ['cenarios', 'Cenários'],
     ['swot', 'Análise SWOT'], ['riscos', 'Riscos e como reduzir'], ['esg', 'Sustentabilidade e impacto (ESG)'], ['metas', 'Metas e OKRs para 12 meses'],
@@ -270,6 +270,7 @@
       metas: [bullets('r_goals'), '', 'Para cada meta: definir o indicador, o valor de hoje, o valor desejado e o responsável. [A definir na reunião]'].join('\n'),
       acao: ['| O quê | Quem | Até quando |', '|---|---|---|', ...(Array.isArray(A('r_goals')) ? A('r_goals') : ['[A definir na reunião]']).map(g => `| ${g} | [A definir] | [A definir] |`),
         ...(Array.isArray(A('r_help')) ? [`| Plano de apoio da consultoria em: ${A('r_help').join(', ')} | Opps Consultoria | [A definir] |`] : [])].join('\n'),
+      diagnostico: insightsText(insights(answers, unknown)),
       pendencias: pendencias(answers, unknown, f),
     };
     return DOC.map(([key, title]) => ({ key, title, content: sec[key] || '' }));
@@ -325,6 +326,164 @@
     return blocks;
   }
 
+  // ---------- diagnóstico automático (sem IA): regras sobre as respostas e a conta ----------
+  // Cada item: { level: 'alerta' | 'atencao' | 'oportunidade' | 'forte', area, title, text, action }.
+  const LEVELS = { alerta: 'Alerta', atencao: 'Atenção', oportunidade: 'Oportunidade', forte: 'Ponto forte' };
+  // "Faturar R$ 80 mil por mês" -> 80000 (meta de faturamento mensal escrita nas metas).
+  function revenueGoal(goals) {
+    for (const g of Array.isArray(goals) ? goals : []) {
+      if (!/fatur|receita|vend/i.test(g)) continue;
+      const m = /R?\$?\s*([\d.,]+)\s*(mil|k|milh(?:ão|ões|ao|oes)|mi)?\b/i.exec(g);
+      if (!m) continue;
+      let n = Number(m[1].replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+      if (!Number.isFinite(n) || n <= 0) continue;
+      const unit = (m[2] || '').toLowerCase();
+      if (unit === 'mil' || unit === 'k') n *= 1e3; else if (unit.startsWith('mi')) n *= 1e6;
+      const yearly = /ano|anual/i.test(g) && !/m[eê]s/i.test(g);
+      return { text: g, monthly: yearly ? n / 12 : n };
+    }
+    return null;
+  }
+  function insights(a = {}, unknown = []) {
+    const out = [];
+    const add = (level, area, title, text, action) => out.push({ level, area, title, text, action });
+    const has = id => !isEmpty(a[id]);
+    const f = finance(a);
+    if (f.ok) {
+      const rev = f.inputs.revenueBase;
+      const safety = f.breakEven === null ? null : (rev - f.breakEven) / rev;
+      if (f.breakEven === null) add('alerta', 'Finanças', 'Custos variáveis e impostos passam de 100% da venda', 'Cada venda dá prejuízo antes mesmo dos custos fixos.', 'Rever preços e custos variáveis com urgência.');
+      else if (safety < 0) add('alerta', 'Finanças', 'Faturamento abaixo do ponto de equilíbrio', `O negócio precisa de ${brl(f.breakEven)} por mês para empatar e fatura ${brl(rev)}: faltam ${brl(f.breakEven - rev)} por mês.`, 'Prioridade: aumentar vendas ou margem e cortar custos fixos antes de investir.');
+      else if (safety < 0.1) add('atencao', 'Finanças', 'Pouca folga sobre o ponto de equilíbrio', `O faturamento está só ${pct(safety * 100)} acima do ponto de equilíbrio (${brl(f.breakEven)}): uma queda dessas nas vendas leva ao prejuízo.`, 'Aumentar a folga antes de assumir novos custos fixos (receita recorrente, preço, negociação de insumos).');
+      else if (safety >= 0.25) add('forte', 'Finanças', 'Boa folga sobre o ponto de equilíbrio', `O faturamento está ${pct(safety * 100)} acima do ponto de equilíbrio.`, 'Usar essa folga para investir em crescimento com segurança.');
+      if (f.breakEven !== null && f.contribPct < 30) add('atencao', 'Finanças', 'Margem de contribuição baixa', `Sobram só ${pct(f.contribPct)} de cada venda para pagar os custos fixos.`, 'Revisar preços, mix de produtos e custos variáveis (compras, comissões, taxas).');
+      if (f.netMarginPct !== null && f.netMarginPct < 0 && f.breakEven !== null && safety >= 0) add('atencao', 'Finanças', 'Resultado negativo', `O primeiro mês fecha em ${brl(f.monthResult)}.`, 'Rever custos fixos e pró-labore.');
+      if (f.inputs.debt > 0 && f.inputs.debt / rev > 0.1) add('atencao', 'Finanças', 'Dívidas pesam no caixa', `As parcelas (${brl(f.inputs.debt)} por mês) são ${pct((f.inputs.debt / rev) * 100)} do faturamento.`, 'Avaliar renegociação de prazo ou troca por uma linha mais barata.');
+      if (f.inputs.invest > 0) {
+        if (f.capitalGap > 0) add('atencao', 'Finanças', `Precisa captar ${brl(f.capitalGap)}`, `O investimento é de ${brl(f.inputs.invest)} e há ${brl(f.inputs.own)} de recursos próprios.`, 'Buscar crédito com carência (as parcelas começam depois que o investimento gera caixa) ou fazer o investimento em etapas.');
+        if (!f.payback) add('alerta', 'Finanças', 'O investimento não se paga em 5 anos', 'Com as premissas informadas, o resultado acumulado não cobre o investimento.', 'Rever o tamanho do investimento ou as premissas de venda antes de seguir.');
+        else if (f.payback > 36) add('atencao', 'Finanças', 'Retorno do investimento demorado', `O investimento se paga em ${f.payback} meses.`, 'Avaliar um investimento menor ou em etapas.');
+        else if (f.payback <= 18) add('forte', 'Finanças', 'Retorno rápido do investimento', `O investimento se paga em ${f.payback} meses.`, 'Confirmar as premissas de venda: é o que sustenta esse prazo.');
+      }
+      const pess = f.scenarios[0];
+      if (pess.result < 0 && f.scenarios[1].result > 0) add('atencao', 'Finanças', 'Plano sensível a queda nas vendas', `No cenário pessimista o ano fecha em ${brl(pess.result)}.`, 'Ter um plano B: o que cortar ou adiar se as vendas vierem abaixo do esperado.');
+      const g = f.inputs.growth / 100;
+      if (g > 0.05) add('atencao', 'Finanças', 'Meta de crescimento agressiva', `Crescer ${pct(g * 100)} ao mês dá cerca de ${pct((Math.pow(1 + g, 12) - 1) * 100)} no ano.`, 'Mostrar de onde vem esse crescimento (canais, equipe, investimento).');
+      const goal = revenueGoal(a.r_goals);
+      if (goal) {
+        const m12 = f.months[11].revenue;
+        const need = Math.pow(goal.monthly / rev, 1 / 11) - 1;
+        if (m12 + 1 < goal.monthly) add('atencao', 'Metas', 'Meta de faturamento acima da projeção', `"${goal.text}": com crescimento de ${pct(g * 100)} ao mês o faturamento chega a ${brl(m12)} no mês 12.`, `Para chegar lá em 12 meses é preciso crescer cerca de ${pct(need * 100)} ao mês, ou rever o prazo da meta.`);
+        else add('forte', 'Metas', 'Meta de faturamento coerente com a projeção', `"${goal.text}": a projeção chega a ${brl(m12)} no mês 12.`, 'Acompanhar mês a mês se o crescimento está no ritmo.');
+      }
+    } else add('atencao', 'Finanças', 'Faltam dados para a conta financeira', `Sem ${f.missing.join(', ')} não dá para calcular ponto de equilíbrio, resultado e retorno.`, 'Levantar esses números com o contador antes da reunião.');
+    if (!has('f_growth') && f.ok) add('atencao', 'Finanças', 'Sem meta de crescimento', 'A projeção considerou 0% de crescimento.', 'Definir uma meta realista de crescimento mensal.');
+
+    const conc = Number(a.c_concentration);
+    if (has('c_concentration') && conc > 50) add('alerta', 'Clientes', 'Dependência de poucos clientes', `Os 3 maiores clientes somam ${pct(conc)} do faturamento.`, 'Diversificar a carteira e ter contratos com prazo e aviso de saída.');
+    else if (has('c_concentration') && conc >= 30) add('atencao', 'Clientes', 'Concentração de clientes', `Os 3 maiores clientes somam ${pct(conc)} do faturamento.`, 'Acompanhar a satisfação desses clientes de perto e buscar novos.');
+    if (a.p_repeat === 'Quase nunca') add('atencao', 'Receita', 'Pouca recompra', 'O cliente quase não compra de novo: todo mês é preciso conquistar clientes novos.', 'Criar motivos para voltar (pós-venda, novos produtos, programa de indicação).');
+    if (['Com frequência', 'Paga todo mês'].includes(a.p_repeat) && !(a.p_model || []).includes('Assinatura ou mensalidade')) add('oportunidade', 'Receita', 'Espaço para receita recorrente', 'O cliente já volta com frequência, mas não há assinatura ou mensalidade.', 'Testar um plano de assinatura com os clientes mais fiéis.');
+    if (['Com frequência', 'Paga todo mês'].includes(a.p_repeat)) add('forte', 'Clientes', 'Clientes fiéis', 'O cliente compra de novo com frequência.', 'Usar essa base para indicações e lançamentos.');
+    const channels = a.s_channels || [];
+    const digital = ['Instagram', 'Google', 'Site', 'WhatsApp', 'Marketplace', 'LinkedIn'];
+    if (has('s_channels') && channels.length === 1) add('atencao', 'Vendas', 'Um só canal de vendas', `Os clientes chegam só por ${channels[0]}.`, 'Abrir um segundo canal para não depender de um só.');
+    if (has('s_channels') && !channels.some(c => digital.includes(c))) add('oportunidade', 'Vendas', 'Pouca presença digital', 'Nenhum canal digital entre os que trazem clientes.', 'Começar por WhatsApp e Instagram, que custam pouco.');
+    if (channels.includes('Indicação')) add('forte', 'Vendas', 'Indicação funciona', 'Clientes chegam por indicação.', 'Transformar em programa: um benefício para quem indica e para o indicado.');
+    if (f.ok && has('s_spend') && Number(a.s_spend) / f.inputs.revenueBase > 0.15) add('atencao', 'Vendas', 'Gasto alto com marketing e vendas', `${pct((Number(a.s_spend) / f.inputs.revenueBase) * 100)} do faturamento vai para marketing e vendas.`, 'Medir quantos clientes cada canal traz e cortar o que não traz.');
+    if (has('s_spend') && has('p_sales') && has('p_ticket') && Number(a.p_sales) > 0 && Number(a.s_spend) / Number(a.p_sales) > 0.3 * Number(a.p_ticket)) add('atencao', 'Vendas', 'Custo para vender alto em relação ao ticket', `Cada venda custa cerca de ${brl(Number(a.s_spend) / Number(a.p_sales))} em marketing e vendas, para um ticket de ${brl(Number(a.p_ticket))}.`, 'Aumentar o ticket (combos, kits) ou focar nos canais mais baratos.');
+    if (a.k_price === 'Mais caro') add(has('c_why') ? 'forte' : 'atencao', 'Concorrência', has('c_why') ? 'Preço acima da concorrência com diferencial claro' : 'Preço acima da concorrência sem diferencial claro',
+      has('c_why') ? `O cliente paga mais por: ${a.c_why}` : 'Não ficou claro por que o cliente paga mais.', has('c_why') ? 'Mostrar esse diferencial em toda a comunicação; nunca entrar em guerra de preço.' : 'Definir e comunicar o diferencial, ou rever o preço.');
+    if (a.k_price === 'Mais barato' && f.ok && f.contribPct < 40) add('atencao', 'Concorrência', 'Preço baixo com margem apertada', 'Competir por preço com margem de contribuição baixa deixa pouco espaço para crescer.', 'Rever preço e buscar diferenciais que não dependam de preço.');
+    if (!has('m_trends')) add('atencao', 'Mercado', 'Sem leitura das mudanças do setor', 'Não foram citadas tendências que afetam o negócio.', 'Levantar 3 mudanças do setor (clientes, tecnologia, leis) e como responder a cada uma.');
+    if (!has('o_tools')) add('oportunidade', 'Operação', 'Ferramentas de gestão', 'Não foram citados sistemas de gestão.', 'Um controle simples de vendas, estoque e caixa já ajuda nas decisões.');
+    else if ((a.o_tools || []).every(t => /planilha|excel|caderno/i.test(t))) add('oportunidade', 'Operação', 'Gestão em planilhas', 'A gestão roda em planilhas.', 'Avaliar um sistema de gestão (ERP) do porte do negócio.');
+    if (!has('g_management')) add('atencao', 'Gestão', 'Gestão sem rotina definida', 'Não ficou claro como são acompanhados os resultados.', 'Reunião mensal de resultados com 3 a 5 indicadores.');
+    if (has('g_hire') && f.ok && f.monthResult < 0.05 * f.inputs.revenueBase) add('atencao', 'Pessoas', 'Contratações com resultado apertado', `Há ${a.g_hire.length} contratação(ões) prevista(s) e o resultado mensal está em ${brl(f.monthResult)}.`, 'Contratar junto com o aumento de vendas, não antes.');
+    if (!has('r_goals')) add('atencao', 'Metas', 'Sem metas definidas', 'Não foram definidas metas para os próximos 12 meses.', 'Definir 3 metas mensuráveis, com responsável e prazo.');
+    if (has('r_risks')) add('forte', 'Riscos', 'Riscos mapeados', `${a.r_risks.length === 1 ? 'Foi citado 1 risco' : `Foram citados ${a.r_risks.length} riscos`}.`, 'Para cada um, definir o que fazer para reduzir e quem acompanha.');
+    if (!has('r_esg')) add('oportunidade', 'ESG', 'Práticas de ESG', 'Não foram citadas práticas sociais, ambientais ou de gestão.', 'Começar com ações simples e visíveis para o cliente (resíduos, equipe, contas organizadas).');
+    if (unknown.length >= 8) add('atencao', 'Geral', 'Muitas respostas "não sei"', `${unknown.length} perguntas ficaram como "não sei".`, 'Separar um tempo da reunião para levantar esses dados juntos.');
+    const order = { alerta: 0, atencao: 1, oportunidade: 2, forte: 3 };
+    return out.sort((x, y) => order[x.level] - order[y.level]);
+  }
+  function insightsText(list) {
+    if (!list.length) return 'Sem pontos automáticos: faltam respostas para o diagnóstico.';
+    const icon = { alerta: '🔴', atencao: '🟡', oportunidade: '🔵', forte: '🟢' };
+    return Object.keys(LEVELS).filter(l => list.some(i => i.level === l)).map(l =>
+      [`### ${icon[l]} ${l === 'forte' ? 'Pontos fortes' : l === 'atencao' ? 'Pontos de atenção' : l === 'alerta' ? 'Alertas' : 'Oportunidades'}`,
+        ...list.filter(i => i.level === l).map(i => `- **${i.title}** (${i.area}): ${i.text} **O que fazer:** ${i.action}`)].join('\n')).join('\n\n');
+  }
+
+  // ---------- texto para a IA (pela API ou copiado para o claude.ai) ----------
+  const AI_FORMAT = 'Formato do texto de cada seção: subtítulos com "### ", listas com "- ", destaque com **negrito** e tabelas com "| a | b |" e a linha "|---|---|" embaixo do cabeçalho. Nada de HTML. Não repita o título da seção.';
+  const AI_SYSTEM = `Você é consultor de negócios de uma consultoria brasileira e escreve planos de negócio para pequenas e médias empresas.
+Escreva em português do Brasil, claro e direto, para o dono do negócio: frases curtas, sem jargão sem explicação, sem frases de efeito.
+Use só o que está nas respostas do questionário, nos números calculados e no diagnóstico automático. Não invente fatos, nomes, clientes, concorrentes, pesquisas nem números.
+Números: use apenas os que aparecem nas respostas ou no bloco "Números calculados pelo sistema", copiados como estão. Não faça contas novas.
+Quando faltar uma informação importante, escreva "[A definir na reunião: o que falta]" no lugar, em vez de supor.
+Pode e deve analisar: tirar conclusões, apontar riscos e oportunidades, recomendar próximos passos, sempre ligando ao que foi respondido. Use o diagnóstico automático como ponto de partida das análises.
+Seções:
+- sumario: o plano em uma página (negócio, proposta de valor, mercado, números principais, metas, o que precisa).
+- negocio, proposta, mercado, concorrencia, receita, marketing, operacao, pessoas: análise de cada tema. Em "proposta", inclua dores, ganhos e o diferencial do ponto de vista do cliente. Em "receita", explique o modelo de receita e, quando houver dados, o custo de vendas por venda e a recompra.
+- financeiro: comente os números calculados (margem, ponto de equilíbrio, resultado, necessidade de capital, retorno). As tabelas serão anexadas pelo sistema logo abaixo do seu texto: não as repita.
+- cenarios: o que muda em cada cenário e o que fazer em cada um. A tabela será anexada pelo sistema: não a repita.
+- swot: forças, fraquezas, oportunidades e ameaças em duas tabelas 2x1 ou em quatro listas.
+- riscos: os principais riscos e como reduzir cada um.
+- esg: práticas atuais e sugestões simples e possíveis para o porte do negócio.
+- metas: 3 objetivos com 2 ou 3 resultados-chave mensuráveis cada (formato OKR), a partir das metas respondidas.
+- acao: tabela "O quê | Quem | Até quando" com as ações dos próximos 90 dias; quem e quando ficam "[A definir]" se não houver dado.
+Cada seção com 120 a 350 palavras (o sumário pode ter até 450).
+${AI_FORMAT}`;
+  // Seções escritas pela IA (diagnóstico e pendências são do sistema).
+  const AI_KEYS = DOC.map(([k]) => k).filter(k => k !== 'pendencias' && k !== 'diagnostico');
+  function contextText({ answers = {}, unknown = [], meta = {} }) {
+    const fin = finance(answers);
+    const lines = [`Empresa: ${meta.company || answers.b_name || '-'}${meta.revenue_band ? ` (faixa de faturamento informada: ${meta.revenue_band})` : ''}`, '', 'Respostas do questionário:'];
+    for (const [key, title] of SECTIONS) {
+      lines.push('', `## ${title}`);
+      for (const q of QUESTIONS.filter(x => x.s === key)) {
+        const v = unknown.includes(q.id) ? '(não sabe: ver na reunião)' : (answerText(q, answers[q.id]) || '(sem resposta)');
+        lines.push(`- ${q.label} ${v}`);
+      }
+    }
+    lines.push('', 'Números calculados pelo sistema:', financeTables(fin), '', 'Cenários:', scenarioTable(fin), '', 'Diagnóstico automático do sistema:', insightsText(insights(answers, unknown)));
+    return lines.join('\n');
+  }
+  // Para colar no claude.ai: instruções + dados + o formato de resposta que o sistema sabe ler de volta.
+  function manualPrompt(args) {
+    const titles = DOC.filter(([k]) => AI_KEYS.includes(k)).map(([, t]) => `# ${t}`).join('\n');
+    return `${AI_SYSTEM}\n\nResponda só com o plano, em texto (não use artefato nem bloco de código), com cada seção começando por uma linha com o título exatamente assim, nesta ordem:\n${titles}\n\nDentro das seções, use "### " para subtítulos (nunca "# " ou "## ").\n\n---\n\n${contextText(args)}\n\nEscreva todas as seções do plano de negócio.`;
+  }
+  // Lê o texto colado do claude.ai: separa as seções pelos títulos "# Título".
+  const norm = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  function parsePasted(text) {
+    const byTitle = Object.fromEntries(DOC.filter(([k]) => AI_KEYS.includes(k)).map(([k, t]) => [norm(t), k]));
+    const found = {};
+    let cur = null;
+    for (const raw of String(text || '').replace(/\r/g, '').split('\n')) {
+      const m = /^\s*#{1,2}\s+(?:\d+[.)]\s*)?(.+?)\s*#*\s*$/.exec(raw);
+      const key = m && byTitle[norm(m[1].replace(/\*\*/g, ''))];
+      if (key) { cur = key; found[cur] = []; continue; }
+      if (cur) found[cur].push(raw);
+    }
+    return Object.fromEntries(Object.entries(found).map(([k, ls]) => [k, ls.join('\n').replace(/^```\w*\s*$/gm, '').trim()]).filter(([, v]) => v));
+  }
+  // Junta o texto da IA com o que é do sistema: tabelas do financeiro e cenários, diagnóstico e pendências.
+  // Seção que a IA não mandou fica com o rascunho.
+  function assemble(aiByKey, { answers = {}, unknown = [], meta = {} }) {
+    const fin = finance(answers);
+    const base = Object.fromEntries(draft(answers, unknown, meta).map(s => [s.key, s.content]));
+    const ai = Object.fromEntries(Object.entries(aiByKey || {}).filter(([k, v]) => AI_KEYS.includes(k) && v).map(([k, v]) => [k, String(v).trim().slice(0, 20000)]));
+    return DOC.map(([key, title]) => {
+      let content = ai[key] || base[key] || '';
+      if (key === 'financeiro') content = `${ai[key] || ''}\n\n${financeTables(fin)}`.trim();
+      if (key === 'cenarios') content = `${ai[key] || ''}\n\n${scenarioTable(fin)}`.trim();
+      if (key === 'pendencias' || key === 'diagnostico') content = base[key];
+      return { key, title, content };
+    });
+  }
+
   // CNPJ: 14 dígitos com os dígitos verificadores certos.
   function validCnpj(v) {
     const d = String(v || '').replace(/\D/g, '');
@@ -334,5 +493,5 @@
   }
   const fmtCnpj = v => String(v || '').replace(/\D/g, '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 
-  return { REVENUE_BANDS, SECTIONS, QUESTIONS, BY_ID, DOC, DOC_TITLE, clean, progress, finance, financeTables, scenarioTable, answerText, draft, pendencias, validCnpj, fmtCnpj, brl, pct, isEmpty, parseMd, inline };
+  return { REVENUE_BANDS, SECTIONS, QUESTIONS, BY_ID, DOC, DOC_TITLE, clean, progress, finance, financeTables, scenarioTable, answerText, draft, pendencias, validCnpj, fmtCnpj, brl, pct, isEmpty, parseMd, inline, LEVELS, insights, insightsText, AI_SYSTEM, AI_KEYS, contextText, manualPrompt, parsePasted, assemble };
 }));

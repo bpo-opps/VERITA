@@ -815,3 +815,24 @@ ul.versions li { display: flex; gap: 8px; align-items: center; padding: 8px 0; b
 .diag-done > svg { width: 44px; height: 44px; color: var(--success); }
 .quiz-q label { font: inherit; color: inherit; margin: 0; display: block; }
 .example-note { margin: 6px 0; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--s-review-bg); color: var(--s-review); font-size: 13px; font-weight: 600; }
+
+/* ---------- plano de negócio: diagnóstico automático e "Escrever com o Claude" ---------- */
+.insight-counts { display: flex; flex-wrap: wrap; gap: 8px; }
+.insight-chip { display: inline-flex; align-items: center; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 3px 10px; }
+.insight-chip.lv-alerta { color: var(--s-overdue); background: var(--s-overdue-bg); }
+.insight-chip.lv-atencao { color: var(--s-late); background: var(--s-late-bg); }
+.insight-chip.lv-oportunidade { color: var(--s-doing); background: var(--s-doing-bg); }
+.insight-chip.lv-forte { color: var(--s-ontime); background: var(--s-ontime-bg); }
+.insight { border-left: 4px solid var(--border); }
+.insight.lv-alerta { border-left-color: var(--s-overdue); }
+.insight.lv-atencao { border-left-color: var(--s-late); }
+.insight.lv-oportunidade { border-left-color: var(--s-doing); }
+.insight.lv-forte { border-left-color: var(--s-ontime); }
+.insight-head { display: flex; gap: 8px; align-items: center; }
+.insight h3 { margin: 8px 0 4px; font-size: 16px; }
+.insight p { margin: 4px 0; }
+.insight-action { background: var(--surface-2); border-radius: var(--radius-sm); padding: 8px 10px; }
+.claude-dialog .steps { padding-left: 20px; margin: 12px 0; }
+.claude-dialog .steps li { margin-bottom: 12px; }
+.claude-dialog .steps .row { margin-top: 6px; }
+.claude-dialog textarea { margin-top: 6px; width: 100%; }
