@@ -79,7 +79,7 @@ test('cliente responde pelo login; equipe vê na sessão do cliente; quem não a
     assert.equal(r.status, 200);
     assert.equal(r.body.finance, undefined, 'o cliente não recebe a conta pronta antes do documento');
     assert.deepEqual(r.body.unknown, ['m_size']);
-    r = await dora('PATCH', `/api/bizplans/${p.id}`, { answers: { m_size: 'Uns 500 cafés na cidade' } });
+    r = await dora('PATCH', `/api/bizplans/${p.id}`, { answers: { m_size: 'faixa:0-1000' } });
     assert.deepEqual(r.body.unknown, [], 'responder tira do "não sei"');
     assert.equal((await dora('PATCH', `/api/bizplans/${p.id}`, { shared: true })).status, 403);
     r = await bia('PATCH', `/api/bizplans/${p.id}`, { answers: { k_price: 'Mais caro' } });

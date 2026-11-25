@@ -1350,8 +1350,9 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     { id: 'c_pains', s: 'clientes', type: 'multi', other: true, label: 'O que mais incomoda o seu cliente antes de comprar de vocês?', help: 'As dores que fazem ele procurar uma solução. Pode marcar várias.',
       options: ['Preço alto', 'Falta de tempo', 'Atendimento ruim', 'Baixa qualidade', 'Demora na entrega', 'Difícil de encontrar', 'Falta de confiança', 'Falta de opções'],
       icons: { 'Preço alto': '💸', 'Falta de tempo': '⏰', 'Atendimento ruim': '😕', 'Baixa qualidade': '👎', 'Demora na entrega': '🐢', 'Difícil de encontrar': '🔎', 'Falta de confiança': '🤨', 'Falta de opções': '📦' } },
-    { id: 'c_why', s: 'clientes', type: 'long', label: 'Por que o cliente escolhe vocês e não o concorrente?', help: 'Esse é o seu diferencial, na visão do cliente. Se não souber, pense no que os clientes mais elogiam.',
-      placeholder: 'Ex.: O pão é feito na hora e a gente conhece cada cliente pelo nome.' },
+    { id: 'c_why', s: 'clientes', type: 'multi', other: true, label: 'Por que o cliente escolhe vocês e não o concorrente?', help: 'Esse é o seu diferencial, na visão do cliente. Marque até 3; se não souber, pense no que os clientes mais elogiam.',
+      options: ['Qualidade', 'Preço', 'Atendimento', 'Rapidez', 'Localização', 'Variedade', 'Confiança na marca', 'Tecnologia ou inovação', 'Personalização'],
+      icons: { 'Qualidade': '⭐', 'Preço': '🏷️', 'Atendimento': '🤝', 'Rapidez': '⚡', 'Localização': '📍', 'Variedade': '🧺', 'Confiança na marca': '🛡️', 'Tecnologia ou inovação': '💡', 'Personalização': '🎯' } },
     { id: 'c_count', s: 'clientes', type: 'int', label: 'Quantos clientes compram de vocês hoje?', help: 'Clientes ativos: que compraram nos últimos meses.', ranges: countRanges([20, 100, 500, 2000], 'clientes') },
     { id: 'c_concentration', s: 'clientes', type: 'percent', label: 'Quanto do faturamento vem dos 3 maiores clientes?', help: 'Some o que os 3 clientes que mais compram representam no total.',
       what: 'Mostra se o negócio depende de poucos clientes. Ex.: se você fatura R$ 100 mil e os 3 maiores compram R$ 60 mil, são 60%. Acima de 50% é arriscado: se um sair, o impacto é grande.',
@@ -1360,17 +1361,21 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     { id: 'm_region', s: 'mercado', type: 'choice', label: 'Até onde vocês vendem?',
       options: ['Bairro ou cidade', 'Região', 'Estado', 'Brasil todo', 'Outros países', 'Só online'],
       icons: { 'Bairro ou cidade': '🏘️', 'Região': '🗺️', 'Estado': '📍', 'Brasil todo': '🇧🇷', 'Outros países': '🌎', 'Só online': '🌐' } },
-    { id: 'm_size', s: 'mercado', type: 'long', label: 'Quantos clientes em potencial existem na sua área?', help: 'Um chute bem pensado já ajuda.',
-      what: 'É o tamanho do seu mercado: quantas pessoas ou empresas poderiam comprar de você. Ex.: "uns 20 mil moradores no bairro" ou "cerca de 2 mil clínicas na região".',
-      placeholder: 'Ex.: Uns 20 mil moradores no bairro e 50 cafés na região' },
+    { id: 'm_size', s: 'mercado', type: 'int', label: 'Quantos clientes em potencial existem na sua área?', help: 'Um chute bem pensado já ajuda.',
+      what: 'É o tamanho do seu mercado: quantas pessoas ou empresas poderiam comprar de você. Ex.: um bairro grande tem uns 20 mil moradores; uma cidade média tem cerca de 2 mil clínicas.',
+      ranges: [['Até 1 mil', 0, 1000], ['De 1 mil a 10 mil', 1000, 10000], ['De 10 mil a 100 mil', 10000, 100000], ['Mais de 100 mil', 100000, null]] },
     { id: 'm_trends', s: 'mercado', type: 'multi', other: true, label: 'O que está mudando no seu setor?', help: 'Marque o que mais afeta vocês.',
       options: ['Clientes comprando mais pela internet', 'Mais procura por saúde e bem-estar', 'Custos subindo', 'Mais concorrência', 'Novas tecnologias', 'Mudanças em leis ou impostos', 'Clientes mais exigentes', 'Falta de mão de obra'],
       icons: { 'Clientes comprando mais pela internet': '📱', 'Mais procura por saúde e bem-estar': '🥗', 'Custos subindo': '📈', 'Mais concorrência': '🥊', 'Novas tecnologias': '🤖', 'Mudanças em leis ou impostos': '⚖️', 'Clientes mais exigentes': '🧐', 'Falta de mão de obra': '🧑‍🔧' } },
 
     { id: 'k_list', s: 'concorrencia', type: 'list', label: 'Quem são os seus principais concorrentes?', help: 'Um por linha. Vale incluir quem resolve o mesmo problema de outro jeito (ex.: supermercado, aplicativo).',
       placeholder: 'Padaria Central\nSupermercado do bairro\nAplicativos de entrega' },
-    { id: 'k_better', s: 'concorrencia', type: 'long', label: 'No que eles são melhores que vocês?', help: 'Seja sincero: isso ajuda a achar o que melhorar.', placeholder: 'Ex.: Preço menor e mais lojas.' },
-    { id: 'k_worse', s: 'concorrencia', type: 'long', label: 'E no que vocês são melhores que eles?', placeholder: 'Ex.: Sabor, frescor e atendimento.' },
+    { id: 'k_better', s: 'concorrencia', type: 'multi', other: true, label: 'No que os concorrentes são melhores que vocês?', help: 'Seja sincero: isso ajuda a achar o que melhorar. Pode marcar vários.',
+      options: ['Qualidade', 'Preço', 'Atendimento', 'Rapidez', 'Localização', 'Variedade', 'Confiança na marca', 'Tecnologia ou inovação', 'Personalização'],
+      icons: { 'Qualidade': '⭐', 'Preço': '🏷️', 'Atendimento': '🤝', 'Rapidez': '⚡', 'Localização': '📍', 'Variedade': '🧺', 'Confiança na marca': '🛡️', 'Tecnologia ou inovação': '💡', 'Personalização': '🎯' } },
+    { id: 'k_worse', s: 'concorrencia', type: 'multi', other: true, label: 'E no que vocês são melhores que eles?', help: 'Pode marcar vários.',
+      options: ['Qualidade', 'Preço', 'Atendimento', 'Rapidez', 'Localização', 'Variedade', 'Confiança na marca', 'Tecnologia ou inovação', 'Personalização'],
+      icons: { 'Qualidade': '⭐', 'Preço': '🏷️', 'Atendimento': '🤝', 'Rapidez': '⚡', 'Localização': '📍', 'Variedade': '🧺', 'Confiança na marca': '🛡️', 'Tecnologia ou inovação': '💡', 'Personalização': '🎯' } },
     { id: 'k_price', s: 'concorrencia', type: 'choice', short: true, label: 'Comparado aos concorrentes, o seu preço é…', options: ['Mais barato', 'Parecido', 'Mais caro'],
       icons: { 'Mais barato': '⬇️', 'Parecido': '↔️', 'Mais caro': '⬆️' } },
 
@@ -1389,20 +1394,23 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     { id: 's_channels', s: 'vendas', type: 'multi', short: true, label: 'Como os clientes chegam até vocês?', help: 'Marque todos os caminhos que trazem clientes.',
       options: ['Indicação', 'Instagram', 'Google', 'Site', 'WhatsApp', 'Vendedor ou representante', 'Loja física', 'Marketplace', 'Eventos e feiras', 'LinkedIn', 'Outro'],
       icons: { 'Indicação': '🗣️', 'Instagram': '📸', 'Google': '🔍', 'Site': '🌐', 'WhatsApp': '💬', 'Vendedor ou representante': '🧑‍💼', 'Loja física': '🏪', 'Marketplace': '🛒', 'Eventos e feiras': '🎪', 'LinkedIn': '💼', 'Outro': '✨' } },
-    { id: 's_process', s: 'vendas', type: 'long', label: 'Como acontece uma venda, do primeiro contato até fechar?', help: 'Os passos, mesmo que simples.',
-      placeholder: 'Ex.: O cliente chama no WhatsApp, mandamos o cardápio, ele escolhe e paga no Pix, entregamos no dia seguinte.' },
+    { id: 's_process', s: 'vendas', type: 'multi', other: true, label: 'Como acontece uma venda?', help: 'Marque os passos que costumam acontecer, do primeiro contato até o pagamento.',
+      options: ['Contato pelo WhatsApp', 'Cliente vem até a loja', 'Visita ao cliente', 'Pelo site ou loja virtual', 'Envio de orçamento ou proposta', 'Negociação de preço ou prazo', 'Pagamento na hora', 'Pagamento a prazo (boleto, parcelado)', 'Entrega ou instalação'],
+      icons: { 'Contato pelo WhatsApp': '💬', 'Cliente vem até a loja': '🏪', 'Visita ao cliente': '🚗', 'Pelo site ou loja virtual': '🌐', 'Envio de orçamento ou proposta': '📄', 'Negociação de preço ou prazo': '🤝', 'Pagamento na hora': '💳', 'Pagamento a prazo (boleto, parcelado)': '🧾', 'Entrega ou instalação': '🚚' } },
     { id: 's_spend', s: 'vendas', type: 'money', label: 'Quanto vocês gastam por mês para atrair clientes?', help: 'Anúncios, agência, influenciadores, brindes, comissões fixas.',
       ranges: moneyRanges([0, 1000, 3000, 6000, 10000]) },
-    { id: 's_retention', s: 'vendas', type: 'long', label: 'O que vocês fazem para o cliente voltar ou indicar?', help: 'Pós-venda, cartão fidelidade, brinde, mensagem de aniversário…', placeholder: 'Ex.: Cartão fidelidade: a cada 10 pães, 1 de presente.' },
-
+    { id: 's_retention', s: 'vendas', type: 'multi', other: true, label: 'O que vocês fazem para o cliente voltar ou indicar?', help: 'Marque o que já fazem.',
+      options: ['Cartão ou programa de fidelidade', 'Pós-venda pelo WhatsApp', 'Promoções para quem já é cliente', 'Brinde ou cortesia', 'Programa de indicação', 'Mensagem em datas especiais', 'Nada ainda'],
+      icons: { 'Cartão ou programa de fidelidade': '💳', 'Pós-venda pelo WhatsApp': '💬', 'Promoções para quem já é cliente': '🏷️', 'Brinde ou cortesia': '🎁', 'Programa de indicação': '🗣️', 'Mensagem em datas especiais': '🎂', 'Nada ainda': '🫥' } },
     { id: 'o_steps', s: 'operacao', type: 'list', label: 'Quais as etapas para entregar o que vocês vendem?', help: 'Uma por linha. Do pedido até o cliente receber.', placeholder: 'Comprar os insumos\nProduzir\nEmbalar\nEntregar' },
     { id: 'o_suppliers', s: 'operacao', type: 'list', label: 'Quem são os fornecedores e parceiros mais importantes?', help: 'Um por linha. Sem eles o negócio para.', placeholder: 'Moinho Bom Trigo\nTransportadora X' },
     { id: 'o_tools', s: 'operacao', type: 'multi', other: true, label: 'Que ferramentas vocês usam para controlar o negócio?', help: 'Marque todas.',
       options: ['Planilha/Excel', 'Caderno', 'Sistema de gestão (ERP)', 'Sistema de vendas (PDV)', 'CRM', 'Emissor de notas', 'Nada ainda'],
       icons: { 'Planilha/Excel': '📊', 'Caderno': '📒', 'Sistema de gestão (ERP)': '🗂️', 'Sistema de vendas (PDV)': '🧾', 'CRM': '📇', 'Emissor de notas': '🧮', 'Nada ainda': '🫥' },
       what: 'ERP é um sistema que junta vendas, estoque, financeiro e notas fiscais. CRM é o controle dos clientes e das negociações. PDV é o sistema do caixa.' },
-    { id: 'o_bottleneck', s: 'operacao', type: 'long', label: 'O que mais atrapalha o dia a dia hoje?', help: 'O gargalo: aquilo que, se resolvido, faria tudo andar melhor.', placeholder: 'Ex.: Falta de gente na produção nos fins de semana.' },
-
+    { id: 'o_bottleneck', s: 'operacao', type: 'multi', other: true, label: 'O que mais atrapalha o dia a dia hoje?', help: 'O gargalo: aquilo que, se resolvido, faria tudo andar melhor. Marque até 3.',
+      options: ['Falta de gente', 'Tarefas manuais demais', 'Controle de estoque', 'Fornecedores atrasam', 'Falta de dinheiro em caixa', 'Poucas vendas', 'Retrabalho e erros', 'Tudo depende do dono', 'Comunicação da equipe'],
+      icons: { 'Falta de gente': '🧑‍🤝‍🧑', 'Tarefas manuais demais': '✍️', 'Controle de estoque': '📦', 'Fornecedores atrasam': '🚚', 'Falta de dinheiro em caixa': '💰', 'Poucas vendas': '📉', 'Retrabalho e erros': '🔁', 'Tudo depende do dono': '🙋', 'Comunicação da equipe': '📢' } },
     { id: 'g_partners', s: 'pessoas', type: 'list', label: 'Quem são os sócios e o que cada um faz?', help: 'Um por linha.', placeholder: 'Ana: vendas e finanças\nBruno: produção' },
     { id: 'g_team', s: 'pessoas', type: 'int', label: 'Quantas pessoas trabalham no negócio, contando os sócios?', ranges: [['Só eu', 1, 1], ['2 a 5 pessoas', 2, 5], ['6 a 10 pessoas', 6, 10], ['11 a 30 pessoas', 11, 30], ['Mais de 30 pessoas', 30, null]] },
     { id: 'g_hire', s: 'pessoas', type: 'multi', other: true, label: 'Vocês precisam contratar alguém nos próximos 12 meses?', help: 'Marque as áreas.',
@@ -1616,7 +1624,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     if (r) return r[0];
     if (q.type === 'money') return brl(Number(v));
     if (q.type === 'percent') return pct(Number(v));
-    if (Array.isArray(v)) return v.join('; ');
+    if (Array.isArray(v)) return v.map(x => String(x).replace(/^Outro: /, '')).join('; ');
     return String(v);
   }
 
@@ -1803,6 +1811,10 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
       { sec: 'marketing', explain: 'Se esse canal parar de funcionar, as vendas param junto.', ask: 'Que outro canal faria sentido para o seu cliente?' });
     if (has('s_channels') && !channels.some(c => digital.includes(c))) add('oportunidade', 'Vendas', 'Pouca presença digital', 'Nenhum canal digital entre os que trazem clientes.', 'Começar por WhatsApp e Instagram, que custam pouco.',
       { sec: 'marketing', explain: 'O cliente procura no celular antes de comprar.', ask: 'Quem poderia cuidar do WhatsApp e do Instagram?' });
+    if ((a.s_retention || []).includes('Nada ainda') && ['Às vezes', 'Quase nunca'].includes(a.p_repeat)) add('oportunidade', 'Vendas', 'Nada para o cliente voltar', 'Não há ação para o cliente comprar de novo, e ele volta pouco.', 'Começar por algo simples: pós-venda pelo WhatsApp e um cartão fidelidade.',
+      { sec: 'marketing', explain: 'Vender de novo para quem já comprou custa bem menos do que conquistar um cliente novo.', ask: 'O que faria o seu cliente voltar mais vezes?' });
+    if ((a.o_bottleneck || []).includes('Tudo depende do dono')) add('atencao', 'Gestão', 'Tudo depende do dono', 'O negócio para quando o dono não está.', 'Escrever os processos principais e passar decisões do dia a dia para a equipe.',
+      { sec: 'operacao', explain: 'Se tudo passa pelo dono, ele vira o gargalo e o negócio não cresce além do tempo dele.', ask: 'O que só você sabe fazer hoje? O que dá para ensinar a alguém?' });
     if (channels.includes('Indicação')) add('forte', 'Vendas', 'Indicação funciona', 'Clientes chegam por indicação.', 'Transformar em programa: um benefício para quem indica e para o indicado.',
       { sec: 'marketing', explain: 'Indicação é o canal mais barato e o que mais converte.', ask: 'Vocês pedem indicação? Dariam um benefício para quem indica?' });
     if (f.ok && has('s_spend') && nv('s_spend') / f.inputs.revenueBase > 0.15) add('atencao', 'Vendas', 'Gasto alto com marketing e vendas', `${pct((nv('s_spend') / f.inputs.revenueBase) * 100)} do faturamento vai para marketing e vendas.`, 'Medir quantos clientes cada canal traz e cortar o que não traz.',
@@ -1810,7 +1822,7 @@ window.BRAND_LOGOS = {"color":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUI
     if (has('s_spend') && has('p_sales') && has('p_ticket') && nv('p_sales') > 0 && nv('s_spend') / nv('p_sales') > 0.3 * nv('p_ticket')) add('atencao', 'Vendas', 'Custo para vender alto em relação ao ticket', `Cada venda custa cerca de ${brl(nv('s_spend') / nv('p_sales'))} em marketing e vendas, para um ticket de ${brl(nv('p_ticket'))}.`, 'Aumentar o ticket (combos, kits) ou focar nos canais mais baratos.',
       { sec: 'marketing', explain: 'Cada venda custa caro para conquistar, comparado ao valor que ela traz.', ask: 'Dá para vender mais coisas na mesma compra (combos, kits)?' });
     if (a.k_price === 'Mais caro') add(has('c_why') ? 'forte' : 'atencao', 'Concorrência', has('c_why') ? 'Preço acima da concorrência com diferencial claro' : 'Preço acima da concorrência sem diferencial claro',
-      has('c_why') ? `O cliente paga mais por: ${a.c_why}` : 'Não ficou claro por que o cliente paga mais.', has('c_why') ? 'Mostrar esse diferencial em toda a comunicação; nunca entrar em guerra de preço.' : 'Definir e comunicar o diferencial, ou rever o preço.',
+      has('c_why') ? `O cliente paga mais por: ${[].concat(a.c_why).map(x => String(x).replace(/^Outro: /, '')).join(', ')}` : 'Não ficou claro por que o cliente paga mais.', has('c_why') ? 'Mostrar esse diferencial em toda a comunicação; nunca entrar em guerra de preço.' : 'Definir e comunicar o diferencial, ou rever o preço.',
       { sec: 'concorrencia', explain: has('c_why') ? 'Cobrar mais é saudável quando o cliente enxerga o porquê.' : 'Quem cobra mais precisa deixar claro o que entrega a mais.', ask: has('c_why') ? 'Esse diferencial aparece no Instagram, na loja e no atendimento?' : 'Por que o cliente escolhe vocês, mesmo pagando mais?' });
     if (a.k_price === 'Mais barato' && f.ok && f.contribPct < 40) add('atencao', 'Concorrência', 'Preço baixo com margem apertada', 'Competir por preço com margem de contribuição baixa deixa pouco espaço para crescer.', 'Rever preço e buscar diferenciais que não dependam de preço.',
       { sec: 'concorrencia', explain: 'Ser o mais barato funciona quando o custo também é o mais baixo; senão, sobra pouco.', ask: 'Os clientes compram só pelo preço? O que mais eles valorizam?' });
@@ -2147,7 +2159,7 @@ Essas práticas também reforçam a proposta de valor: o cliente que paga mais p
 // Os dados são fictícios e ficam só neste navegador (localStorage, quando disponível).
 (function () {
   const S = window.Shared;
-  const KEY = 'tarefas-prototipo-v10';
+  const KEY = 'tarefas-prototipo-v11';
   const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
   const d = n => S.addDays(S.today(), n);
 
@@ -2245,9 +2257,9 @@ Essas práticas também reforçam a proposta de valor: o cliente que paga mais p
         b_what: 'Pães artesanais de fermentação natural, cafés especiais e encomendas para eventos.', b_problem: 'Quem quer pão fresco e saudável perto de casa, sem conservantes.',
         b_purpose: 'Ser a padaria artesanal de referência da cidade e abrir mais duas lojas em 5 anos.', b_values: ['Qualidade', 'Atendimento próximo', 'Respeito à equipe'],
         c_type: ['Pessoas (consumidor final)', 'Empresas'], c_ideal: 'Famílias e profissionais de 25 a 55 anos do bairro, que valorizam comida de verdade e pagam um pouco mais por isso; cafés e restaurantes que revendem.',
-        c_pains: ['Baixa qualidade', 'Falta de tempo', 'Demora na entrega', 'Outro: pão industrializado sem sabor'], c_why: 'Fermentação natural feita na hora e atendimento que conhece o cliente pelo nome.', c_count: 900,
+        c_pains: ['Baixa qualidade', 'Falta de tempo', 'Demora na entrega', 'Outro: pão industrializado sem sabor'], c_why: ['Qualidade', 'Atendimento', 'Outro: fermentação natural feita na hora'], c_count: 900,
         m_region: 'Bairro ou cidade', m_trends: ['Mais procura por saúde e bem-estar', 'Clientes comprando mais pela internet', 'Custos subindo'],
-        k_list: ['Padaria Central', 'Supermercados do bairro', 'Panificadoras de aplicativo'], k_better: 'Preço menor e mais pontos de venda.', k_worse: 'Sabor, frescor e atendimento.', k_price: 'Mais caro',
+        k_list: ['Padaria Central', 'Supermercados do bairro', 'Panificadoras de aplicativo'], k_better: ['Preço', 'Localização'], k_worse: ['Qualidade', 'Atendimento', 'Outro: sabor e frescor'], k_price: 'Mais caro',
         p_list: ['Pães de fermentação natural', 'Cafés especiais', 'Encomendas para eventos'], p_model: ['Venda avulsa', 'Contrato ou projeto'], p_ticket: 38, p_sales: 1400, p_repeat: 'Com frequência',
         s_channels: ['Indicação', 'Instagram', 'WhatsApp', 'Loja física'], s_spend: 2500,
         f_revenue: 52000, f_fixed: 16000, f_variable: 38, f_tax: 6, f_prolabore: 9000, f_debt: 1500, f_growth: 2, f_invest: 80000, f_own: 30000,

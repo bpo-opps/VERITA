@@ -5,7 +5,7 @@
 // Os dados são fictícios e ficam só neste navegador (localStorage, quando disponível).
 (function () {
   const S = window.Shared;
-  const KEY = 'tarefas-prototipo-v10';
+  const KEY = 'tarefas-prototipo-v11';
   const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
   const d = n => S.addDays(S.today(), n);
 
@@ -103,9 +103,9 @@
         b_what: 'Pães artesanais de fermentação natural, cafés especiais e encomendas para eventos.', b_problem: 'Quem quer pão fresco e saudável perto de casa, sem conservantes.',
         b_purpose: 'Ser a padaria artesanal de referência da cidade e abrir mais duas lojas em 5 anos.', b_values: ['Qualidade', 'Atendimento próximo', 'Respeito à equipe'],
         c_type: ['Pessoas (consumidor final)', 'Empresas'], c_ideal: 'Famílias e profissionais de 25 a 55 anos do bairro, que valorizam comida de verdade e pagam um pouco mais por isso; cafés e restaurantes que revendem.',
-        c_pains: ['Baixa qualidade', 'Falta de tempo', 'Demora na entrega', 'Outro: pão industrializado sem sabor'], c_why: 'Fermentação natural feita na hora e atendimento que conhece o cliente pelo nome.', c_count: 900,
+        c_pains: ['Baixa qualidade', 'Falta de tempo', 'Demora na entrega', 'Outro: pão industrializado sem sabor'], c_why: ['Qualidade', 'Atendimento', 'Outro: fermentação natural feita na hora'], c_count: 900,
         m_region: 'Bairro ou cidade', m_trends: ['Mais procura por saúde e bem-estar', 'Clientes comprando mais pela internet', 'Custos subindo'],
-        k_list: ['Padaria Central', 'Supermercados do bairro', 'Panificadoras de aplicativo'], k_better: 'Preço menor e mais pontos de venda.', k_worse: 'Sabor, frescor e atendimento.', k_price: 'Mais caro',
+        k_list: ['Padaria Central', 'Supermercados do bairro', 'Panificadoras de aplicativo'], k_better: ['Preço', 'Localização'], k_worse: ['Qualidade', 'Atendimento', 'Outro: sabor e frescor'], k_price: 'Mais caro',
         p_list: ['Pães de fermentação natural', 'Cafés especiais', 'Encomendas para eventos'], p_model: ['Venda avulsa', 'Contrato ou projeto'], p_ticket: 38, p_sales: 1400, p_repeat: 'Com frequência',
         s_channels: ['Indicação', 'Instagram', 'WhatsApp', 'Loja física'], s_spend: 2500,
         f_revenue: 52000, f_fixed: 16000, f_variable: 38, f_tax: 6, f_prolabore: 9000, f_debt: 1500, f_growth: 2, f_invest: 80000, f_own: 30000,
