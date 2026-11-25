@@ -2351,7 +2351,7 @@ async function viewPlan(planId) {
   clearTimeout(planPoll);
   const p = await api('GET', `/api/bizplans/${planId}`);
   const staff = isStaff();
-  const tabs = staff ? [['quiz', 'Questionário'], ['answers', 'Respostas'], ['insights', 'Diagnóstico'], ['finance', 'Financeiro'], ['doc', 'Plano']]
+  const tabs = staff ? [['quiz', 'Questionário'], ['answers', 'Respostas'], ['insights', 'Diagnóstico'], ['finance', 'Financeiro'], ['doc', 'Plano'], ...(p.roteiro ? [['roteiro', 'Roteiro']] : [])]
     : [['quiz', 'Questionário'], ...(p.doc ? [['doc', 'Plano']] : [])];
   let tab = planTab[planId] || (staff ? (p.doc ? 'doc' : 'quiz') : (p.doc ? 'doc' : 'quiz'));
   if (!tabs.some(t => t[0] === tab)) tab = tabs[0][0];
@@ -2362,6 +2362,7 @@ async function viewPlan(planId) {
   else if (tab === 'answers') body = answersView(p);
   else if (tab === 'finance') body = financeView(p);
   else if (tab === 'insights') body = insightsView(p);
+  else if (tab === 'roteiro') body = await roteiroView(p);
   else body = staff ? docEditor(p) : docReader(p);
   const company = p.client_name || p.lead_company || '';
   shell([
@@ -2401,6 +2402,68 @@ function insightsView(p) {
       h('p', { class: 'muted small' }, 'Feito pelo sistema a partir das respostas e da conta financeira, sem IA. Atualiza sozinho quando as respostas mudam e entra no plano na seção "Diagnóstico".'),
       h('div', { class: 'insight-counts' }, counts)),
     list.length ? cards : h('div', { class: 'card-box empty' }, 'Responda mais perguntas para o diagnóstico aparecer.'));
+}
+// Roteiro da reunião: só da consultoria (administrador; a equipe do cliente se ele liberar). Nunca vai para o cliente,
+// nem para o Word ou o PDF do plano. Orientações do diagnóstico por seção + o que ficou "não sei" + anotações.
+const Q_TO_DOC = { negocio: 'negocio', clientes: 'proposta', mercado: 'mercado', concorrencia: 'concorrencia', receita: 'receita', vendas: 'marketing',
+  operacao: 'operacao', pessoas: 'pessoas', financas: 'financeiro', metas: 'metas' };
+function roteiroParts(p) {
+  const list = BP.insights(p.answers, p.unknown);
+  return BP.DOC.filter(([k]) => k !== 'diagnostico').map(([key, title]) => ({
+    key, title,
+    points: list.filter(i => (key === 'sumario' ? false : i.sec === key)),
+    unknown: key === 'pendencias' ? [] : BP.QUESTIONS.filter(q => Q_TO_DOC[q.s] === key && p.unknown.includes(q.id)),
+  }));
+}
+async function roteiroView(p) {
+  const r = await api('GET', `/api/bizplans/${p.id}/roteiro`);
+  const notes = { ...r.notes };
+  const list = BP.insights(p.answers, p.unknown);
+  const start = ['alerta', 'atencao'].flatMap(l => list.filter(i => i.level === l)).slice(0, 3);
+  const saved = h('span', { class: 'muted small roteiro-saved', 'aria-live': 'polite' });
+  let timer = null;
+  const saveSoon = key => {
+    clearTimeout(timer); saved.textContent = 'Salvando…';
+    timer = setTimeout(guard(async () => { await api('PUT', `/api/bizplans/${p.id}/roteiro`, { notes: { [key]: notes[key] || '' } }); saved.textContent = 'Anotações salvas'; }), 700);
+  };
+  const noteBox = (key, label, rows = 3) => h('div', { class: 'field roteiro-note' }, h('label', { for: `rn-${key}` }, label),
+    h('textarea', { id: `rn-${key}`, rows, placeholder: 'Só a consultoria vê', oninput: e => { notes[key] = e.target.value; saveSoon(key); } }, notes[key] || ''));
+  const pointEl = i => h('div', { class: `roteiro-point lv-${i.level}` },
+    h('div', {}, h('span', { class: `insight-chip lv-${i.level}` }, BP.LEVELS[i.level]), ' ', h('strong', {}, i.title)),
+    i.explain ? h('p', {}, h('strong', {}, 'Como explicar: '), i.explain) : null,
+    i.ask ? h('p', {}, h('strong', {}, 'Pergunte: '), `"${i.ask}"`) : null,
+    h('p', { class: 'muted small' }, h('strong', {}, 'Sugestão: '), i.action));
+  return h('div', { class: 'roteiro' },
+    h('div', { class: 'card-box roteiro-top' },
+      h('div', { class: 'row' }, h('h2', { class: 'grow', style: 'margin:0' }, 'Roteiro da reunião'),
+        h('button', { class: 'btn', type: 'button', onclick: () => printRoteiro(p, notes) }, 'Imprimir roteiro')),
+      h('p', { class: 'muted small' }, 'Só da consultoria: o cliente nunca vê, e o roteiro não vai para o Word nem para o PDF do plano. As anotações salvam sozinhas.'),
+      isAdmin() ? h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: r.team, onchange: guard(async e => {
+        await api('PUT', `/api/bizplans/${p.id}/roteiro`, { team: e.target.checked });
+        toast(e.target.checked ? 'A equipe que acompanha este cliente agora vê o roteiro.' : 'Só administradores veem o roteiro.');
+      }) }), 'Liberar para a equipe que acompanha este cliente') : null,
+      saved),
+    start.length ? h('div', { class: 'card-box' }, h('h2', {}, 'Comece por'),
+      h('ol', { class: 'roteiro-start' }, start.map(i => h('li', {}, h('strong', {}, i.title), ` (${i.area}): ${i.explain || i.text}`)))) : null,
+    h('div', { class: 'card-box' }, noteBox('geral', 'Anotações gerais (objetivo da reunião, o que o cliente falou, combinados)', 4)),
+    roteiroParts(p).map(part => h('section', { class: 'card-box roteiro-part' + (part.points.length || part.unknown.length || notes[part.key] ? '' : ' quiet') },
+      h('h2', {}, part.title),
+      part.points.map(pointEl),
+      part.unknown.length ? h('div', { class: 'roteiro-unknown' }, h('strong', {}, 'Levantar com o cliente (respondeu "não sei"):'),
+        h('ul', {}, part.unknown.map(q => h('li', {}, q.label)))) : null,
+      noteBox(part.key, 'Suas anotações', part.points.length || part.unknown.length ? 3 : 2))));
+}
+function printRoteiro(p, notes) {
+  const doc = roteiroParts(p).filter(part => part.points.length || part.unknown.length || notes[part.key]).map(part => ({
+    key: part.key, title: part.title,
+    content: [
+      ...part.points.map(i => [`**${BP.LEVELS[i.level]}: ${i.title}**`, i.explain ? `- Como explicar: ${i.explain}` : null, i.ask ? `- Pergunte: "${i.ask}"` : null, `- Sugestão: ${i.action}`].filter(Boolean).join('\n')),
+      part.unknown.length ? `**Levantar com o cliente:**\n${part.unknown.map(q => `- ${q.label}`).join('\n')}` : null,
+      notes[part.key] ? `**Anotações:** ${notes[part.key]}` : null,
+    ].filter(Boolean).join('\n\n'),
+  }));
+  if (notes.geral) doc.unshift({ key: 'geral', title: 'Anotações gerais', content: notes.geral });
+  printPlan({ ...p, title: `Roteiro da reunião · ${p.client_name || p.lead_company || p.title}` }, doc);
 }
 // Escrever o plano com o Claude pela assinatura (claude.ai): copiar as instruções e os dados, colar o texto de volta.
 function claudeDialog(p) {

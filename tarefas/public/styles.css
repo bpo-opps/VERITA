@@ -836,3 +836,19 @@ ul.versions li { display: flex; gap: 8px; align-items: center; padding: 8px 0; b
 .claude-dialog .steps li { margin-bottom: 12px; }
 .claude-dialog .steps .row { margin-top: 6px; }
 .claude-dialog textarea { margin-top: 6px; width: 100%; }
+
+/* ---------- roteiro da reunião (só da consultoria) ---------- */
+.roteiro-top { border-top: 4px solid var(--s-review); }
+.roteiro-saved { display: block; margin-top: 6px; min-height: 18px; }
+.roteiro-start { margin: 0; padding-left: 20px; }
+.roteiro-start li { margin: 6px 0; }
+.roteiro-point { border-left: 4px solid var(--border); padding: 4px 0 4px 12px; margin: 10px 0; }
+.roteiro-point.lv-alerta { border-left-color: var(--s-overdue); }
+.roteiro-point.lv-atencao { border-left-color: var(--s-late); }
+.roteiro-point.lv-oportunidade { border-left-color: var(--s-doing); }
+.roteiro-point.lv-forte { border-left-color: var(--s-ontime); }
+.roteiro-point p { margin: 4px 0; }
+.roteiro-unknown { background: var(--s-late-bg); border-radius: var(--radius-sm); padding: 8px 12px; margin: 10px 0; }
+.roteiro-unknown ul { margin: 4px 0 0; padding-left: 18px; }
+.roteiro-part.quiet h2 { color: var(--text-muted); font-size: 15px; }
+.roteiro-note textarea { width: 100%; }

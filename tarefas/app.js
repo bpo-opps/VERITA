@@ -1055,6 +1055,12 @@ function canSeePlan(db, user, p) {
   if (user.role === 'client') return !!p.client_id && p.client_id === user.client_id;
   return !!p.lead_id || p.created_by === user.id || (!!p.client_id && clientIdsOf(db, user.id).includes(p.client_id));
 }
+// Roteiro da reunião (orientações e anotações da consultoria): administradores sempre; a equipe que vê o plano
+// só quando o administrador libera naquele plano. O cliente e o lead nunca.
+function canSeeRoteiro(db, user, p) {
+  if (user.role === 'admin') return true;
+  return user.role === 'member' && !!p.roteiro_team && canSeePlan(db, user, p);
+}
 function loadPlan(db, user, planId) {
   const p = db.prepare('select * from bizplans where id = ?').get(planId);
   if (!canSeePlan(db, user, p)) fail(404, 'Plano não encontrado');
@@ -1083,6 +1089,7 @@ function planOut(db, user, p) {
     doc_status: staff ? p.doc_status : (showDoc ? 'ready' : 'none'), doc_error: staff ? p.doc_error : null, doc_source: staff ? p.doc_source : null,
     lead: staff && m.lead ? { ...m.lead, revenue_band_label: m.revenue_band } : null,
     ai: !!planWriter,
+    roteiro: canSeeRoteiro(db, user, p), roteiro_team: staff ? !!p.roteiro_team : undefined,
   };
 }
 // Respostas: só perguntas conhecidas, cada uma validada; "não sei" numa lista à parte.
@@ -1237,6 +1244,33 @@ route('POST', '/api/bizplans/:id/versions/:vid/restore', ({ db, user, params }) 
   if (!v) fail(404, 'Versão não encontrada');
   saveDoc(db, user, p, JSON.parse(v.doc), `Restaurada a versão de ${v.created_at}`, null);
   return planOut(db, user, db.prepare('select * from bizplans where id = ?').get(p.id));
+});
+
+const ROTEIRO_KEYS = ['geral', ...BP.DOC.map(([k]) => k)];
+route('GET', '/api/bizplans/:id/roteiro', ({ db, user, params }) => {
+  const p = loadPlan(db, user, params.id);
+  if (!canSeeRoteiro(db, user, p)) fail(403, 'O roteiro da reunião é só do administrador');
+  return { notes: JSON.parse(p.meeting_notes || '{}'), team: !!p.roteiro_team };
+});
+route('PUT', '/api/bizplans/:id/roteiro', ({ db, user, body, params }) => {
+  const p = loadPlan(db, user, params.id);
+  if (!canSeeRoteiro(db, user, p)) fail(403, 'O roteiro da reunião é só do administrador');
+  if ('team' in body) {
+    requireAdmin(user);
+    db.prepare('update bizplans set roteiro_team = ? where id = ?').run(body.team ? 1 : 0, p.id);
+  }
+  if ('notes' in body) {
+    if (!body.notes || typeof body.notes !== 'object' || Array.isArray(body.notes)) fail(400, 'Anotações inválidas');
+    const notes = JSON.parse(p.meeting_notes || '{}');
+    for (const [k, v] of Object.entries(body.notes)) {
+      if (!ROTEIRO_KEYS.includes(k)) fail(400, 'Parte do roteiro inválida');
+      const t = str(v, 'anotação', { max: 10000, required: false });
+      if (t) notes[k] = t; else delete notes[k];
+    }
+    db.prepare('update bizplans set meeting_notes = ? where id = ?').run(JSON.stringify(notes), p.id);
+  }
+  const r = db.prepare('select meeting_notes, roteiro_team from bizplans where id = ?').get(p.id);
+  return { notes: JSON.parse(r.meeting_notes), team: !!r.roteiro_team };
 });
 
 // Leads: quem preencheu o diagnóstico público. A equipe vê e acompanha; o administrador transforma em cliente.

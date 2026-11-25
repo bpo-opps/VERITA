@@ -1002,6 +1002,7 @@
     if (user.role === 'client') return !!p.client_id && p.client_id === user.client_id;
     return !!p.lead_id || p.created_by === user.id || (!!p.client_id && clientIdsOf(user.id).includes(p.client_id));
   }
+  const canSeeRoteiro = (user, p) => user.role === 'admin' || (user.role === 'member' && !!p.roteiro_team && canSeePlan(user, p));
   const loadPlan = (user, pid) => { const p = db.bizplans.find(x => x.id === pid); if (!canSeePlan(user, p)) fail(404, 'Plano não encontrado'); return p; };
   const planMeta = p => { const lead = p.lead_id ? db.leads.find(l => l.id === p.lead_id) : null; const client = p.client_id ? clientOf(p.client_id) : null;
     return { lead, client, company: (client && client.name) || (lead && lead.company) || '', revenue_band: lead ? bandLabel(lead.revenue_band) : '' }; };
@@ -1014,7 +1015,8 @@
     const m = planMeta(p);
     return { ...planSummary(p), answers: { ...p.answers }, unknown: [...p.unknown], finance: staff ? BP.finance(p.answers) : undefined,
       doc: showDoc && p.doc ? JSON.parse(JSON.stringify(p.doc)) : null, doc_status: staff ? p.doc_status : (showDoc ? 'ready' : 'none'),
-      doc_error: staff ? p.doc_error : null, doc_source: staff ? p.doc_source : null, lead: staff && m.lead ? { ...m.lead, revenue_band_label: m.revenue_band } : null, ai: true };
+      doc_error: staff ? p.doc_error : null, doc_source: staff ? p.doc_source : null, lead: staff && m.lead ? { ...m.lead, revenue_band_label: m.revenue_band } : null, ai: true,
+      roteiro: canSeeRoteiro(user, p), roteiro_team: staff ? !!p.roteiro_team : undefined };
   }
   function savePlanAnswers(p, body) {
     const answers = { ...p.answers }; let unknown = [...p.unknown];
@@ -1104,6 +1106,26 @@
     saveDoc(user, p, JSON.parse(JSON.stringify(v.doc)), `Restaurada a versão de ${v.created_at}`, null);
     return planOut(user, p);
   } });
+  const ROTEIRO_KEYS = ['geral', ...BP.DOC.map(([k]) => k)];
+  route('GET', '/api/bizplans/:id/roteiro', ({ user, id }) => {
+    const p = loadPlan(user, id);
+    if (!canSeeRoteiro(user, p)) fail(403, 'O roteiro da reunião é só do administrador');
+    return { notes: { ...(p.meeting_notes || {}) }, team: !!p.roteiro_team };
+  });
+  route('PUT', '/api/bizplans/:id/roteiro', ({ user, id, body }) => {
+    const p = loadPlan(user, id);
+    if (!canSeeRoteiro(user, p)) fail(403, 'O roteiro da reunião é só do administrador');
+    if ('team' in body) { requireAdmin(user); p.roteiro_team = body.team ? 1 : 0; }
+    if ('notes' in body) {
+      p.meeting_notes = { ...(p.meeting_notes || {}) };
+      for (const [k, v] of Object.entries(body.notes || {})) {
+        if (!ROTEIRO_KEYS.includes(k)) fail(400, 'Parte do roteiro inválida');
+        const t = str(v, 'anotação', { max: 10000, required: false });
+        if (t) p.meeting_notes[k] = t; else delete p.meeting_notes[k];
+      }
+    }
+    return { notes: { ...(p.meeting_notes || {}) }, team: !!p.roteiro_team };
+  });
   route('GET', '/api/leads', ({ user }) => {
     requireStaff(user);
     return db.leads.slice().sort((a, b) => b.id - a.id).map(l => {

@@ -273,7 +273,8 @@
       diagnostico: insightsText(insights(answers, unknown)),
       pendencias: pendencias(answers, unknown, f),
     };
-    return DOC.map(([key, title]) => ({ key, title, content: sec[key] || '' }));
+    const list = insights(answers, unknown);
+    return DOC.map(([key, title]) => ({ key, title, content: withPoints(key, sec[key] || '', list) }));
   }
   function pendencias(answers, unknown, f) {
     const list = QUESTIONS.filter(q => unknown.includes(q.id) || isEmpty(answers[q.id])).map(q => `- ${q.label}${unknown.includes(q.id) ? ' (respondido "não sei")' : ''}`);
@@ -344,66 +345,106 @@
     }
     return null;
   }
+  // sec: seção do plano onde o ponto aparece. explain e ask: orientação para a reunião (Roteiro, só da consultoria).
   function insights(a = {}, unknown = []) {
     const out = [];
-    const add = (level, area, title, text, action) => out.push({ level, area, title, text, action });
+    const add = (level, area, title, text, action, o = {}) => out.push({ level, area, title, text, action, sec: o.sec || 'sumario', explain: o.explain || '', ask: o.ask || '' });
     const has = id => !isEmpty(a[id]);
     const f = finance(a);
+    const PE = 'Ponto de equilíbrio é quanto o negócio precisa vender por mês só para pagar todas as contas, sem sobrar nem faltar.';
     if (f.ok) {
       const rev = f.inputs.revenueBase;
       const safety = f.breakEven === null ? null : (rev - f.breakEven) / rev;
-      if (f.breakEven === null) add('alerta', 'Finanças', 'Custos variáveis e impostos passam de 100% da venda', 'Cada venda dá prejuízo antes mesmo dos custos fixos.', 'Rever preços e custos variáveis com urgência.');
-      else if (safety < 0) add('alerta', 'Finanças', 'Faturamento abaixo do ponto de equilíbrio', `O negócio precisa de ${brl(f.breakEven)} por mês para empatar e fatura ${brl(rev)}: faltam ${brl(f.breakEven - rev)} por mês.`, 'Prioridade: aumentar vendas ou margem e cortar custos fixos antes de investir.');
-      else if (safety < 0.1) add('atencao', 'Finanças', 'Pouca folga sobre o ponto de equilíbrio', `O faturamento está só ${pct(safety * 100)} acima do ponto de equilíbrio (${brl(f.breakEven)}): uma queda dessas nas vendas leva ao prejuízo.`, 'Aumentar a folga antes de assumir novos custos fixos (receita recorrente, preço, negociação de insumos).');
-      else if (safety >= 0.25) add('forte', 'Finanças', 'Boa folga sobre o ponto de equilíbrio', `O faturamento está ${pct(safety * 100)} acima do ponto de equilíbrio.`, 'Usar essa folga para investir em crescimento com segurança.');
-      if (f.breakEven !== null && f.contribPct < 30) add('atencao', 'Finanças', 'Margem de contribuição baixa', `Sobram só ${pct(f.contribPct)} de cada venda para pagar os custos fixos.`, 'Revisar preços, mix de produtos e custos variáveis (compras, comissões, taxas).');
-      if (f.netMarginPct !== null && f.netMarginPct < 0 && f.breakEven !== null && safety >= 0) add('atencao', 'Finanças', 'Resultado negativo', `O primeiro mês fecha em ${brl(f.monthResult)}.`, 'Rever custos fixos e pró-labore.');
-      if (f.inputs.debt > 0 && f.inputs.debt / rev > 0.1) add('atencao', 'Finanças', 'Dívidas pesam no caixa', `As parcelas (${brl(f.inputs.debt)} por mês) são ${pct((f.inputs.debt / rev) * 100)} do faturamento.`, 'Avaliar renegociação de prazo ou troca por uma linha mais barata.');
+      if (f.breakEven === null) add('alerta', 'Finanças', 'Custos variáveis e impostos passam de 100% da venda', 'Cada venda dá prejuízo antes mesmo dos custos fixos.', 'Rever preços e custos variáveis com urgência.',
+        { sec: 'financeiro', explain: 'Mostre com uma venda de R$ 100: quanto vai para mercadoria, comissões, taxas e impostos. Hoje sai mais do que entra.', ask: 'Quando foi a última vez que os preços foram reajustados? Os custos de compra subiram?' });
+      else if (safety < 0) add('alerta', 'Finanças', 'Faturamento abaixo do ponto de equilíbrio', `O negócio precisa de ${brl(f.breakEven)} por mês para empatar e fatura ${brl(rev)}: faltam ${brl(f.breakEven - rev)} por mês.`, 'Prioridade: aumentar vendas ou margem e cortar custos fixos antes de investir.',
+        { sec: 'financeiro', explain: `${PE} Hoje as vendas não chegam lá: todo mês falta dinheiro, que sai do caixa ou de empréstimo.`, ask: 'De onde vem o dinheiro que cobre essa diferença todo mês? Quais custos fixos dá para cortar já?' });
+      else if (safety < 0.1) add('atencao', 'Finanças', 'Pouca folga sobre o ponto de equilíbrio', `O faturamento está só ${pct(safety * 100)} acima do ponto de equilíbrio (${brl(f.breakEven)}): uma queda dessas nas vendas leva ao prejuízo.`, 'Aumentar a folga antes de assumir novos custos fixos (receita recorrente, preço, negociação de insumos).',
+        { sec: 'financeiro', explain: `${PE} O negócio vende só um pouco acima disso: um mês fraco já fecha no vermelho.`, ask: 'Em que meses as vendas caem? Já fechou algum mês no prejuízo?' });
+      else if (safety >= 0.25) add('forte', 'Finanças', 'Boa folga sobre o ponto de equilíbrio', `O faturamento está ${pct(safety * 100)} acima do ponto de equilíbrio.`, 'Usar essa folga para investir em crescimento com segurança.',
+        { sec: 'financeiro', explain: `${PE} O negócio vende bem acima disso: há espaço para investir sem correr risco.`, ask: 'Onde vocês gostariam de investir essa folga?' });
+      if (f.breakEven !== null && f.contribPct < 30) add('atencao', 'Finanças', 'Margem de contribuição baixa', `Sobram só ${pct(f.contribPct)} de cada venda para pagar os custos fixos.`, 'Revisar preços, mix de produtos e custos variáveis (compras, comissões, taxas).',
+        { sec: 'financeiro', explain: `Margem de contribuição é o que sobra de cada R$ 100 vendidos depois de pagar a mercadoria, as comissões e os impostos. Aqui sobram R$ ${Math.round(f.contribPct)}.`, ask: 'Quais produtos dão mais margem? Dá para vender mais deles?' });
+      if (f.netMarginPct !== null && f.netMarginPct < 0 && f.breakEven !== null && safety >= 0) add('atencao', 'Finanças', 'Resultado negativo', `O primeiro mês fecha em ${brl(f.monthResult)}.`, 'Rever custos fixos e pró-labore.',
+        { sec: 'financeiro', explain: 'Somando tudo, o mês fecha no vermelho.', ask: 'Quais custos fixos são essenciais e quais dá para rever?' });
+      if (f.inputs.debt > 0 && f.inputs.debt / rev > 0.1) add('atencao', 'Finanças', 'Dívidas pesam no caixa', `As parcelas (${brl(f.inputs.debt)} por mês) são ${pct((f.inputs.debt / rev) * 100)} do faturamento.`, 'Avaliar renegociação de prazo ou troca por uma linha mais barata.',
+        { sec: 'financeiro', explain: `De cada R$ 100 que entram, R$ ${Math.round((f.inputs.debt / rev) * 100)} vão para parcelas de dívidas.`, ask: 'Quais são as taxas e os prazos de cada dívida? Alguma pode ser renegociada?' });
       if (f.inputs.invest > 0) {
-        if (f.capitalGap > 0) add('atencao', 'Finanças', `Precisa captar ${brl(f.capitalGap)}`, `O investimento é de ${brl(f.inputs.invest)} e há ${brl(f.inputs.own)} de recursos próprios.`, 'Buscar crédito com carência (as parcelas começam depois que o investimento gera caixa) ou fazer o investimento em etapas.');
-        if (!f.payback) add('alerta', 'Finanças', 'O investimento não se paga em 5 anos', 'Com as premissas informadas, o resultado acumulado não cobre o investimento.', 'Rever o tamanho do investimento ou as premissas de venda antes de seguir.');
-        else if (f.payback > 36) add('atencao', 'Finanças', 'Retorno do investimento demorado', `O investimento se paga em ${f.payback} meses.`, 'Avaliar um investimento menor ou em etapas.');
-        else if (f.payback <= 18) add('forte', 'Finanças', 'Retorno rápido do investimento', `O investimento se paga em ${f.payback} meses.`, 'Confirmar as premissas de venda: é o que sustenta esse prazo.');
+        if (f.capitalGap > 0) add('atencao', 'Finanças', `Precisa captar ${brl(f.capitalGap)}`, `O investimento é de ${brl(f.inputs.invest)} e há ${brl(f.inputs.own)} de recursos próprios.`, 'Buscar crédito com carência (as parcelas começam depois que o investimento gera caixa) ou fazer o investimento em etapas.',
+          { sec: 'financeiro', explain: 'Carência é o período em que o empréstimo ainda não cobra parcela: dá tempo de o investimento começar a dar retorno.', ask: 'Já consultaram o banco? Dá para fazer o investimento em etapas?' });
+        if (!f.payback) add('alerta', 'Finanças', 'O investimento não se paga em 5 anos', 'Com as premissas informadas, o resultado acumulado não cobre o investimento.', 'Rever o tamanho do investimento ou as premissas de venda antes de seguir.',
+          { sec: 'financeiro', explain: 'Com o lucro previsto, o dinheiro investido não volta nem em 5 anos.', ask: 'Esse investimento é mesmo necessário agora? Existe uma versão menor?' });
+        else if (f.payback > 36) add('atencao', 'Finanças', 'Retorno do investimento demorado', `O investimento se paga em ${f.payback} meses.`, 'Avaliar um investimento menor ou em etapas.',
+          { sec: 'financeiro', explain: `O dinheiro investido só volta em ${f.payback} meses.`, ask: 'Que parte do investimento traz retorno mais rápido?' });
+        else if (f.payback <= 18) add('forte', 'Finanças', 'Retorno rápido do investimento', `O investimento se paga em ${f.payback} meses.`, 'Confirmar as premissas de venda: é o que sustenta esse prazo.',
+          { sec: 'financeiro', explain: `O dinheiro investido volta em ${f.payback} meses, se as vendas vierem como o previsto.`, ask: 'O quanto vocês confiam na previsão de vendas? O que pode atrasar?' });
       }
       const pess = f.scenarios[0];
-      if (pess.result < 0 && f.scenarios[1].result > 0) add('atencao', 'Finanças', 'Plano sensível a queda nas vendas', `No cenário pessimista o ano fecha em ${brl(pess.result)}.`, 'Ter um plano B: o que cortar ou adiar se as vendas vierem abaixo do esperado.');
+      if (pess.result < 0 && f.scenarios[1].result > 0) add('atencao', 'Finanças', 'Plano sensível a queda nas vendas', `No cenário pessimista o ano fecha em ${brl(pess.result)}.`, 'Ter um plano B: o que cortar ou adiar se as vendas vierem abaixo do esperado.',
+        { sec: 'cenarios', explain: 'Se as vendas vierem 20% menores e crescerem metade do previsto, o ano fecha no prejuízo.', ask: 'Se isso acontecer, o que vocês cortariam ou adiariam primeiro?' });
       const g = f.inputs.growth / 100;
-      if (g > 0.05) add('atencao', 'Finanças', 'Meta de crescimento agressiva', `Crescer ${pct(g * 100)} ao mês dá cerca de ${pct((Math.pow(1 + g, 12) - 1) * 100)} no ano.`, 'Mostrar de onde vem esse crescimento (canais, equipe, investimento).');
+      if (g > 0.05) add('atencao', 'Finanças', 'Meta de crescimento agressiva', `Crescer ${pct(g * 100)} ao mês dá cerca de ${pct((Math.pow(1 + g, 12) - 1) * 100)} no ano.`, 'Mostrar de onde vem esse crescimento (canais, equipe, investimento).',
+        { sec: 'financeiro', explain: 'Um pouco de crescimento todo mês vira muito no ano: confira se a equipe e a estrutura dão conta.', ask: 'De onde vêm os novos clientes para esse crescimento?' });
       const goal = revenueGoal(a.r_goals);
       if (goal) {
         const m12 = f.months[11].revenue;
         const need = Math.pow(goal.monthly / rev, 1 / 11) - 1;
-        if (m12 + 1 < goal.monthly) add('atencao', 'Metas', 'Meta de faturamento acima da projeção', `"${goal.text}": com crescimento de ${pct(g * 100)} ao mês o faturamento chega a ${brl(m12)} no mês 12.`, `Para chegar lá em 12 meses é preciso crescer cerca de ${pct(need * 100)} ao mês, ou rever o prazo da meta.`);
-        else add('forte', 'Metas', 'Meta de faturamento coerente com a projeção', `"${goal.text}": a projeção chega a ${brl(m12)} no mês 12.`, 'Acompanhar mês a mês se o crescimento está no ritmo.');
+        if (m12 + 1 < goal.monthly) add('atencao', 'Metas', 'Meta de faturamento acima da projeção', `"${goal.text}": com crescimento de ${pct(g * 100)} ao mês o faturamento chega a ${brl(m12)} no mês 12.`, `Para chegar lá em 12 meses é preciso crescer cerca de ${pct(need * 100)} ao mês, ou rever o prazo da meta.`,
+          { sec: 'metas', explain: `No ritmo de crescimento informado, a meta não chega em 12 meses: falta crescer cerca de ${pct(need * 100)} ao mês.`, ask: 'O que precisaria acontecer para crescer nesse ritmo? Ou vamos ajustar o prazo da meta?' });
+        else add('forte', 'Metas', 'Meta de faturamento coerente com a projeção', `"${goal.text}": a projeção chega a ${brl(m12)} no mês 12.`, 'Acompanhar mês a mês se o crescimento está no ritmo.',
+          { sec: 'metas', explain: 'A meta bate com o ritmo de crescimento informado.', ask: 'Como vamos acompanhar isso todo mês?' });
       }
-    } else add('atencao', 'Finanças', 'Faltam dados para a conta financeira', `Sem ${f.missing.join(', ')} não dá para calcular ponto de equilíbrio, resultado e retorno.`, 'Levantar esses números com o contador antes da reunião.');
-    if (!has('f_growth') && f.ok) add('atencao', 'Finanças', 'Sem meta de crescimento', 'A projeção considerou 0% de crescimento.', 'Definir uma meta realista de crescimento mensal.');
+    } else add('atencao', 'Finanças', 'Faltam dados para a conta financeira', `Sem ${f.missing.join(', ')} não dá para calcular ponto de equilíbrio, resultado e retorno.`, 'Levantar esses números com o contador antes da reunião.',
+      { sec: 'financeiro', explain: 'Sem esses números o plano fica sem a parte financeira, que é a que mais pesa nas decisões.', ask: 'Quem tem esses números? O contador pode mandar o último demonstrativo?' });
+    if (!has('f_growth') && f.ok) add('atencao', 'Finanças', 'Sem meta de crescimento', 'A projeção considerou 0% de crescimento.', 'Definir uma meta realista de crescimento mensal.',
+      { sec: 'financeiro', explain: 'Sem uma meta de crescimento, a projeção repete o mês de hoje por 3 anos.', ask: 'Quanto vocês acham possível crescer por mês?' });
 
     const conc = Number(a.c_concentration);
-    if (has('c_concentration') && conc > 50) add('alerta', 'Clientes', 'Dependência de poucos clientes', `Os 3 maiores clientes somam ${pct(conc)} do faturamento.`, 'Diversificar a carteira e ter contratos com prazo e aviso de saída.');
-    else if (has('c_concentration') && conc >= 30) add('atencao', 'Clientes', 'Concentração de clientes', `Os 3 maiores clientes somam ${pct(conc)} do faturamento.`, 'Acompanhar a satisfação desses clientes de perto e buscar novos.');
-    if (a.p_repeat === 'Quase nunca') add('atencao', 'Receita', 'Pouca recompra', 'O cliente quase não compra de novo: todo mês é preciso conquistar clientes novos.', 'Criar motivos para voltar (pós-venda, novos produtos, programa de indicação).');
-    if (['Com frequência', 'Paga todo mês'].includes(a.p_repeat) && !(a.p_model || []).includes('Assinatura ou mensalidade')) add('oportunidade', 'Receita', 'Espaço para receita recorrente', 'O cliente já volta com frequência, mas não há assinatura ou mensalidade.', 'Testar um plano de assinatura com os clientes mais fiéis.');
-    if (['Com frequência', 'Paga todo mês'].includes(a.p_repeat)) add('forte', 'Clientes', 'Clientes fiéis', 'O cliente compra de novo com frequência.', 'Usar essa base para indicações e lançamentos.');
+    if (has('c_concentration') && conc > 50) add('alerta', 'Clientes', 'Dependência de poucos clientes', `Os 3 maiores clientes somam ${pct(conc)} do faturamento.`, 'Diversificar a carteira e ter contratos com prazo e aviso de saída.',
+      { sec: 'proposta', explain: 'Se um desses clientes sair, o negócio perde uma parte grande da receita de uma vez.', ask: 'Esses clientes têm contrato? Qual o risco de algum sair?' });
+    else if (has('c_concentration') && conc >= 30) add('atencao', 'Clientes', 'Concentração de clientes', `Os 3 maiores clientes somam ${pct(conc)} do faturamento.`, 'Acompanhar a satisfação desses clientes de perto e buscar novos.',
+      { sec: 'proposta', explain: 'Poucos clientes respondem por boa parte da receita.', ask: 'Como está o relacionamento com esses clientes?' });
+    if (a.p_repeat === 'Quase nunca') add('atencao', 'Receita', 'Pouca recompra', 'O cliente quase não compra de novo: todo mês é preciso conquistar clientes novos.', 'Criar motivos para voltar (pós-venda, novos produtos, programa de indicação).',
+      { sec: 'receita', explain: 'Conquistar um cliente novo custa mais do que vender de novo para quem já comprou.', ask: 'Por que o cliente não volta? Existe algo para oferecer depois da primeira compra?' });
+    if (['Com frequência', 'Paga todo mês'].includes(a.p_repeat) && !(a.p_model || []).includes('Assinatura ou mensalidade')) add('oportunidade', 'Receita', 'Espaço para receita recorrente', 'O cliente já volta com frequência, mas não há assinatura ou mensalidade.', 'Testar um plano de assinatura com os clientes mais fiéis.',
+      { sec: 'receita', explain: 'Receita recorrente é a que entra todo mês, combinada antes: dá previsibilidade e ajuda a planejar compras e equipe.', ask: 'Seus clientes mais fiéis topariam um plano mensal? O que entraria nele?' });
+    if (['Com frequência', 'Paga todo mês'].includes(a.p_repeat)) add('forte', 'Clientes', 'Clientes fiéis', 'O cliente compra de novo com frequência.', 'Usar essa base para indicações e lançamentos.',
+      { sec: 'proposta', explain: 'Cliente que volta é sinal de que o produto entrega o que promete.', ask: 'O que esses clientes mais elogiam?' });
     const channels = a.s_channels || [];
     const digital = ['Instagram', 'Google', 'Site', 'WhatsApp', 'Marketplace', 'LinkedIn'];
-    if (has('s_channels') && channels.length === 1) add('atencao', 'Vendas', 'Um só canal de vendas', `Os clientes chegam só por ${channels[0]}.`, 'Abrir um segundo canal para não depender de um só.');
-    if (has('s_channels') && !channels.some(c => digital.includes(c))) add('oportunidade', 'Vendas', 'Pouca presença digital', 'Nenhum canal digital entre os que trazem clientes.', 'Começar por WhatsApp e Instagram, que custam pouco.');
-    if (channels.includes('Indicação')) add('forte', 'Vendas', 'Indicação funciona', 'Clientes chegam por indicação.', 'Transformar em programa: um benefício para quem indica e para o indicado.');
-    if (f.ok && has('s_spend') && Number(a.s_spend) / f.inputs.revenueBase > 0.15) add('atencao', 'Vendas', 'Gasto alto com marketing e vendas', `${pct((Number(a.s_spend) / f.inputs.revenueBase) * 100)} do faturamento vai para marketing e vendas.`, 'Medir quantos clientes cada canal traz e cortar o que não traz.');
-    if (has('s_spend') && has('p_sales') && has('p_ticket') && Number(a.p_sales) > 0 && Number(a.s_spend) / Number(a.p_sales) > 0.3 * Number(a.p_ticket)) add('atencao', 'Vendas', 'Custo para vender alto em relação ao ticket', `Cada venda custa cerca de ${brl(Number(a.s_spend) / Number(a.p_sales))} em marketing e vendas, para um ticket de ${brl(Number(a.p_ticket))}.`, 'Aumentar o ticket (combos, kits) ou focar nos canais mais baratos.');
+    if (has('s_channels') && channels.length === 1) add('atencao', 'Vendas', 'Um só canal de vendas', `Os clientes chegam só por ${channels[0]}.`, 'Abrir um segundo canal para não depender de um só.',
+      { sec: 'marketing', explain: 'Se esse canal parar de funcionar, as vendas param junto.', ask: 'Que outro canal faria sentido para o seu cliente?' });
+    if (has('s_channels') && !channels.some(c => digital.includes(c))) add('oportunidade', 'Vendas', 'Pouca presença digital', 'Nenhum canal digital entre os que trazem clientes.', 'Começar por WhatsApp e Instagram, que custam pouco.',
+      { sec: 'marketing', explain: 'O cliente procura no celular antes de comprar.', ask: 'Quem poderia cuidar do WhatsApp e do Instagram?' });
+    if (channels.includes('Indicação')) add('forte', 'Vendas', 'Indicação funciona', 'Clientes chegam por indicação.', 'Transformar em programa: um benefício para quem indica e para o indicado.',
+      { sec: 'marketing', explain: 'Indicação é o canal mais barato e o que mais converte.', ask: 'Vocês pedem indicação? Dariam um benefício para quem indica?' });
+    if (f.ok && has('s_spend') && Number(a.s_spend) / f.inputs.revenueBase > 0.15) add('atencao', 'Vendas', 'Gasto alto com marketing e vendas', `${pct((Number(a.s_spend) / f.inputs.revenueBase) * 100)} do faturamento vai para marketing e vendas.`, 'Medir quantos clientes cada canal traz e cortar o que não traz.',
+      { sec: 'marketing', explain: 'Uma parte grande da receita vai para atrair clientes.', ask: 'Vocês sabem quantos clientes cada canal traz?' });
+    if (has('s_spend') && has('p_sales') && has('p_ticket') && Number(a.p_sales) > 0 && Number(a.s_spend) / Number(a.p_sales) > 0.3 * Number(a.p_ticket)) add('atencao', 'Vendas', 'Custo para vender alto em relação ao ticket', `Cada venda custa cerca de ${brl(Number(a.s_spend) / Number(a.p_sales))} em marketing e vendas, para um ticket de ${brl(Number(a.p_ticket))}.`, 'Aumentar o ticket (combos, kits) ou focar nos canais mais baratos.',
+      { sec: 'marketing', explain: 'Cada venda custa caro para conquistar, comparado ao valor que ela traz.', ask: 'Dá para vender mais coisas na mesma compra (combos, kits)?' });
     if (a.k_price === 'Mais caro') add(has('c_why') ? 'forte' : 'atencao', 'Concorrência', has('c_why') ? 'Preço acima da concorrência com diferencial claro' : 'Preço acima da concorrência sem diferencial claro',
-      has('c_why') ? `O cliente paga mais por: ${a.c_why}` : 'Não ficou claro por que o cliente paga mais.', has('c_why') ? 'Mostrar esse diferencial em toda a comunicação; nunca entrar em guerra de preço.' : 'Definir e comunicar o diferencial, ou rever o preço.');
-    if (a.k_price === 'Mais barato' && f.ok && f.contribPct < 40) add('atencao', 'Concorrência', 'Preço baixo com margem apertada', 'Competir por preço com margem de contribuição baixa deixa pouco espaço para crescer.', 'Rever preço e buscar diferenciais que não dependam de preço.');
-    if (!has('m_trends')) add('atencao', 'Mercado', 'Sem leitura das mudanças do setor', 'Não foram citadas tendências que afetam o negócio.', 'Levantar 3 mudanças do setor (clientes, tecnologia, leis) e como responder a cada uma.');
-    if (!has('o_tools')) add('oportunidade', 'Operação', 'Ferramentas de gestão', 'Não foram citados sistemas de gestão.', 'Um controle simples de vendas, estoque e caixa já ajuda nas decisões.');
-    else if ((a.o_tools || []).every(t => /planilha|excel|caderno/i.test(t))) add('oportunidade', 'Operação', 'Gestão em planilhas', 'A gestão roda em planilhas.', 'Avaliar um sistema de gestão (ERP) do porte do negócio.');
-    if (!has('g_management')) add('atencao', 'Gestão', 'Gestão sem rotina definida', 'Não ficou claro como são acompanhados os resultados.', 'Reunião mensal de resultados com 3 a 5 indicadores.');
-    if (has('g_hire') && f.ok && f.monthResult < 0.05 * f.inputs.revenueBase) add('atencao', 'Pessoas', 'Contratações com resultado apertado', `Há ${a.g_hire.length} contratação(ões) prevista(s) e o resultado mensal está em ${brl(f.monthResult)}.`, 'Contratar junto com o aumento de vendas, não antes.');
-    if (!has('r_goals')) add('atencao', 'Metas', 'Sem metas definidas', 'Não foram definidas metas para os próximos 12 meses.', 'Definir 3 metas mensuráveis, com responsável e prazo.');
-    if (has('r_risks')) add('forte', 'Riscos', 'Riscos mapeados', `${a.r_risks.length === 1 ? 'Foi citado 1 risco' : `Foram citados ${a.r_risks.length} riscos`}.`, 'Para cada um, definir o que fazer para reduzir e quem acompanha.');
-    if (!has('r_esg')) add('oportunidade', 'ESG', 'Práticas de ESG', 'Não foram citadas práticas sociais, ambientais ou de gestão.', 'Começar com ações simples e visíveis para o cliente (resíduos, equipe, contas organizadas).');
-    if (unknown.length >= 8) add('atencao', 'Geral', 'Muitas respostas "não sei"', `${unknown.length} perguntas ficaram como "não sei".`, 'Separar um tempo da reunião para levantar esses dados juntos.');
+      has('c_why') ? `O cliente paga mais por: ${a.c_why}` : 'Não ficou claro por que o cliente paga mais.', has('c_why') ? 'Mostrar esse diferencial em toda a comunicação; nunca entrar em guerra de preço.' : 'Definir e comunicar o diferencial, ou rever o preço.',
+      { sec: 'concorrencia', explain: has('c_why') ? 'Cobrar mais é saudável quando o cliente enxerga o porquê.' : 'Quem cobra mais precisa deixar claro o que entrega a mais.', ask: has('c_why') ? 'Esse diferencial aparece no Instagram, na loja e no atendimento?' : 'Por que o cliente escolhe vocês, mesmo pagando mais?' });
+    if (a.k_price === 'Mais barato' && f.ok && f.contribPct < 40) add('atencao', 'Concorrência', 'Preço baixo com margem apertada', 'Competir por preço com margem de contribuição baixa deixa pouco espaço para crescer.', 'Rever preço e buscar diferenciais que não dependam de preço.',
+      { sec: 'concorrencia', explain: 'Ser o mais barato funciona quando o custo também é o mais baixo; senão, sobra pouco.', ask: 'Os clientes compram só pelo preço? O que mais eles valorizam?' });
+    if (!has('m_trends')) add('atencao', 'Mercado', 'Sem leitura das mudanças do setor', 'Não foram citadas tendências que afetam o negócio.', 'Levantar 3 mudanças do setor (clientes, tecnologia, leis) e como responder a cada uma.',
+      { sec: 'mercado', explain: 'Olhar o que está mudando ajuda a se antecipar à concorrência.', ask: 'O que mudou no seu setor nos últimos 2 anos?' });
+    if (!has('o_tools')) add('oportunidade', 'Operação', 'Ferramentas de gestão', 'Não foram citados sistemas de gestão.', 'Um controle simples de vendas, estoque e caixa já ajuda nas decisões.',
+      { sec: 'operacao', explain: 'Sem registro, as decisões ficam no "achismo".', ask: 'Como vocês controlam hoje vendas, estoque e caixa?' });
+    else if ((a.o_tools || []).every(t => /planilha|excel|caderno/i.test(t))) add('oportunidade', 'Operação', 'Gestão em planilhas', 'A gestão roda em planilhas.', 'Avaliar um sistema de gestão (ERP) do porte do negócio.',
+      { sec: 'operacao', explain: 'Planilha funciona no começo, mas depende de quem preenche e erra fácil.', ask: 'Quanto tempo por semana vai para preencher planilhas?' });
+    if (!has('g_management')) add('atencao', 'Gestão', 'Gestão sem rotina definida', 'Não ficou claro como são acompanhados os resultados.', 'Reunião mensal de resultados com 3 a 5 indicadores.',
+      { sec: 'pessoas', explain: 'Um encontro mensal curto, olhando sempre os mesmos números, evita surpresas.', ask: 'Quem decide o quê hoje? Vocês olham os números todo mês?' });
+    if (has('g_hire') && f.ok && f.monthResult < 0.05 * f.inputs.revenueBase) add('atencao', 'Pessoas', 'Contratações com resultado apertado', `Há ${a.g_hire.length} contratação(ões) prevista(s) e o resultado mensal está em ${brl(f.monthResult)}.`, 'Contratar junto com o aumento de vendas, não antes.',
+      { sec: 'pessoas', explain: 'Cada contratação aumenta o custo fixo e sobe o ponto de equilíbrio.', ask: 'Qual contratação é mais urgente? Ela traz venda ou só alivia o trabalho?' });
+    if (!has('r_goals')) add('atencao', 'Metas', 'Sem metas definidas', 'Não foram definidas metas para os próximos 12 meses.', 'Definir 3 metas mensuráveis, com responsável e prazo.',
+      { sec: 'metas', explain: 'Sem metas não dá para saber se o ano foi bom.', ask: 'Onde vocês querem estar daqui a 12 meses?' });
+    if (has('r_risks')) add('forte', 'Riscos', 'Riscos mapeados', `${a.r_risks.length === 1 ? 'Foi citado 1 risco' : `Foram citados ${a.r_risks.length} riscos`}.`, 'Para cada um, definir o que fazer para reduzir e quem acompanha.',
+      { sec: 'riscos', explain: 'Saber o que pode dar errado é o primeiro passo para se proteger.', ask: 'Qual desses riscos tira mais o sono de vocês?' });
+    if (!has('r_esg')) add('oportunidade', 'ESG', 'Práticas de ESG', 'Não foram citadas práticas sociais, ambientais ou de gestão.', 'Começar com ações simples e visíveis para o cliente (resíduos, equipe, contas organizadas).',
+      { sec: 'esg', explain: 'ESG é cuidar do ambiente, das pessoas e da gestão; para um negócio pequeno começa com coisas simples.', ask: 'Vocês já fazem algo nessa linha, mesmo sem chamar de ESG?' });
+    if (unknown.length >= 8) add('atencao', 'Geral', 'Muitas respostas "não sei"', `${unknown.length} perguntas ficaram como "não sei".`, 'Separar um tempo da reunião para levantar esses dados juntos.',
+      { sec: 'pendencias', explain: 'Normal no começo: vamos preencher juntos.', ask: '' });
     const order = { alerta: 0, atencao: 1, oportunidade: 2, forte: 3 };
     return out.sort((x, y) => order[x.level] - order[y.level]);
   }
@@ -413,6 +454,22 @@
     return Object.keys(LEVELS).filter(l => list.some(i => i.level === l)).map(l =>
       [`### ${icon[l]} ${l === 'forte' ? 'Pontos fortes' : l === 'atencao' ? 'Pontos de atenção' : l === 'alerta' ? 'Alertas' : 'Oportunidades'}`,
         ...list.filter(i => i.level === l).map(i => `- **${i.title}** (${i.area}): ${i.text} **O que fazer:** ${i.action}`)].join('\n')).join('\n\n');
+  }
+
+  // Os pontos do diagnóstico também aparecem dentro de cada seção do plano; o sumário traz os principais.
+  const LEVEL_ICON = { alerta: '🔴', atencao: '🟡', oportunidade: '🔵', forte: '🟢' };
+  function withPoints(key, content, list) {
+    if (key === 'diagnostico' || key === 'pendencias') return content;
+    let pts;
+    if (key === 'sumario') {
+      const order = ['alerta', 'atencao', 'oportunidade'];
+      pts = order.flatMap(l => list.filter(i => i.level === l)).slice(0, 4);
+      if (!pts.length) return content;
+      return `${content}\n\n### Principais pontos do diagnóstico\n${pts.map(i => `- ${LEVEL_ICON[i.level]} **${i.title}**: ${i.action}`).join('\n')}`.trim();
+    }
+    pts = list.filter(i => i.sec === key);
+    if (!pts.length) return content;
+    return `${content}\n\n### Pontos de atenção e oportunidades\n${pts.map(i => `- ${LEVEL_ICON[i.level]} **${i.title}**: ${i.text} **O que fazer:** ${i.action}`).join('\n')}`.trim();
   }
 
   // ---------- texto para a IA (pela API ou copiado para o claude.ai) ----------
@@ -475,12 +532,13 @@ ${AI_FORMAT}`;
     const fin = finance(answers);
     const base = Object.fromEntries(draft(answers, unknown, meta).map(s => [s.key, s.content]));
     const ai = Object.fromEntries(Object.entries(aiByKey || {}).filter(([k, v]) => AI_KEYS.includes(k) && v).map(([k, v]) => [k, String(v).trim().slice(0, 20000)]));
+    const list = insights(answers, unknown);
     return DOC.map(([key, title]) => {
-      let content = ai[key] || base[key] || '';
-      if (key === 'financeiro') content = `${ai[key] || ''}\n\n${financeTables(fin)}`.trim();
-      if (key === 'cenarios') content = `${ai[key] || ''}\n\n${scenarioTable(fin)}`.trim();
-      if (key === 'pendencias' || key === 'diagnostico') content = base[key];
-      return { key, title, content };
+      if (!ai[key] || key === 'pendencias' || key === 'diagnostico') return { key, title, content: base[key] || '' };
+      let content = ai[key];
+      if (key === 'financeiro') content = `${content}\n\n${financeTables(fin)}`;
+      if (key === 'cenarios') content = `${content}\n\n${scenarioTable(fin)}`;
+      return { key, title, content: withPoints(key, content.trim(), list) };
     });
   }
 

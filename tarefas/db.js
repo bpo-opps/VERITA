@@ -321,6 +321,8 @@ create table if not exists bizplans (
   doc_error text,
   doc_source text,
   shared integer not null default 0,
+  meeting_notes text not null default '{}',
+  roteiro_team integer not null default 0,
   created_by integer references users(id) on delete set null,
   created_at text not null default (datetime('now')),
   updated_at text not null default (datetime('now'))
@@ -370,6 +372,11 @@ function open(file) {
     if (db.prepare("select 1 from sqlite_master where type = 'table' and name = 'meetings'").get()) addColumn(db, 'meetings', 'notes_text', 'text');
     // Versão 8 -> 9: dono de cada modelo (os antigos ficam sem dono: só o administrador vê).
     if (db.prepare("select 1 from sqlite_master where type = 'table' and name = 'templates'").get()) addColumn(db, 'templates', 'created_by', 'integer references users(id) on delete set null');
+    // Roteiro da reunião no plano de negócio (anotações da consultoria; o cliente nunca vê).
+    if (db.prepare("select 1 from sqlite_master where type = 'table' and name = 'bizplans'").get()) {
+      addColumn(db, 'bizplans', 'meeting_notes', "text not null default '{}'");
+      addColumn(db, 'bizplans', 'roteiro_team', 'integer not null default 0');
+    }
   }
   db.exec(SCHEMA);
   // Nunca rebaixa a versão: se o código voltou para uma versão anterior (rollback), o banco continua

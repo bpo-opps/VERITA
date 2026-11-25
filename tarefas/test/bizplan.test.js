@@ -150,14 +150,14 @@ test('documento pela IA: texto da IA + tabelas calculadas pelo sistema; reescrev
     assert.equal(r.body.doc_status, 'ready');
     assert.equal(r.body.doc_source, 'ai');
     assert.equal(seen.meta.company, 'Padaria A');
-    assert.equal(r.body.doc[0].content, 'Texto da IA.');
+    assert.match(r.body.doc[0].content, /^Texto da IA\.\n\n### Principais pontos do diagnóstico/, 'texto da IA e, no fim, os principais pontos do sistema');
     const fin = r.body.doc.find(s => s.key === 'financeiro').content;
     assert.match(fin, /^Análise da IA\./);
     assert.match(fin, /### Projeção dos 12 primeiros meses/, 'as tabelas vêm da conta do sistema');
     assert.ok(r.body.doc.find(s => s.key === 'mercado').content.length > 0, 'seção que a IA não mandou fica do rascunho');
     const rw = await bia('POST', `/api/bizplans/${p.id}/rewrite`, { key: 'sumario', instruction: 'mais curto' });
-    assert.equal(rw.body.content, 'Texto da IA. (mais curto)');
-    assert.equal((await bia('GET', `/api/bizplans/${p.id}`)).body.doc[0].content, 'Texto da IA.', 'reescrever só sugere; salvar é com a pessoa');
+    assert.match(rw.body.content, /\(mais curto\)$/);
+    assert.doesNotMatch((await bia('GET', `/api/bizplans/${p.id}`)).body.doc[0].content, /mais curto/, 'reescrever só sugere; salvar é com a pessoa');
     const ctx = ai.contextText({ answers: ANSWERS, unknown: ['m_size'], meta: { company: 'Padaria A' }, fin: B.finance(ANSWERS) });
     assert.match(ctx, /não sabe: ver na reunião/);
     assert.match(ctx, /Ponto de equilíbrio/);
@@ -241,8 +241,8 @@ test('escrever com o Claude: o texto colado vira o plano, com as partes do siste
   assert.deepEqual(Object.keys(parsed), ['sumario', 'financeiro']);
   const sections = B.assemble(parsed, { answers: ANSWERS, unknown: [] });
   assert.equal(sections.length, B.DOC.length);
-  assert.equal(sections[0].content, 'A **Padaria A** vai crescer.');
-  assert.match(sections.find(s => s.key === 'financeiro').content, /^A margem é boa\.[\s\S]*### Projeção dos 12 primeiros meses/);
+  assert.match(sections[0].content, /^A \*\*Padaria A\*\* vai crescer\.\n\n### Principais pontos do diagnóstico/);
+  assert.match(sections.find(s => s.key === 'financeiro').content, /^A margem é boa\.[\s\S]*### Projeção dos 12 primeiros meses[\s\S]*### Pontos de atenção e oportunidades/, 'texto, tabelas e os pontos da seção');
   assert.match(sections.find(s => s.key === 'diagnostico').content, /O que fazer:/);
   const w = world();
   const { server, login } = await serve(w, null);
@@ -251,6 +251,38 @@ test('escrever com o Claude: o texto colado vira o plano, com as partes do siste
     const p = (await bia('POST', '/api/bizplans', { client_id: w.a })).body;
     const r = await bia('PUT', `/api/bizplans/${p.id}/doc`, { sections, note: 'Escrito no Claude', source: 'ai-paste' });
     assert.equal(r.body.doc_source, 'ai-paste');
-    assert.equal(r.body.doc[0].content, 'A **Padaria A** vai crescer.');
+    assert.match(r.body.doc[0].content, /^A \*\*Padaria A\*\* vai crescer\./);
+  } finally { server.close(); }
+});
+
+test('roteiro da reunião: só administrador; liberado, a equipe do cliente vê; o cliente nunca', async () => {
+  const w = world();
+  const { server, login } = await serve(w, null);
+  try {
+    const admin = await login('admin@opps.test'), bia = await login('bia@opps.test'), caio = await login('caio@opps.test'), dora = await login('dora@a.test');
+    const p = (await bia('POST', '/api/bizplans', { client_id: w.a })).body;
+    assert.equal(p.roteiro, false, 'a equipe não vê o roteiro por padrão');
+    assert.equal((await bia('GET', `/api/bizplans/${p.id}/roteiro`)).status, 403);
+    assert.equal((await dora('GET', `/api/bizplans/${p.id}/roteiro`)).status, 403);
+    assert.equal((await admin('GET', `/api/bizplans/${p.id}`)).body.roteiro, true);
+    let r = await admin('PUT', `/api/bizplans/${p.id}/roteiro`, { notes: { geral: 'Cliente quer abrir filial', financeiro: 'Mostrar o ponto de equilíbrio' } });
+    assert.deepEqual(r.body.notes, { geral: 'Cliente quer abrir filial', financeiro: 'Mostrar o ponto de equilíbrio' });
+    assert.equal((await admin('PUT', `/api/bizplans/${p.id}/roteiro`, { notes: { outra: 'x' } })).status, 400);
+    r = await admin('PUT', `/api/bizplans/${p.id}/roteiro`, { notes: { geral: '' } });
+    assert.deepEqual(r.body.notes, { financeiro: 'Mostrar o ponto de equilíbrio' }, 'apagar a anotação');
+    assert.equal((await bia('PUT', `/api/bizplans/${p.id}/roteiro`, { team: true })).status, 403, 'só o administrador libera');
+    await admin('PUT', `/api/bizplans/${p.id}/roteiro`, { team: true });
+    assert.equal((await bia('GET', `/api/bizplans/${p.id}`)).body.roteiro, true);
+    assert.equal((await bia('GET', `/api/bizplans/${p.id}/roteiro`)).body.notes.financeiro, 'Mostrar o ponto de equilíbrio', 'liberado: a equipe do cliente vê');
+    assert.equal((await bia('PUT', `/api/bizplans/${p.id}/roteiro`, { team: false })).status, 403);
+    assert.equal((await caio('GET', `/api/bizplans/${p.id}/roteiro`)).status, 404, 'quem não acompanha o cliente nem vê o plano');
+    assert.equal((await dora('GET', `/api/bizplans/${p.id}/roteiro`)).status, 403, 'o cliente nunca vê');
+    const seen = (await dora('GET', `/api/bizplans/${p.id}`)).body;
+    assert.equal(JSON.stringify(seen).includes('Mostrar o ponto'), false, 'as anotações não vão junto com o plano');
+    await bia('PATCH', `/api/bizplans/${p.id}`, { answers: ANSWERS });
+    await bia('POST', `/api/bizplans/${p.id}/generate`, {});
+    const doc = (await admin('GET', `/api/bizplans/${p.id}`)).body.doc;
+    assert.equal(JSON.stringify(doc).includes('Mostrar o ponto'), false, 'nem no documento');
+    assert.equal(JSON.stringify(doc).includes('Como explicar'), false, 'as orientações do roteiro não vão para o plano');
   } finally { server.close(); }
 });
